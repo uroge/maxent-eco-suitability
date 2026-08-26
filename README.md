@@ -40,7 +40,7 @@ flowchart TD
   X --> D[Explore map, metrics, charts, and downloads]
 ```
 
-The API creates an analysis ID, stores temporary files in object storage, and queues a background job. The worker creates an isolated workspace and runs R. R reports progress as JSON lines; the worker writes that status to Redis so the web app can show each stage in near real time. Results are retained temporarily, then automatically deleted.
+The NestJS API creates an analysis ID, stores temporary files in object storage, and queues a background job. A separate NestJS/BullMQ worker creates an isolated workspace and runs R. R reports progress as JSON lines; the worker writes that status to Redis so the web app can show each stage in near real time. Results are retained temporarily, then automatically deleted.
 
 ## Outputs
 
@@ -56,12 +56,11 @@ flowchart TB
   subgraph Web
     N[Next.js App Router]
     ML[MapLibre GL]
-    TQ[TanStack Query]
   end
   subgraph Application
-    F[Fastify API]
+    F[NestJS API]
     Q[Redis + BullMQ]
-    W[Node.js worker]
+    W[NestJS / BullMQ worker]
   end
   subgraph Scientific processing
     R[R]
@@ -90,13 +89,13 @@ The API and worker are separate processes. For the first deployment, they may sh
 
 | Area | Technology | Purpose |
 | --- | --- | --- |
-| Web | Next.js, TypeScript, TanStack Query | UI, routing, data fetching, analysis progress |
+| Web | Next.js, TypeScript | UI, routing, analysis configuration, and progress display |
 | Maps and charts | MapLibre GL, Recharts | GIS visualisation and model charts |
-| API | Fastify, TypeScript | Upload orchestration, validation, result access |
-| Jobs | Redis, BullMQ | Asynchronous, retryable scientific workloads |
+| API and worker | NestJS, TypeScript, BullMQ | Upload orchestration, validation, job processing, and result access |
+| Temporary state | Redis | Queue backing, job status, progress, and expiry |
 | Scientific engine | R, `maxnet`, `terra`, `sf` | Modelling, raster and vector GIS processing |
-| Storage | Cloudflare R2 | Temporary inputs and generated artifacts |
-| Local storage | MinIO | S3-compatible local replacement for R2 |
+| Object storage | Cloudflare R2 | Temporary uploaded inputs and generated artifacts |
+| Local object storage | MinIO | S3-compatible local replacement for R2 |
 | Workspace | pnpm workspaces, Turborepo | Shared packages, cached builds, simpler CI |
 | Containers | Docker Compose | Local service orchestration |
 
@@ -105,8 +104,8 @@ The API and worker are separate processes. For the first deployment, they may sh
 ```text
 apps/
   web/              Next.js App Router frontend
-  api/              Fastify API
-  worker/           BullMQ consumer and R orchestration
+  api/              NestJS API
+  worker/           NestJS/BullMQ worker and R orchestration
 packages/
   contracts/        Shared Zod schemas, DTOs, job states, error codes
   geo-utils/        Browser and Node-safe GIS helpers
@@ -119,6 +118,8 @@ infrastructure/
 ```
 
 `packages/contracts` is the shared API boundary: schemas are defined with Zod, then TypeScript types are inferred from them. The web app uses them for client-side validation and typed requests; the API validates them again at its boundary. Backend-only code, including Redis, R2, queues, filesystem access, and R process execution, stays out of shared packages.
+
+There is **no SQL database** in this architecture. Redis holds temporary queue and job state only; R2/MinIO hold temporary files only. Both are configured with automatic expiry.
 
 ## Data Lifecycle
 
