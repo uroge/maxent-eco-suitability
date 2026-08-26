@@ -6,6 +6,7 @@ import { prettierConfig } from '@ecosuitability/config/eslint/base';
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  { rules: { curly: ['error', 'all'] } },
   prettierConfig,
   // Override default ignores of eslint-config-next.
   globalIgnores([

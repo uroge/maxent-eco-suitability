@@ -28,6 +28,12 @@ cp infrastructure/docker/.env.example infrastructure/docker/.env.local
 production public API URL before building; it cannot be changed by a runtime
 container environment variable.
 
+## Design System
+
+The shared Tailwind 4 token foundation lives in `@ecosuitability/ui`.
+See [the design-system guide](docs/design-system.md) for tokens, appearance,
+and client-brand configuration.
+
 ## What It Does
 
 EcoSuitability answers:
@@ -353,7 +359,7 @@ packages/
     Browser-safe and Node-safe GIS helpers
 
   ui/
-    Optional reusable presentational components
+    Shared CSS token stylesheet
 
   config/
     Shared TypeScript, ESLint and workspace configuration
