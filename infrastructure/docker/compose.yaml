@@ -5,6 +5,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in infrastructure/docker/.env.local}
+        CLIENT_BRAND: ${CLIENT_BRAND:-}
     ports: ['3000:3000']
     restart: unless-stopped
     depends_on:

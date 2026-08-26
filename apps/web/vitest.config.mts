@@ -5,6 +5,9 @@ import { defineConfig, mergeConfig } from 'vitest/config';
 export default mergeConfig(
   baseConfig,
   defineConfig({
-    test: { include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'] },
+    test: {
+      environment: 'jsdom',
+      include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
+    },
   })
 );
