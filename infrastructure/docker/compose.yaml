@@ -3,8 +3,10 @@ services:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
-    env_file: ../../apps/web/.env.example
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     ports: ['3000:3000']
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_started
@@ -12,8 +14,11 @@ services:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
-    env_file: ../../apps/api/.env.example
+    environment:
+      PORT: 3001
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports: ['3001:3001']
+    restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
@@ -21,13 +26,16 @@ services:
     build:
       context: ../..
       dockerfile: apps/worker/Dockerfile
-    env_file: ../../apps/worker/.env.example
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     depends_on:
       redis:
         condition: service_healthy
+    restart: unless-stopped
   redis:
     image: redis:8-alpine
     ports: ['6379:6379']
+    restart: unless-stopped
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -37,14 +45,21 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports: ['9000:9000', '9001:9001']
     volumes: ['minio-data:/data']
+    restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
+      test: ['CMD-SHELL', 'curl --fail http://localhost:9000/minio/health/live']
       interval: 5s
       timeout: 3s
       retries: 10
+  analysis-r:
+    profiles: ['analysis']
+    build:
+      context: ../..
+      dockerfile: services/analysis-r/Dockerfile
+    command: ['sh', '-c', 'tail -f /dev/null']
 volumes:
   minio-data:

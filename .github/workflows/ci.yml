@@ -6,10 +6,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
+        with: { node-version: 24.19.0, cache: pnpm }
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
+      - run: docker compose -f infrastructure/docker/compose.yaml build web api worker
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
