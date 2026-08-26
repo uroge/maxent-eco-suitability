@@ -8,6 +8,6 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 .env
-.env.local
+.env.*
 !.env.example
 minio-data/

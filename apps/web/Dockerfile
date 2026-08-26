@@ -1,5 +1,7 @@
 FROM node:24.19-trixie-slim AS build
 WORKDIR /app
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY . .
 RUN corepack enable && pnpm install --frozen-lockfile && pnpm --filter @ecosuitability/web build
 

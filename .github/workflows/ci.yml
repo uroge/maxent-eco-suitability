@@ -3,6 +3,11 @@ on: [pull_request, push]
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      REDIS_URL: redis://redis:6379
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

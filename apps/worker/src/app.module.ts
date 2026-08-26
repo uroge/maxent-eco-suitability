@@ -4,7 +4,11 @@ import { validateEnvironment } from './env';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      validate: validateEnvironment,
+    }),
   ],
 })
 export class AppModule {}
