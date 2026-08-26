@@ -1,0 +1,9 @@
+{
+  "extends": "../config/typescript/base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

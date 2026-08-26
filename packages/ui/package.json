@@ -1,0 +1,12 @@
+{
+  "name": "@ecosuitability/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  }
+}

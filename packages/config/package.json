@@ -1,0 +1,17 @@
+{
+  "name": "@ecosuitability/config",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./typescript/base": "./typescript/base.json",
+    "./typescript/nest": "./typescript/nest.json",
+    "./eslint/base": "./eslint/base.mjs",
+    "./vitest/base": "./vitest/base.ts"
+  },
+  "dependencies": {
+    "eslint-config-prettier": "^10.1.8",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
+  }
+}
