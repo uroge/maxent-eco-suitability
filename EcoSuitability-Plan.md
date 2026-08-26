@@ -24,7 +24,7 @@ There is **no SQL database** in the initial architecture.
 Next.js Web App
       │
       ▼
-Fastify API
+NestJS API
       │
       ├── Redis / BullMQ
       │
@@ -82,7 +82,7 @@ Do not run queue jobs, R, or geospatial processing in Next.js route handlers or 
 
 # API
 
-The Fastify API acts as the orchestrator. Fastify keeps the initial service smaller than NestJS while retaining a clear path to modules, plugins, schema validation, and structured logging.
+The NestJS API acts as the orchestrator. It provides the module boundaries, validation, and structured logging needed for the application.
 
 It does not perform scientific calculations itself.
 
@@ -990,7 +990,7 @@ For one user:
 Frontend hosting
       ↓
 Single small server/container
-├── Fastify API
+├── NestJS API
 ├── BullMQ worker
 └── R runtime
       │
@@ -1198,7 +1198,7 @@ Next.js
 MapLibre
 → GIS visualization
 
-Fastify API
+NestJS API
 → API/orchestration
 
 Redis

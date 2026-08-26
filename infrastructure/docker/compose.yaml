@@ -1,0 +1,65 @@
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in infrastructure/docker/.env.local}
+    ports: ['3000:3000']
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      PORT: 3001
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+    ports: ['3001:3001']
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+  redis:
+    image: redis:8-alpine
+    ports: ['6379:6379']
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in infrastructure/docker/.env.local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in infrastructure/docker/.env.local}
+    ports: ['9000:9000', '9001:9001']
+    volumes: ['minio-data:/data']
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'curl --fail http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  analysis-r:
+    profiles: ['analysis']
+    build:
+      context: ../..
+      dockerfile: services/analysis-r/Dockerfile
+    command: ['sh', '-c', 'tail -f /dev/null']
+volumes:
+  minio-data:

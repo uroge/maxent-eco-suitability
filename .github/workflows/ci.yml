@@ -1,0 +1,21 @@
+name: CI
+on: [pull_request, push]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      REDIS_URL: redis://redis:6379
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with: { node-version: 24.19.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build
+      - run: docker compose -f infrastructure/docker/compose.yaml build web api worker
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

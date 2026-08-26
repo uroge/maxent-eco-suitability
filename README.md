@@ -6,6 +6,28 @@ A user uploads species occurrence records and environmental predictors, configur
 
 > The repository currently contains the architecture plan. The application services described below are the intended implementation.
 
+## Environment Setup
+
+Each deployable application owns its environment contract. Commit only the
+`.env.example` templates; real environment files and deployment secrets must
+never enter Git.
+
+```sh
+cp apps/web/.env.example apps/web/.env.local
+cp apps/api/.env.example apps/api/.env
+cp apps/worker/.env.example apps/worker/.env
+cp infrastructure/docker/.env.example infrastructure/docker/.env.local
+```
+
+- `apps/web/.env.local` contains browser-safe `NEXT_PUBLIC_*` values only.
+- `apps/api/.env` and `apps/worker/.env` contain their own runtime configuration.
+- `infrastructure/docker/.env.local` supplies Docker Compose values. Use `pnpm docker:up` after creating it.
+- Production values belong in the hosting provider's secret manager, separately for each deployed service.
+
+`NEXT_PUBLIC_*` values are embedded when the Next.js image is built. Set the
+production public API URL before building; it cannot be changed by a runtime
+container environment variable.
+
 ## What It Does
 
 EcoSuitability answers:
