@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { ClerkProvider } from '@clerk/nextjs';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { appearanceBootstrapScript } from '@/appearance';
 import { getConfiguredBrand } from '@/brand';
@@ -37,8 +38,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: appearanceBootstrapScript }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <AppearanceController />
-        {children}
+        <ClerkProvider>
+          <AppearanceController />
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );

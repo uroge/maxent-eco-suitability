@@ -5,6 +5,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in infrastructure/docker/.env.local}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
         CLIENT_BRAND: ${CLIENT_BRAND:-}
     ports: ['3000:3000']
     restart: unless-stopped
@@ -16,8 +17,15 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     environment:
+      APP_ENV: development
       PORT: 3001
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in infrastructure/docker/.env.local}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:?Set CLERK_AUTHORIZED_PARTIES in infrastructure/docker/.env.local}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:?Set API_CORS_ORIGINS in infrastructure/docker/.env.local}
+      TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS:?Set TRUST_PROXY_CIDRS in infrastructure/docker/.env.local}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in infrastructure/docker/.env.local}
     ports: ['3001:3001']
     restart: unless-stopped
     depends_on:
@@ -28,7 +36,9 @@ services:
       context: ../..
       dockerfile: apps/worker/Dockerfile
     environment:
+      APP_ENV: development
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+      WORKER_METRICS_TOKEN: ${WORKER_METRICS_TOKEN:?Set WORKER_METRICS_TOKEN in infrastructure/docker/.env.local}
     depends_on:
       redis:
         condition: service_healthy

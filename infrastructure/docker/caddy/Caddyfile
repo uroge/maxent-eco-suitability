@@ -1,0 +1,23 @@
+{
+  email {$CADDY_EMAIL}
+}
+
+{$WEB_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy web:3000 {
+    transport http {
+      dial_timeout 5s
+      response_header_timeout 30s
+    }
+  }
+}
+
+{$API_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy api:3001 {
+    transport http {
+      dial_timeout 5s
+      response_header_timeout 30s
+    }
+  }
+}
