@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { RedisService } from '../platform/redis/redis.service';
+import {
+  CreateAnalysisScript,
+  ExpireAnalysisScript,
+  TransitionAnalysisScript,
+} from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
   CreateStoredAnalysisResult,
@@ -15,82 +20,6 @@ const expiryIndexKey = 'ecosuitability:analysis:expiry';
 
 const tombstoneTtlSeconds = 60 * 60;
 
-const createScript = `
-local existing = redis.call('GET', KEYS[2])
-if existing then
-  local idempotency = cjson.decode(existing)
-  if idempotency.fingerprint == ARGV[2] then
-    local analysis = redis.call('GET', KEYS[1] .. idempotency.analysisId)
-    if analysis then
-      return { 'replay', analysis }
-    end
-  end
-  return { 'conflict' }
-end
-
-redis.call('SET', KEYS[1] .. ARGV[1], ARGV[3], 'EX', ARGV[4])
-redis.call('SET', KEYS[2], cjson.encode({ analysisId = ARGV[1], fingerprint = ARGV[2] }), 'EX', ARGV[4])
-redis.call('ZADD', KEYS[3], ARGV[5], ARGV[1])
-return { 'created', ARGV[3] }
-`;
-
-const transitionScript = `
-local payload = redis.call('GET', KEYS[1])
-if not payload then
-  return { 'missing' }
-end
-
-local analysis = cjson.decode(payload)
-if analysis.ownerId ~= ARGV[1] then
-  return { 'missing' }
-end
-
-local allowed = cjson.decode(ARGV[2])
-local matches = false
-for _, status in ipairs(allowed) do
-  if analysis.status == status then
-    matches = true
-    break
-  end
-end
-
-if not matches then
-  return { 'invalid', analysis.status }
-end
-
-analysis.status = ARGV[3]
-analysis.updatedAt = ARGV[4]
-analysis.failure = cjson.decode(ARGV[5])
-redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
-return { 'updated', cjson.encode(analysis) }
-`;
-
-const expireScript = `
-local payload = redis.call('GET', KEYS[1])
-if not payload then
-  redis.call('ZREM', KEYS[2], ARGV[1])
-  return { 'missing' }
-end
-
-local analysis = cjson.decode(payload)
-if analysis.expiresAt > ARGV[2] then
-  return { 'not_due' }
-end
-
-if analysis.status == 'expired' then
-  return { 'expired' }
-end
-
-analysis.status = 'expired'
-analysis.updatedAt = ARGV[2]
-analysis.expiredAt = ARGV[2]
-analysis.failure = cjson.null
-redis.call('SET', KEYS[1], cjson.encode(analysis), 'EX', ARGV[3])
-redis.call('DEL', KEYS[3])
-redis.call('ZREM', KEYS[2], ARGV[1])
-return { 'expired' }
-`;
-
 @Injectable()
 export class AnalysisRepository {
   public constructor(private readonly redis: RedisService) {}
@@ -99,7 +28,7 @@ export class AnalysisRepository {
     input: CreateStoredAnalysisInput,
     ttlSeconds: number,
   ): Promise<CreateStoredAnalysisResult | 'conflict'> {
-    const result = (await this.redis.getClient().eval(createScript, {
+    const result = (await this.redis.getClient().eval(CreateAnalysisScript, {
       keys: [
         analysisKeyPrefix,
         this.idempotencyKey(
@@ -146,16 +75,18 @@ export class AnalysisRepository {
   public async transition(
     input: TransitionAnalysisInput,
   ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
-    const result = (await this.redis.getClient().eval(transitionScript, {
-      keys: [this.analysisKey(input.analysisId)],
-      arguments: [
-        input.ownerId,
-        JSON.stringify(input.expectedStatuses),
-        input.status,
-        new Date().toISOString(),
-        JSON.stringify(input.failure ?? null),
-      ],
-    })) as string[];
+    const result = (await this.redis
+      .getClient()
+      .eval(TransitionAnalysisScript, {
+        keys: [this.analysisKey(input.analysisId)],
+        arguments: [
+          input.ownerId,
+          JSON.stringify(input.expectedStatuses),
+          input.status,
+          new Date().toISOString(),
+          JSON.stringify(input.failure ?? null),
+        ],
+      })) as string[];
 
     if (result[0] === 'missing' || result[0] === 'invalid') {
       return result[0];
@@ -183,7 +114,7 @@ export class AnalysisRepository {
         }
 
         const analysis = JSON.parse(payload) as StoredAnalysis;
-        await this.redis.getClient().eval(expireScript, {
+        await this.redis.getClient().eval(ExpireAnalysisScript, {
           keys: [
             this.analysisKey(analysisId),
             expiryIndexKey,
