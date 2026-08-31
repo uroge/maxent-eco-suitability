@@ -1,4 +1,8 @@
-import { HttpStatus, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpStatus,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from './errors/api-exception.filter';
@@ -42,6 +46,33 @@ describe('platform contracts', () => {
     expect(() => pipe.transform({ name: 'x' })).toThrow(
       'Bad Request Exception',
     );
+  });
+
+  it('uses the stable conflict envelope', () => {
+    const response = {
+      getHeader: () => 'request-123',
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+    const filter = new ApiExceptionFilter(
+      { get: () => ({ requestId: 'request-123' }) } as never,
+      { error: vi.fn() } as never,
+    );
+
+    filter.catch(new ConflictException('internal state'), {
+      switchToHttp: () => ({ getResponse: () => response }),
+    } as never);
+
+    expect(response.status).toHaveBeenCalledWith(HttpStatus.CONFLICT);
+    expect(response.json).toHaveBeenCalledWith({
+      error: {
+        version: '1',
+        code: 'CONFLICT',
+        message: 'The request conflicts with the current resource state.',
+        requestId: 'request-123',
+        details: null,
+      },
+    });
   });
 
   it('preserves valid request IDs and replaces unsafe values', () => {

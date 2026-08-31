@@ -17,7 +17,11 @@ import { RateLimitService } from './rate-limit.service';
     AuthenticatedRateLimitGuard,
     AnonymousRateLimitGuard,
   ],
-  exports: [AuthenticatedRateLimitGuard, AnonymousRateLimitGuard],
+  exports: [
+    RateLimitService,
+    AuthenticatedRateLimitGuard,
+    AnonymousRateLimitGuard,
+  ],
 })
 export class RateLimitModule implements NestModule {
   public configure(consumer: MiddlewareConsumer): void {

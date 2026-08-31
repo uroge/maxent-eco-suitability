@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const errorCodeSchema = z.enum([
   'VALIDATION_FAILED',
+  'CONFLICT',
   'NOT_FOUND',
   'AUTHENTICATION_REQUIRED',
   'ACCESS_DENIED',

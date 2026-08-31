@@ -13,6 +13,7 @@ import { ApiException } from './api.exception';
 
 const statusCodeToErrorCode = new Map<number, ErrorEnvelope['error']['code']>([
   [HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED'],
+  [HttpStatus.CONFLICT, 'CONFLICT'],
   [HttpStatus.NOT_FOUND, 'NOT_FOUND'],
   [HttpStatus.UNAUTHORIZED, 'AUTHENTICATION_REQUIRED'],
   [HttpStatus.FORBIDDEN, 'ACCESS_DENIED'],
@@ -23,6 +24,10 @@ const statusCodeToErrorCode = new Map<number, ErrorEnvelope['error']['code']>([
 
 const safeMessages = new Map<number, string>([
   [HttpStatus.BAD_REQUEST, 'The request is invalid.'],
+  [
+    HttpStatus.CONFLICT,
+    'The request conflicts with the current resource state.',
+  ],
   [HttpStatus.NOT_FOUND, 'The requested resource was not found.'],
   [HttpStatus.UNAUTHORIZED, 'Authentication is required.'],
   [HttpStatus.FORBIDDEN, 'You do not have permission to perform this action.'],
@@ -67,19 +72,16 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof HttpException) {
-      const statusCode = exception.getStatus();
-      const code = statusCodeToErrorCode.get(statusCode) ?? 'INTERNAL_ERROR';
-      const details =
-        statusCode === HttpStatus.BAD_REQUEST
-          ? this.validationDetails(exception.getResponse())
-          : null;
-      const message =
-        safeMessages.get(statusCode) ?? 'An unexpected error occurred.';
+      return this.httpExceptionResponse(
+        exception.getStatus(),
+        requestId,
+        exception.getResponse(),
+      );
+    }
 
-      return {
-        statusCode,
-        body: this.envelope(code, message, requestId, details),
-      };
+    const parserStatus = this.parserStatus(exception);
+    if (parserStatus) {
+      return this.httpExceptionResponse(parserStatus, requestId, null);
     }
 
     this.logger.error({ exception, requestId }, 'Unexpected request failure.');
@@ -93,6 +95,47 @@ export class ApiExceptionFilter implements ExceptionFilter {
         null,
       ),
     };
+  }
+
+  private httpExceptionResponse(
+    statusCode: number,
+    requestId: string,
+    source: string | object | null,
+  ): { statusCode: number; body: ErrorEnvelope } {
+    const code = statusCodeToErrorCode.get(statusCode) ?? 'INTERNAL_ERROR';
+    const details =
+      statusCode === HttpStatus.BAD_REQUEST && source
+        ? this.validationDetails(source)
+        : null;
+    const message =
+      safeMessages.get(statusCode) ?? 'An unexpected error occurred.';
+
+    return {
+      statusCode,
+      body: this.envelope(code, message, requestId, details),
+    };
+  }
+
+  private parserStatus(
+    exception: unknown,
+  ): HttpStatus.BAD_REQUEST | HttpStatus.PAYLOAD_TOO_LARGE | undefined {
+    if (typeof exception !== 'object' || exception === null) {
+      return undefined;
+    }
+
+    const status = Reflect.get(exception, 'status');
+    if (
+      status === HttpStatus.BAD_REQUEST ||
+      status === HttpStatus.PAYLOAD_TOO_LARGE
+    ) {
+      return status;
+    }
+
+    const statusCode = Reflect.get(exception, 'statusCode');
+    return statusCode === HttpStatus.BAD_REQUEST ||
+      statusCode === HttpStatus.PAYLOAD_TOO_LARGE
+      ? statusCode
+      : undefined;
   }
 
   private envelope(
