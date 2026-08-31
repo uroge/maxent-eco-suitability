@@ -10,7 +10,6 @@ import { LifecycleModule } from './platform/lifecycle/lifecycle.module';
 import { MetricsModule } from './platform/metrics/metrics.module';
 import { RateLimitModule } from './platform/rate-limit/rate-limit.module';
 import { RedisModule } from './platform/redis/redis.module';
-import { ValidationModule } from './platform/validation/validation.module';
 import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
@@ -29,7 +28,6 @@ import { AnalysisModule } from './analysis/analysis.module';
     RateLimitModule,
     HealthModule,
     MetricsModule,
-    ValidationModule,
     AnalysisModule,
   ],
 })

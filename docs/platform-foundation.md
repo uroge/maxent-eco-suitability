@@ -52,6 +52,15 @@ RUN_REDIS_INTEGRATION=true pnpm --filter @ecosuitability/api test
 Without Docker, the same suite skips Testcontainers tests and still runs unit
 and contract coverage.
 
+The Docker-backed API suite starts the real Nest application in production mode
+with Redis and a fake Clerk verifier. It checks CORS allowlisting and preflight,
+Helmet headers, request IDs, 1 MiB and malformed JSON errors, versioned routes,
+safe `401`/`404`/validation envelopes, metrics authorization, production
+absence of `/docs`, and liveness/readiness behavior after Redis loss. Container
+CI additionally verifies private production ports, non-root/read-only runtime
+configuration, dropped capabilities, secret-free image history, and no source
+maps in final images.
+
 Rate limits are Redis-backed: anonymous traffic is keyed by normalized client IP; authenticated routes add Clerk user and IP limits. Redis failures fail closed for protected routes. No bearer tokens, emails, URLs, query strings, or request IDs become limiter keys or metric labels.
 
 Production uses Caddy for TLS, redirects, timeouts, and forwarding headers. Caddy replaces client-supplied forwarded headers before proxying. API containers are not publicly published. The production Compose network gives Caddy `172.30.0.2`; API trusts only `172.30.0.2/32`. Broad proxy CIDRs are rejected in production.
