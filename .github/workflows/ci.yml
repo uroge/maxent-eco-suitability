@@ -6,6 +6,13 @@ jobs:
     env:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+      CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+      CLERK_SECRET_KEY: sk_test_ci_placeholder
+      CLERK_AUTHORIZED_PARTIES: http://localhost:3000
+      API_CORS_ORIGINS: http://localhost:3000
+      TRUST_PROXY_CIDRS: 127.0.0.1/32,::1/128
+      METRICS_TOKEN: ci-metrics-token-with-at-least-32-characters
+      WORKER_METRICS_TOKEN: ci-worker-metrics-token-with-32-characters
       REDIS_URL: redis://redis:6379
       RUN_REDIS_INTEGRATION: 'true'
       MINIO_ROOT_USER: minioadmin
