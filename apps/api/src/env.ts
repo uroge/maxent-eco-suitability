@@ -55,6 +55,16 @@ const schema = z
     REDIS_URL: z
       .url()
       .refine((value) => /^rediss?:/.test(value), 'Use a Redis URL.'),
+    STORAGE_PROVIDER: z.enum(['seaweedfs', 'r2']),
+    STORAGE_INTERNAL_ENDPOINT: z.url(),
+    STORAGE_PRESIGN_ENDPOINT: z.url(),
+    STORAGE_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
+    STORAGE_REGION: z.string().min(1).max(64),
+    STORAGE_ACCESS_KEY_ID: z.string().min(1),
+    STORAGE_SECRET_ACCESS_KEY: z.string().min(16),
+    STORAGE_FORCE_PATH_STYLE: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true'),
     CLERK_SECRET_KEY: z.string().min(1),
     CLERK_PUBLISHABLE_KEY: z.string().min(1),
     CLERK_AUTHORIZED_PARTIES: commaSeparatedValues,
@@ -74,6 +84,25 @@ const schema = z
   .superRefine((environment, context) => {
     if (environment.APP_ENV !== 'production') {
       return;
+    }
+
+    if (environment.STORAGE_PROVIDER !== 'r2') {
+      context.addIssue({
+        code: 'custom',
+        path: ['STORAGE_PROVIDER'],
+        message: 'Production requires R2.',
+      });
+    }
+
+    if (
+      !environment.STORAGE_INTERNAL_ENDPOINT.startsWith('https://') ||
+      !environment.STORAGE_PRESIGN_ENDPOINT.startsWith('https://')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['STORAGE_INTERNAL_ENDPOINT'],
+        message: 'Production storage endpoints must use HTTPS.',
+      });
     }
 
     for (const origin of environment.API_CORS_ORIGINS) {

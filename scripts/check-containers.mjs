@@ -66,7 +66,7 @@ for (const serviceName of ['api', 'worker', 'web']) {
 
 assert(compose.services.caddy.ports?.length === 2, 'Only Caddy may publish ports.');
 
-for (const serviceName of ['api', 'worker', 'redis', 'minio']) {
+for (const serviceName of ['api', 'worker', 'redis', 'seaweedfs']) {
   assert(
     !compose.services[serviceName].ports?.length,
     `${serviceName} must not publish a host port in production.`

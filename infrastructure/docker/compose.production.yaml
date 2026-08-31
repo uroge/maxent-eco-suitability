@@ -35,6 +35,14 @@ services:
     environment:
       APP_ENV: production
       TRUST_PROXY_CIDRS: 172.30.0.2/32
+      STORAGE_PROVIDER: r2
+      STORAGE_INTERNAL_ENDPOINT: ${STORAGE_INTERNAL_ENDPOINT:?Set the R2 endpoint in the production environment}
+      STORAGE_PRESIGN_ENDPOINT: ${STORAGE_PRESIGN_ENDPOINT:?Set the R2 presign endpoint in the production environment}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set the R2 bucket in the production environment}
+      STORAGE_REGION: auto
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set the R2 access key in the production environment}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in the production environment}
+      STORAGE_FORCE_PATH_STYLE: 'false'
     networks:
       edge:
         ipv4_address: 172.30.0.3
@@ -54,8 +62,9 @@ services:
     ports: !reset []
     networks: [backend]
 
-  minio:
+  seaweedfs:
     ports: !reset []
+    profiles: ['local-storage']
     networks: [backend]
 
 volumes:

@@ -30,6 +30,14 @@ services:
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:?Set API_CORS_ORIGINS in infrastructure/docker/.env.local}
       TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS:-127.0.0.1/32,::1/128}
       METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in infrastructure/docker/.env.local}
+      STORAGE_PROVIDER: seaweedfs
+      STORAGE_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      STORAGE_PRESIGN_ENDPOINT: http://localhost:8333
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      STORAGE_FORCE_PATH_STYLE: 'true'
     ports: ['3001:3001']
     restart: unless-stopped
     depends_on:
@@ -56,17 +64,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  minio:
-    image: minio/minio:latest@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
-    command: server /data --console-address ":9001"
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.44
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in infrastructure/docker/.env.local}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in infrastructure/docker/.env.local}
-    ports: ['9000:9000', '9001:9001']
-    volumes: ['minio-data:/data']
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      S3_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+    ports: ['127.0.0.1:8333:8333']
+    volumes: ['seaweedfs-data:/data']
     restart: unless-stopped
     healthcheck:
-      test: ['CMD-SHELL', 'curl --fail http://localhost:9000/minio/health/live']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8333/']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -77,4 +85,4 @@ services:
       dockerfile: services/analysis-r/Dockerfile
     command: ['sh', '-c', 'tail -f /dev/null']
 volumes:
-  minio-data:
+  seaweedfs-data:

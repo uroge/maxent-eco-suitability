@@ -65,7 +65,7 @@ Rate limits are Redis-backed: anonymous traffic is keyed by normalized client IP
 
 Production uses Caddy for TLS, redirects, timeouts, and forwarding headers. Caddy replaces client-supplied forwarded headers before proxying. API containers are not publicly published. The production Compose network gives Caddy `172.30.0.2`; API trusts only `172.30.0.2/32`. Broad proxy CIDRs are rejected in production.
 
-The API accepts JSON bodies up to `MAX_JSON_BODY_BYTES` (default `1048576`). This is intentionally a control-plane limit: future scientific files must use direct object-storage uploads, not API request bodies. HTTP header, request, and keep-alive timeouts are explicitly configured and validated.
+The API accepts JSON bodies up to `MAX_JSON_BODY_BYTES` (default `1048576`). This is intentionally a control-plane limit: scientific files use direct object-storage uploads, not API request bodies. SeaweedFS supplies authenticated S3-compatible local storage; production uses a private Cloudflare R2 bucket. HTTP header, request, and keep-alive timeouts are explicitly configured and validated.
 
 ## Required Production Variables
 

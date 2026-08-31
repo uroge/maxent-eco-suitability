@@ -11,6 +11,7 @@ import { MetricsModule } from './platform/metrics/metrics.module';
 import { RateLimitModule } from './platform/rate-limit/rate-limit.module';
 import { RedisModule } from './platform/redis/redis.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AnalysisModule } from './analysis/analysis.module';
     RateLimitModule,
     HealthModule,
     MetricsModule,
+    StorageModule,
     AnalysisModule,
   ],
 })

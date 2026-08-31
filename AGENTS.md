@@ -17,7 +17,7 @@
 - `packages/geo-utils`: browser/Node-safe pure helpers only.
 - `packages/config`: shared TypeScript, ESLint, and Vitest configuration.
 - `services/analysis-r`: isolated R service scaffolding.
-- `infrastructure/docker`: local Redis and MinIO only. Never add a SQL database unless the plan is explicitly changed.
+- `infrastructure/docker`: local Redis and SeaweedFS only. Never add a SQL database unless the plan is explicitly changed.
 
 ## General Code Rules
 
@@ -48,11 +48,11 @@ pnpm docker:up
 pnpm docker:down
 ```
 
-`pnpm dev` starts web, API, and worker. Start Redis and MinIO separately for host-based development:
+`pnpm dev` starts web, API, and worker. Start Redis and SeaweedFS separately for host-based development:
 
 ```sh
 docker compose --env-file infrastructure/docker/.env.local \
-  -f infrastructure/docker/compose.yaml up redis minio
+  -f infrastructure/docker/compose.yaml up redis seaweedfs
 ```
 
 ## Validation
