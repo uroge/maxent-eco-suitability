@@ -13,6 +13,7 @@ import { ApiException } from './api.exception';
 
 const statusCodeToErrorCode = new Map<number, ErrorEnvelope['error']['code']>([
   [HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED'],
+  [HttpStatus.CONFLICT, 'CONFLICT'],
   [HttpStatus.NOT_FOUND, 'NOT_FOUND'],
   [HttpStatus.UNAUTHORIZED, 'AUTHENTICATION_REQUIRED'],
   [HttpStatus.FORBIDDEN, 'ACCESS_DENIED'],
@@ -23,6 +24,10 @@ const statusCodeToErrorCode = new Map<number, ErrorEnvelope['error']['code']>([
 
 const safeMessages = new Map<number, string>([
   [HttpStatus.BAD_REQUEST, 'The request is invalid.'],
+  [
+    HttpStatus.CONFLICT,
+    'The request conflicts with the current resource state.',
+  ],
   [HttpStatus.NOT_FOUND, 'The requested resource was not found.'],
   [HttpStatus.UNAUTHORIZED, 'Authentication is required.'],
   [HttpStatus.FORBIDDEN, 'You do not have permission to perform this action.'],

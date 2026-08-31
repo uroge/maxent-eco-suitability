@@ -27,7 +27,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(helmet());
   app.enableCors({
     origin: config.getOrThrow('API_CORS_ORIGINS'),
-    methods: ['GET', 'HEAD', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'OPTIONS', 'POST'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-ID'],
     credentials: false,
     maxAge: 600,

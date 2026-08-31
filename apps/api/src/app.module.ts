@@ -11,6 +11,7 @@ import { MetricsModule } from './platform/metrics/metrics.module';
 import { RateLimitModule } from './platform/rate-limit/rate-limit.module';
 import { RedisModule } from './platform/redis/redis.module';
 import { ValidationModule } from './platform/validation/validation.module';
+import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ValidationModule } from './platform/validation/validation.module';
     HealthModule,
     MetricsModule,
     ValidationModule,
+    AnalysisModule,
   ],
 })
 export class AppModule {}

@@ -40,4 +40,25 @@ describe.runIf(integrationEnabled)('Redis-backed rate limiting', () => {
       secondApi.consume('anonymous', '203.0.113.10'),
     ).rejects.toMatchObject({ remainingPoints: 0 });
   });
+
+  it('shares authenticated user and secondary IP limits across API instances', async () => {
+    const redis = { getClient: () => client };
+    const firstApi = new RateLimitService(redis as never);
+    const secondApi = new RateLimitService(redis as never);
+
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await firstApi.consume('authenticated-user', 'user_123');
+    }
+
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      await firstApi.consume('authenticated-ip', '2001:db8::1');
+    }
+
+    await expect(
+      secondApi.consume('authenticated-user', 'user_123'),
+    ).rejects.toMatchObject({ remainingPoints: 0 });
+    await expect(
+      secondApi.consume('authenticated-ip', '2001:db8::1'),
+    ).rejects.toMatchObject({ remainingPoints: 0 });
+  });
 });
