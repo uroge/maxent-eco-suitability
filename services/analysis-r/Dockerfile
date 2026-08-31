@@ -1,4 +1,4 @@
-FROM rocker/r-ver:4.4.3
+FROM rocker/r-ver:4.4.3@sha256:aa952afb35853aaf5c67bd224aa969caf6ad49395d69cf19a586f1554ed3bd05
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin \
     libgdal-dev \

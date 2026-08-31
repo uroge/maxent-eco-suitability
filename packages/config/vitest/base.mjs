@@ -1,3 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({ test: { passWithNoTests: true, environment: 'node' } });
+export default defineConfig({
+  test: {
+    passWithNoTests: true,
+    environment: 'node',
+    exclude: ['**/dist/**', '**/node_modules/**'],
+  },
+});

@@ -1,7 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import { Global, Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
+import type { Request } from 'express';
 import type { ApiEnvironment } from '../../env';
+import { normalizedRoute } from '../context/normalized-route';
 
 const redactPaths = [
   'req.headers.authorization',
@@ -25,7 +27,10 @@ const redactPaths = [
             req: () => undefined,
             res: () => undefined,
           },
-          customProps: (request) => ({ requestId: request.id }),
+          customProps: (request) => ({
+            requestId: (request as Request & { id?: string }).id,
+            route: normalizedRoute(request as Request),
+          }),
           customSuccessMessage: () => 'request completed',
           customErrorMessage: () => 'request failed',
         },

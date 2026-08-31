@@ -6,3 +6,18 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /apps/worker
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /services/analysis-r
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /infrastructure/docker
+    schedule: { interval: weekly }

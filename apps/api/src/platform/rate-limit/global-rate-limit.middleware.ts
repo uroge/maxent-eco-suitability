@@ -19,6 +19,11 @@ export class GlobalRateLimitMiddleware implements NestMiddleware {
   ): Promise<void> {
     const scope = this.scopeForPath(request.path);
 
+    if (!scope) {
+      next();
+      return;
+    }
+
     try {
       await this.rateLimit.consume(scope, normalizedClientIp(request));
       next();
@@ -50,7 +55,7 @@ export class GlobalRateLimitMiddleware implements NestMiddleware {
     }
   }
 
-  private scopeForPath(path: string): RateLimitScope {
+  private scopeForPath(path: string): RateLimitScope | undefined {
     if (path.startsWith('/health')) {
       return 'health';
     }
@@ -59,6 +64,6 @@ export class GlobalRateLimitMiddleware implements NestMiddleware {
       return 'metrics';
     }
 
-    return 'anonymous';
+    return undefined;
   }
 }

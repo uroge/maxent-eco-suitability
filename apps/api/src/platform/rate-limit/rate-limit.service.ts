@@ -4,6 +4,7 @@ import { RedisService } from '../redis/redis.service';
 
 export type RateLimitScope =
   | 'anonymous'
+  | 'authentication-failure'
   | 'authenticated-user'
   | 'authenticated-ip'
   | 'health'
@@ -14,6 +15,7 @@ const rateLimitDefinitions: Record<
   { points: number; duration: number }
 > = {
   anonymous: { points: 30, duration: 60 },
+  'authentication-failure': { points: 30, duration: 60 },
   'authenticated-user': { points: 120, duration: 60 },
   'authenticated-ip': { points: 240, duration: 60 },
   health: { points: 30, duration: 60 },

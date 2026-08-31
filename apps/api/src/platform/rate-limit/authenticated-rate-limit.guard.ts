@@ -19,7 +19,9 @@ export class AuthenticatedRateLimitGuard implements CanActivate {
     const principal = request.principal;
 
     if (!principal) {
-      return true;
+      throw new ServiceUnavailableException(
+        'Authentication context is unavailable.',
+      );
     }
 
     try {

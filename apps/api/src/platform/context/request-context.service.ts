@@ -13,4 +13,12 @@ export class RequestContextService {
   public get(): RequestContext | undefined {
     return this.storage.getStore();
   }
+
+  public setRoute(route: string): void {
+    const context = this.storage.getStore();
+
+    if (context) {
+      context.route = route;
+    }
+  }
 }

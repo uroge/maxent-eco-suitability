@@ -3,6 +3,7 @@ import {
   OnApplicationShutdown,
   OnModuleInit,
 } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import { ConfigService } from '@nestjs/config';
 import { createClient, type RedisClientType } from 'redis';
 import type { ApiEnvironment } from '../../env';
@@ -11,7 +12,10 @@ import type { ApiEnvironment } from '../../env';
 export class RedisService implements OnModuleInit, OnApplicationShutdown {
   private readonly client: RedisClientType;
 
-  public constructor(config: ConfigService<ApiEnvironment, true>) {
+  public constructor(
+    config: ConfigService<ApiEnvironment, true>,
+    private readonly logger: Logger,
+  ) {
     this.client = createClient({
       url: config.getOrThrow('REDIS_URL'),
       socket: {
@@ -20,11 +24,24 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       },
       disableOfflineQueue: true,
     });
+    this.client.on('error', (error) => {
+      this.logger.error({ error }, 'Redis client error.');
+    });
   }
 
   public async onModuleInit(): Promise<void> {
-    await this.client.connect();
-    await this.client.ping();
+    try {
+      await this.withTimeout(this.client.connect());
+      await this.withTimeout(this.client.ping());
+    } catch (error) {
+      this.logger.error({ error }, 'Redis startup check failed.');
+
+      if (this.client.isOpen) {
+        await this.client.close();
+      }
+
+      throw new Error('Redis is unavailable during startup.');
+    }
   }
 
   public async onApplicationShutdown(): Promise<void> {
@@ -47,6 +64,27 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async withTimeout<T>(operation: Promise<T>): Promise<T> {
+    const timeoutMs = 5000;
+    let timeout: NodeJS.Timeout | undefined;
+
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Redis operation timed out.')),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     }
   }
 }

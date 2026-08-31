@@ -28,6 +28,30 @@ const schema = z
   .object({
     APP_ENV: environmentSchema.default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    MAX_JSON_BODY_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .max(1048576)
+      .default(1048576),
+    HTTP_HEADERS_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(120000)
+      .default(15000),
+    HTTP_REQUEST_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(120000)
+      .default(30000),
+    HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(120000)
+      .default(5000),
     REDIS_URL: z
       .url()
       .refine((value) => /^rediss?:/.test(value), 'Use a Redis URL.'),
@@ -68,6 +92,16 @@ const schema = z
           code: 'custom',
           path: ['CLERK_AUTHORIZED_PARTIES'],
           message: 'Production authorized parties must use HTTPS.',
+        });
+      }
+    }
+
+    for (const cidr of environment.TRUST_PROXY_CIDRS) {
+      if (cidr === '0.0.0.0/0' || cidr === '::/0') {
+        context.addIssue({
+          code: 'custom',
+          path: ['TRUST_PROXY_CIDRS'],
+          message: 'Production proxy CIDRs must not trust all addresses.',
         });
       }
     }
