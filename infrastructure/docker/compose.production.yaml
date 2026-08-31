@@ -19,7 +19,7 @@ services:
         ipv4_address: 172.30.0.2
 
   web:
-    ports: []
+    ports: !reset []
     read_only: true
     cap_drop: ['ALL']
     security_opt: ['no-new-privileges:true']
@@ -27,7 +27,7 @@ services:
     networks: [edge]
 
   api:
-    ports: []
+    ports: !reset []
     read_only: true
     cap_drop: ['ALL']
     security_opt: ['no-new-privileges:true']
@@ -43,7 +43,7 @@ services:
   worker:
     environment:
       APP_ENV: production
-    ports: []
+    ports: !reset []
     read_only: true
     cap_drop: ['ALL']
     security_opt: ['no-new-privileges:true']
@@ -51,11 +51,11 @@ services:
     networks: [backend]
 
   redis:
-    ports: []
+    ports: !reset []
     networks: [backend]
 
   minio:
-    ports: []
+    ports: !reset []
     networks: [backend]
 
 volumes:
