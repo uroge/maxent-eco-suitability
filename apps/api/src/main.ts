@@ -24,7 +24,7 @@ const bootstrap = async (): Promise<void> => {
     limit: config.getOrThrow('MAX_JSON_BODY_BYTES'),
   });
   express.set('trust proxy', config.getOrThrow('TRUST_PROXY_CIDRS'));
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(helmet());
   app.enableCors({
     origin: config.getOrThrow('API_CORS_ORIGINS'),
     methods: ['GET', 'HEAD', 'OPTIONS'],

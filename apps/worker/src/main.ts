@@ -12,7 +12,7 @@ const bootstrap = async (): Promise<void> => {
 
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(helmet());
   app.useGlobalFilters(app.get(OperationsExceptionFilter));
   await app.listen(config.getOrThrow('WORKER_OPERATIONS_PORT'), '0.0.0.0');
 };
