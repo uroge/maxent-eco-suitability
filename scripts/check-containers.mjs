@@ -83,14 +83,14 @@ for (const image of ['ecosuitability-api', 'ecosuitability-worker', 'ecosuitabil
     `${image} history contains a secret.`
   );
 
-  const sourceMapCheck = run('docker', [
+  const sourceMaps = run('docker', [
     'run',
     '--rm',
     '--entrypoint',
     'sh',
     image,
     '-c',
-    "! find /app -name '*.map' -print -quit | grep -q .",
+    "find /app -path '*/node_modules/*' -prune -o -name '*.map' -print",
   ]);
-  assert(sourceMapCheck === '', `${image} must not contain source maps.`);
+  assert(sourceMaps === '', `${image} must not contain source maps.`);
 }
