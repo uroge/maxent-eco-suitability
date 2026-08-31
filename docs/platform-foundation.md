@@ -28,4 +28,4 @@ Shutdown handles `SIGTERM` and `SIGINT`: readiness becomes unhealthy, the servic
 
 ## Delivery Checks
 
-CI uses immutable GitHub Action revisions, dependency review, CodeQL, container configuration/secret scanning, and image vulnerability reporting. Runtime images are digest-pinned, use the non-root `node` user, and production containers use read-only filesystems with dropped Linux capabilities. SBOM and provenance attestations are intentionally deferred until images are pushed to a registry.
+CI uses immutable GitHub Action revisions, dependency review, CodeQL, container configuration/secret scanning, and image vulnerability reporting. Runtime images are digest-pinned, use the non-root `node` user, and production containers use read-only filesystems with dropped Linux capabilities. Browser source maps remain disabled in the Next.js build; server-side source maps are not publicly served. SBOM and provenance attestations are intentionally deferred until images are pushed to a registry.

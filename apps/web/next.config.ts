@@ -3,6 +3,7 @@ import { clientEnvironment } from './src/env';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  productionBrowserSourceMaps: false,
   env: clientEnvironment,
 };
 

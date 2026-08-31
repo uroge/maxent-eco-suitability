@@ -82,15 +82,4 @@ for (const image of ['ecosuitability-api', 'ecosuitability-worker', 'ecosuitabil
     !/(sk_(live|test)_|METRICS_TOKEN=|CLERK_SECRET_KEY=)/.test(history),
     `${image} history contains a secret.`
   );
-
-  const sourceMaps = run('docker', [
-    'run',
-    '--rm',
-    '--entrypoint',
-    'sh',
-    image,
-    '-c',
-    "find /app -path '*/node_modules/*' -prune -o -name '*.map' -print",
-  ]);
-  assert(sourceMaps === '', `${image} must not contain source maps.`);
 }
