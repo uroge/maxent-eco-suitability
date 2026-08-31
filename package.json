@@ -20,7 +20,8 @@
     "clean": "turbo clean && rimraf node_modules",
     "docker:build": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml build",
     "docker:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up --build",
-    "docker:down": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml down --remove-orphans"
+    "docker:down": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml down --remove-orphans",
+    "container:check": "node scripts/check-containers.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
