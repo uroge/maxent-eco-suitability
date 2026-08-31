@@ -12,4 +12,6 @@ RUN Rscript -e "install.packages('renv', repos = 'https://cloud.r-project.org')"
     && Rscript -e "renv::restore(prompt = FALSE)"
 COPY r ./r
 COPY scripts ./scripts
+RUN useradd --create-home --shell /usr/sbin/nologin analysis
+USER analysis
 CMD ["Rscript", "scripts/healthcheck.R"]
