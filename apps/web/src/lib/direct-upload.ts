@@ -258,8 +258,12 @@ const putWithRetry = async (
     try {
       return await putWithXhr(activeUrl, body, contentType, signal, onProgress);
     } catch (error) {
+      if (signal?.aborted) {
+        throw new DOMException('The upload was cancelled.', 'AbortError');
+      }
+
       lastError = error instanceof Error ? error : new Error('The upload failed.');
-      if (signal?.aborted || attempt === maxAttempts) {
+      if (attempt === maxAttempts) {
         break;
       }
 
