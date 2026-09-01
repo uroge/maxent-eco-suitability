@@ -17,7 +17,7 @@ Operational routes are version-neutral: `/health/live`, `/health/ready`, and `/m
 ## Analysis Lifecycle Foundation
 
 The API now provides the first Redis-only analysis resource. It is intentionally
-limited to draft management: it has no uploads, object storage, queue, worker
+limited to draft management and direct input staging: it has no queue, worker
 job, R execution, or artifacts.
 
 All analysis routes require a Clerk bearer token and use the authenticated Redis
@@ -34,8 +34,8 @@ rate-limit policies:
 The internal lifecycle is `draft -> uploading -> queued -> running ->
 succeeded | failed | cancelled | expired`. Only creation and draft cancellation
 are public in this phase. Upload, queue, execution, success, and failure
-transitions are internal service operations until their supporting systems are
-implemented.
+analysis transitions remain internal service operations until their supporting
+systems are implemented.
 
 Analysis state lives only in Redis for 48 hours. An expiry sweep changes due
 records to an `expired` tombstone for one additional hour, then Redis removes
@@ -66,6 +66,36 @@ Rate limits are Redis-backed: anonymous traffic is keyed by normalized client IP
 Production uses Caddy for TLS, redirects, timeouts, and forwarding headers. Caddy replaces client-supplied forwarded headers before proxying. API containers are not publicly published. The production Compose network gives Caddy `172.30.0.2`; API trusts only `172.30.0.2/32`. Broad proxy CIDRs are rejected in production.
 
 The API accepts JSON bodies up to `MAX_JSON_BODY_BYTES` (default `1048576`). This is intentionally a control-plane limit: scientific files use direct object-storage uploads, not API request bodies. SeaweedFS supplies authenticated S3-compatible local storage; production uses a private Cloudflare R2 bucket. HTTP header, request, and keep-alive timeouts are explicitly configured and validated.
+
+## Direct Input Storage
+
+Datasets are temporary Redis upload sessions, independent from analysis state.
+They can be created only for an owned `draft` analysis and expire after one
+hour. `POST /v1/analyses/:analysisId/upload-datasets` requires an
+`Idempotency-Key`; it creates a `collecting` dataset. Files are registered one
+at a time, uploaded directly to storage through signed URLs, verified by the
+API, and then the dataset is completed as `ready`. Aborting a dataset, or its
+expiry sweep, aborts unfinished multipart uploads and deletes uploaded objects.
+
+Occurrence datasets accept CSV, XLSX, GeoJSON, or an explicit Shapefile set up
+to 100 MiB. A Shapefile is never a ZIP: `.shp`, `.shx`, and `.dbf` are
+required, `.prj` and `.cpg` are optional, every component must share a basename,
+and unsupported sidecars are rejected. Predictor datasets accept one TIFF or
+GeoTIFF up to 2 GiB. Files below 64 MiB use one signed PUT; larger files use
+16 MiB multipart parts and batches of at most 20 signed URLs.
+
+Local development uses SeaweedFS with a bucket created and CORS configured by
+the API for `STORAGE_CORS_ORIGINS`. Production uses a private R2 bucket and does
+not mutate bucket configuration at runtime. Configure R2 CORS for exact web
+origins, `PUT` and `HEAD`, `content-type` and `x-amz-*` request headers, and
+exposed `ETag` and checksum headers. Use a least-privilege R2 key and lifecycle
+rules to remove incomplete multipart uploads and the `analyses/` prefix after
+three days as a cleanup safety net.
+
+The `R2 Smoke` workflow is manual only and uses the protected `r2-staging`
+environment. Configure `R2_S3_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, and `R2_CORS_ORIGINS` as environment secrets. It writes
+randomized single and multipart objects, verifies them, and removes them.
 
 ## Required Production Variables
 

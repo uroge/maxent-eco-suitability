@@ -37,11 +37,14 @@ services:
       STORAGE_REGION: us-east-1
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:-http://localhost:3000}
       STORAGE_FORCE_PATH_STYLE: 'true'
     ports: ['3001:3001']
     restart: unless-stopped
     depends_on:
       redis:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
   worker:
     build:
@@ -65,11 +68,14 @@ services:
       timeout: 3s
       retries: 10
   seaweedfs:
-    image: chrislusf/seaweedfs:4.44
-    environment:
-      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
-      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
-      S3_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+    image: chrislusf/seaweedfs:4.44@sha256:e67e8c385484120b78bff47ba5f4debbca47fbd27ed1a39f016f47e8baea615b
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        cat >/tmp/s3.json <<EOF
+        {"identities":[{"name":"ecosuitability","credentials":[{"accessKey":"${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}","secretKey":"${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}"}],"actions":["Admin","Read","List","Tagging","Write"]}]}
+        EOF
+        exec weed server -dir=/data -filer -s3 -s3.port=8333 -s3.config=/tmp/s3.json
     ports: ['127.0.0.1:8333:8333']
     volumes: ['seaweedfs-data:/data']
     restart: unless-stopped

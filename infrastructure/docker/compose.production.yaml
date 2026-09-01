@@ -28,6 +28,9 @@ services:
 
   api:
     ports: !reset []
+    depends_on: !reset
+      redis:
+        condition: service_healthy
     read_only: true
     cap_drop: ['ALL']
     security_opt: ['no-new-privileges:true']
@@ -42,6 +45,7 @@ services:
       STORAGE_REGION: auto
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set the R2 access key in the production environment}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in the production environment}
+      STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:?Set the R2 CORS origins in the production environment}
       STORAGE_FORCE_PATH_STYLE: 'false'
     networks:
       edge:

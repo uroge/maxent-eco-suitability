@@ -80,6 +80,14 @@ export const shapefileComponentSchema = z.enum(['shp', 'shx', 'dbf', 'prj', 'cpg
 
 export type ShapefileComponent = z.infer<typeof shapefileComponentSchema>;
 
+export const uploadDatasetStatusSchema = z.enum(['collecting', 'ready', 'aborted']);
+
+export type UploadDatasetStatus = z.infer<typeof uploadDatasetStatusSchema>;
+
+export const uploadFileStatusSchema = z.enum(['pending', 'completed', 'aborted']);
+
+export type UploadFileStatus = z.infer<typeof uploadFileStatusSchema>;
+
 export const uploadFileSchema = z
   .object({
     originalName: z.string().min(1).max(255),
@@ -96,11 +104,14 @@ export const createUploadDatasetRequestSchema = z
   .object({
     kind: uploadDatasetKindSchema,
     format: uploadDatasetFormatSchema,
-    files: z.array(uploadFileSchema).min(1).max(5),
   })
   .strict();
 
 export type CreateUploadDatasetRequest = z.infer<typeof createUploadDatasetRequestSchema>;
+
+export const createUploadFileRequestSchema = uploadFileSchema;
+
+export type CreateUploadFileRequest = z.infer<typeof createUploadFileRequestSchema>;
 
 export const uploadPartSchema = z.object({
   partNumber: z.number().int().positive().max(10000),
@@ -124,3 +135,30 @@ export const uploadPartRequestSchema = z
   .strict();
 
 export type UploadPartRequest = z.infer<typeof uploadPartRequestSchema>;
+
+export const uploadFileResponseSchema = z.object({
+  id: uploadIdSchema,
+  multipart: z.boolean(),
+  uploadUrl: z.string().url().nullable(),
+  partSizeBytes: z.number().int().positive().nullable(),
+});
+
+export type UploadFileResponse = z.infer<typeof uploadFileResponseSchema>;
+
+export const uploadDatasetSchema = z.object({
+  id: uploadDatasetIdSchema,
+  analysisId: analysisIdSchema,
+  kind: uploadDatasetKindSchema,
+  format: uploadDatasetFormatSchema,
+  status: uploadDatasetStatusSchema,
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+
+export type UploadDataset = z.infer<typeof uploadDatasetSchema>;
+
+export const uploadDatasetResponseSchema = z.object({
+  dataset: uploadDatasetSchema,
+});
+
+export type UploadDatasetResponse = z.infer<typeof uploadDatasetResponseSchema>;
