@@ -264,6 +264,7 @@ describe('AnalysisService', () => {
     expect(repository.queue).toHaveBeenCalledWith(
       createStoredAnalysis().id,
       principal.userId,
+      expect.any(Date),
     );
   });
 });

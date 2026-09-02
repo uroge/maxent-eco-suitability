@@ -17,9 +17,15 @@ for _, dataset in ipairs(manifest.datasets) do
     objectKeys[#objectKeys + 1] = file.storageKey
   end
 end
+if type(analysis.resultManifest) == 'table' then
+  for _, artifact in ipairs(analysis.resultManifest.artifacts) do
+    objectKeys[#objectKeys + 1] = artifact.storageKey
+  end
+end
 local cleanup = { id = ARGV[1], analysisId = analysis.id, objectKeys = objectKeys, multipartUploads = {}, attempt = 0, nextAttemptAt = ARGV[2], createdAt = ARGV[2] }
 redis.call('SET', KEYS[3], cjson.encode(cleanup))
 redis.call('ZADD', KEYS[4], ARGV[3], ARGV[1])
+redis.call('DEL', KEYS[5])
 analysis.status = 'cancelled'
 analysis.updatedAt = ARGV[2]
 analysis.progress = { stage = 'cancelled', percent = 0, attempt = analysis.execution.attempt, updatedAt = ARGV[2] }

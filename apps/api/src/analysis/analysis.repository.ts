@@ -47,6 +47,8 @@ const outboxKeyPrefix = 'ecosuitability:analysis-outbox:';
 
 const outboxIndexKey = 'ecosuitability:analysis-outbox:pending';
 
+const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
+
 @Injectable()
 export class AnalysisRepository {
   public constructor(private readonly redis: RedisService) {}
@@ -125,6 +127,7 @@ export class AnalysisRepository {
   public async queue(
     analysisId: string,
     ownerId: string,
+    processingExpiresAt: Date,
   ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
     const now = new Date();
     const result = (await this.redis.getClient().eval(QueueAnalysisScript, {
@@ -132,12 +135,14 @@ export class AnalysisRepository {
         this.analysisKey(analysisId),
         this.outboxKey(analysisId),
         outboxIndexKey,
+        `${resultKeyPrefix}${analysisId}`,
       ],
       arguments: [
         ownerId,
         analysisId,
         now.toISOString(),
         String(now.getTime()),
+        processingExpiresAt.toISOString(),
       ],
     })) as string[];
 
@@ -208,14 +213,23 @@ export class AnalysisRepository {
         }
 
         const analysis = JSON.parse(payload) as StoredAnalysis;
-        if (!['draft', 'uploading', 'ready'].includes(analysis.status)) {
+        if (
+          ![
+            'draft',
+            'uploading',
+            'ready',
+            'queued',
+            'running',
+            'succeeded',
+          ].includes(analysis.status)
+        ) {
           return;
         }
 
         await this.scheduleCleanup(
           analysisId,
           analysis.ownerId,
-          ['draft', 'uploading', 'ready'],
+          ['draft', 'uploading', 'ready', 'queued', 'running', 'succeeded'],
           'expired',
           now,
         );
@@ -336,6 +350,7 @@ export class AnalysisRepository {
         datasetExpiryIndexKey,
         this.outboxKey(analysisId),
         outboxIndexKey,
+        `${resultKeyPrefix}${analysisId}`,
       ],
       arguments: [
         ownerId,

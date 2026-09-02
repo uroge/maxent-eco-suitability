@@ -145,7 +145,11 @@ describe.runIf(integrationEnabled)(
       await repository.create({ analysis, fingerprint: 'fingerprint-5' }, 3600);
 
       await expect(
-        repository.queue(analysis.id, analysis.ownerId),
+        repository.queue(
+          analysis.id,
+          analysis.ownerId,
+          new Date('2026-09-03T12:00:00.000Z'),
+        ),
       ).resolves.toMatchObject({
         status: 'queued',
         execution: { jobId: analysis.id },
@@ -179,7 +183,11 @@ describe.runIf(integrationEnabled)(
       };
       const now = new Date('2026-08-31T12:00:00.000Z');
       await repository.create({ analysis, fingerprint: 'fingerprint-8' }, 3600);
-      await repository.queue(analysis.id, analysis.ownerId);
+      await repository.queue(
+        analysis.id,
+        analysis.ownerId,
+        new Date('2026-09-03T12:00:00.000Z'),
+      );
 
       const firstClaim = await repository.claimOutbox(analysis.id, now);
       const recoveredClaim = await repository.claimOutbox(
@@ -207,7 +215,11 @@ describe.runIf(integrationEnabled)(
         { analysis: queued, fingerprint: 'fingerprint-6' },
         3600,
       );
-      await repository.queue(queued.id, queued.ownerId);
+      await repository.queue(
+        queued.id,
+        queued.ownerId,
+        new Date('2026-09-03T12:00:00.000Z'),
+      );
       await expect(
         repository.cancel(queued.id, queued.ownerId),
       ).resolves.toMatchObject({ status: 'cancelled' });

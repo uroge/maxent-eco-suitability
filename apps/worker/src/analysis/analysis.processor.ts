@@ -12,6 +12,7 @@ import { Logger } from 'nestjs-pino';
 import type { WorkerEnvironment } from '../env';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 import { LifecycleService } from '../platform/lifecycle.service';
+import { ResultService } from './result.service';
 
 const stages = [
   ['preparing', 25],
@@ -38,6 +39,7 @@ export class AnalysisProcessor
     private readonly config: ConfigService<WorkerEnvironment, true>,
     private readonly logger: Logger,
     private readonly serviceLifecycle: LifecycleService,
+    private readonly results: ResultService,
   ) {
     super();
   }
@@ -81,6 +83,19 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
+      const resumed = await this.results.resumeVerified(job, attempt);
+      if (resumed === 'cancelled') {
+        await this.lifecycle.finaliseCancellation(job.data.analysisId);
+        return;
+      }
+      if (
+        resumed === 'succeeded' ||
+        resumed === 'stale_attempt' ||
+        resumed === 'terminal'
+      ) {
+        return;
+      }
+
       const controller = new AbortController();
       timeout = setTimeout(() => {
         controller.abort(new Error('Analysis execution timed out.'));
@@ -97,14 +112,7 @@ export class AnalysisProcessor
         await this.delay(controller.signal);
       }
 
-      const outcome = await this.lifecycle.finish(
-        job.data.analysisId,
-        job.id,
-        attempt,
-        'succeeded',
-        null,
-        this.progress('completed', 100, attempt),
-      );
+      const outcome = await this.results.publish(job, attempt);
       if (outcome === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
       }
@@ -197,6 +205,8 @@ export class AnalysisProcessor
         ? error
         : new RetryableExecutionError(message);
     }
+
+    await this.lifecycle.cleanupProvisional(job.data.analysisId);
   }
 
   private progress(

@@ -13,11 +13,14 @@ import {
 } from '@nestjs/common';
 import type {
   AnalysisResponse,
+  AnalysisArtifactDownloadResponse,
+  AnalysisResultManifestResponse,
   CreateAnalysisRequest,
   IdempotencyKey,
 } from '@ecosuitability/contracts';
 import {
   analysisIdSchema,
+  analysisArtifactIdSchema,
   createAnalysisRequestSchema,
   idempotencyKeySchema,
 } from '@ecosuitability/contracts';
@@ -27,13 +30,17 @@ import type { AuthenticatedRequest } from '../platform/auth/authenticated-reques
 import { AuthenticatedRateLimitGuard } from '../platform/rate-limit/authenticated-rate-limit.guard';
 import { ZodValidationPipe } from '../platform/validation/zod-validation.pipe';
 import { AnalysisService } from './analysis.service';
+import { ResultService } from './result.service';
 
 const idempotencyKeyPipe = new ZodValidationPipe(idempotencyKeySchema);
 
 @Controller('analyses')
 @UseGuards(AuthenticationGuard, AuthenticatedRateLimitGuard)
 export class AnalysisController {
-  public constructor(private readonly analysisService: AnalysisService) {}
+  public constructor(
+    private readonly analysisService: AnalysisService,
+    private readonly resultService: ResultService,
+  ) {}
 
   @Post()
   public async create(
@@ -64,6 +71,35 @@ export class AnalysisController {
     return {
       analysis: await this.analysisService.find(request.principal!, analysisId),
     };
+  }
+
+  @Get(':analysisId/results')
+  public async results(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisResultManifestResponse> {
+    return {
+      result: await this.resultService.manifest(request.principal!, analysisId),
+    };
+  }
+
+  @Post(':analysisId/results/:artifactId/download')
+  public async download(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+    @Param('artifactId', new ZodValidationPipe(analysisArtifactIdSchema))
+    artifactId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AnalysisArtifactDownloadResponse> {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Pragma', 'no-cache');
+    return this.resultService.download(
+      request.principal!,
+      analysisId,
+      artifactId,
+    );
   }
 
   @Post(':analysisId/cancel')

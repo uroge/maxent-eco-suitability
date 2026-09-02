@@ -17,8 +17,11 @@ if analysis.status ~= 'ready' then
 end
 
 local now = ARGV[3]
+local processingExpiresAt = ARGV[5]
 analysis.status = 'queued'
 analysis.updatedAt = now
+analysis.expiresAt = processingExpiresAt
+analysis.processingExpiresAt = processingExpiresAt
 analysis.failure = cjson.null
 analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, updatedAt = now }
 analysis.execution = { jobId = ARGV[2], attempt = cjson.null, outboxDispatchedAt = cjson.null }

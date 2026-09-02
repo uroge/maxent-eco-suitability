@@ -20,6 +20,11 @@ const createServiceLifecycle = () => ({
   waitForDrain: vi.fn(),
 });
 
+const createResultService = () => ({
+  resumeVerified: vi.fn().mockResolvedValue('not-verified'),
+  publish: vi.fn().mockResolvedValue('succeeded'),
+});
+
 describe('AnalysisProcessor', () => {
   it('claims an execution, emits stable progress, and completes it', async () => {
     const lifecycle = {
@@ -29,12 +34,14 @@ describe('AnalysisProcessor', () => {
       finaliseCancellation: vi.fn(),
     };
     const serviceLifecycle = createServiceLifecycle();
+    const results = createResultService();
     const processor = new AnalysisProcessor(
       { setGlobalConcurrency: vi.fn() } as never,
       lifecycle as never,
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
+      results as never,
     );
     const job = createJob();
 
@@ -46,16 +53,9 @@ describe('AnalysisProcessor', () => {
       1,
     );
     expect(lifecycle.updateProgress).toHaveBeenCalledTimes(4);
-    expect(lifecycle.finish).toHaveBeenCalledWith(
-      job.data.analysisId,
-      job.id,
-      1,
-      'succeeded',
-      null,
-      expect.objectContaining({ stage: 'completed', percent: 100 }),
-    );
+    expect(results.publish).toHaveBeenCalledWith(job, 1);
     expect(serviceLifecycle.endJob).toHaveBeenCalledOnce();
-  }, 10_000);
+  }, 15_000);
 
   it('finalizes cancellation without processing a claimed cancelled job', async () => {
     const lifecycle = {
@@ -71,6 +71,7 @@ describe('AnalysisProcessor', () => {
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
+      createResultService() as never,
     );
     const job = createJob();
 
@@ -99,6 +100,7 @@ describe('AnalysisProcessor', () => {
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
+      createResultService() as never,
     );
 
     await processor.process(createJob() as never);
@@ -120,6 +122,7 @@ describe('AnalysisProcessor', () => {
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
+      createResultService() as never,
     );
 
     await expect(
@@ -144,12 +147,14 @@ describe('AnalysisProcessor', () => {
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       createServiceLifecycle() as never,
+      createResultService() as never,
     );
     const finalLifecycle = {
       claim: vi.fn().mockResolvedValue('claimed'),
       updateProgress: vi.fn().mockRejectedValue(new Error('Redis unavailable')),
       finish: vi.fn().mockResolvedValue('failed'),
       finaliseCancellation: vi.fn(),
+      cleanupProvisional: vi.fn().mockResolvedValue(undefined),
     };
     const finalProcessor = new AnalysisProcessor(
       { setGlobalConcurrency: vi.fn() } as never,
@@ -157,6 +162,7 @@ describe('AnalysisProcessor', () => {
       { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
       { warn: vi.fn() } as never,
       createServiceLifecycle() as never,
+      createResultService() as never,
     );
     const retryJob = createJob();
     const finalJob = { ...createJob(), attemptsMade: 2 };

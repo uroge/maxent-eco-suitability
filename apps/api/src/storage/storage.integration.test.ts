@@ -56,7 +56,10 @@ describe.runIf(integrationEnabled)('SeaweedFS storage integration', () => {
       singleResponse.ok,
       `SeaweedFS returned ${singleResponse.status}: ${await singleResponse.text()}`,
     ).toBe(true);
-    expect(await storage.head('single.txt')).toEqual({ size: 6 });
+    expect(await storage.head('single.txt')).toMatchObject({
+      size: 6,
+      contentType: 'text/plain',
+    });
 
     const uploadId = await storage.createMultipart(
       'multipart.txt',
@@ -70,7 +73,10 @@ describe.runIf(integrationEnabled)('SeaweedFS storage integration', () => {
     await storage.completeMultipart('multipart.txt', uploadId, [
       { PartNumber: 1, ETag: etag! },
     ]);
-    expect(await storage.head('multipart.txt')).toEqual({ size: 9 });
+    expect(await storage.head('multipart.txt')).toMatchObject({
+      size: 9,
+      contentType: 'text/plain',
+    });
   });
 
   it('aborts multipart uploads and deletes objects', async () => {

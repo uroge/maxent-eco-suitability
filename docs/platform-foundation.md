@@ -18,7 +18,7 @@ Operational routes are version-neutral: `/health/live`, `/health/ready`, and `/m
 
 The API provides a Redis-only analysis resource with durable input staging and
 a deterministic BullMQ execution baseline. It has no scientific configuration,
-R execution, or result artifacts yet.
+R execution, or scientific result artifacts yet.
 
 All analysis routes require a Clerk bearer token and use the authenticated Redis
 rate-limit policies:
@@ -48,7 +48,21 @@ execution settings before queue submission; a future R phase replaces only the
 no-op executor. `draft`, `uploading`, and `ready` can become `cancelled` or
 `expired`.
 
-Analysis state has an explicit 48-hour `expiresAt`, starting at creation. A
+Successful deterministic runs create a crash-safe provisional result record
+before writing output. The worker produces `execution-summary.json` and
+`run.log.txt`, verifies their size, content metadata, and worker-generated
+SHA-256 values with storage, then atomically publishes a result manifest and
+marks the analysis succeeded. A failed publication is retried by BullMQ using
+the same artifact IDs, keys, and completion timestamp; ordinary reconciliation
+only cleans abandoned provisional records. Result manifests are available only
+to the owning user at `GET /v1/analyses/:analysisId/results`. The download
+endpoint issues a direct storage URL with a maximum five-minute lifetime,
+bounded by result expiry, and never returns URLs from the manifest response.
+
+Input preparation has an explicit 48-hour deadline starting at creation. Queue
+submission establishes a separate 48-hour processing deadline for `queued` and
+`running` analyses. Successful publication establishes a new 48-hour result
+deadline. A
 Redis sorted-set reconciliation sweep creates an independent cleanup record
 before replacing a due analysis with an `expired` tombstone for one hour.
 Cleanup records retain internal object references and retry storage deletion;

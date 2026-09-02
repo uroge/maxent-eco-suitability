@@ -6,11 +6,14 @@ import {
   analysisQueuePrefix,
 } from '@ecosuitability/contracts';
 import type { WorkerEnvironment } from '../env';
+import { WorkerStorageModule } from '../storage/worker-storage.module';
 import { AnalysisProcessor } from './analysis.processor';
+import { ResultService } from './result.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 
 @Module({
   imports: [
+    WorkerStorageModule,
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<WorkerEnvironment, true>) => {
@@ -30,6 +33,6 @@ import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
     }),
     BullModule.registerQueue({ name: analysisQueueName }),
   ],
-  providers: [WorkerLifecycleRepository, AnalysisProcessor],
+  providers: [WorkerLifecycleRepository, ResultService, AnalysisProcessor],
 })
 export class AnalysisModule {}

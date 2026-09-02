@@ -94,6 +94,33 @@ describe.runIf(integrationEnabled)(
         { getOrThrow: vi.fn().mockReturnValue(10_000) } as never,
         { warn: vi.fn() } as never,
         lifecycle,
+        {
+          resumeVerified: vi.fn().mockResolvedValue('not-verified'),
+          publish: vi.fn(
+            async (
+              job: { id?: string; data: AnalysisJobPayload },
+              attempt: number,
+            ) => {
+              if (!job.id) {
+                return 'stale_attempt';
+              }
+
+              return lifecycleRepository.finish(
+                job.data.analysisId,
+                job.id,
+                attempt,
+                'succeeded',
+                null,
+                {
+                  stage: 'completed',
+                  percent: 100,
+                  attempt,
+                  updatedAt: new Date().toISOString(),
+                },
+              );
+            },
+          ),
+        } as never,
       );
       await queue.setGlobalConcurrency(1);
       worker = new Worker(

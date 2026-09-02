@@ -17,6 +17,8 @@ const retentionMs = 48 * 60 * 60 * 1000;
 
 const retentionSeconds = retentionMs / 1000;
 
+const processingRetentionMs = 48 * 60 * 60 * 1000;
+
 const transitionRules: Record<AnalysisStatus, AnalysisStatus[]> = {
   draft: ['uploading', 'cancelled'],
   uploading: ['ready', 'cancelled'],
@@ -144,7 +146,12 @@ export class AnalysisService {
     principal: Principal,
     analysisId: string,
   ): Promise<Analysis> {
-    const result = await this.repository.queue(analysisId, principal.userId);
+    const now = new Date();
+    const result = await this.repository.queue(
+      analysisId,
+      principal.userId,
+      new Date(now.getTime() + processingRetentionMs),
+    );
 
     if (result === 'missing') {
       throw this.notFound();

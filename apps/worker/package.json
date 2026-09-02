@@ -21,6 +21,7 @@
     "test:e2e": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1121.0",
     "@ecosuitability/contracts": "workspace:*",
     "@ecosuitability/runtime-utils": "workspace:*",
     "@nestjs/bullmq": "11.0.5",

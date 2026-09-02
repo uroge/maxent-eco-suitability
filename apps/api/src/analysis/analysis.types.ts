@@ -1,11 +1,17 @@
 import type {
   Analysis,
+  AnalysisArtifact,
   AnalysisFailure,
   AnalysisExecution,
   AnalysisProgress,
   AnalysisStatus,
   IdempotencyKey,
+  AnalysisResultManifest,
 } from '@ecosuitability/contracts';
+
+export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
+  artifacts: Array<AnalysisArtifact & { storageKey: string }>;
+};
 
 export type StoredAnalysis = Analysis & {
   ownerId: string;
@@ -13,6 +19,7 @@ export type StoredAnalysis = Analysis & {
   occurrenceDatasetId?: string;
   progress: AnalysisProgress | null;
   execution: AnalysisExecution | null;
+  resultManifest?: StoredResultManifest;
 };
 
 export type AnalysisOutbox = {

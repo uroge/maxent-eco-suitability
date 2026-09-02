@@ -18,6 +18,7 @@ import { DatasetRepository } from './dataset.repository';
 import { UploadController } from './upload.controller';
 import { UploadExpiryService } from './upload-expiry.service';
 import { UploadService } from './upload.service';
+import { ResultService } from './result.service';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { UploadService } from './upload.service';
     DatasetRepository,
     UploadService,
     UploadExpiryService,
+    ResultService,
   ],
   exports: [AnalysisService],
 })

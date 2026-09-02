@@ -256,3 +256,52 @@ export const analysisInputDatasetSchema = z.object({
 });
 
 export type AnalysisInputDataset = z.infer<typeof analysisInputDatasetSchema>;
+
+export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
+
+export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
+
+export const analysisArtifactKindSchema = z.enum(['execution-summary', 'run-log']);
+
+export type AnalysisArtifactKind = z.infer<typeof analysisArtifactKindSchema>;
+
+export const workerSha256VerificationSchema = z.literal('worker-generated');
+
+export type WorkerSha256Verification = z.infer<typeof workerSha256VerificationSchema>;
+
+export const analysisArtifactSchema = z.object({
+  id: analysisArtifactIdSchema,
+  kind: analysisArtifactKindSchema,
+  filename: z.string().min(1).max(255),
+  contentType: z.string().min(1).max(128),
+  size: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  sha256Verification: workerSha256VerificationSchema,
+  createdAt: z.string().datetime(),
+});
+
+export type AnalysisArtifact = z.infer<typeof analysisArtifactSchema>;
+
+export const analysisResultManifestSchema = z.object({
+  analysisId: analysisIdSchema,
+  completedAt: z.string().datetime(),
+  resultExpiresAt: z.string().datetime(),
+  artifacts: z.array(analysisArtifactSchema).length(2),
+});
+
+export type AnalysisResultManifest = z.infer<typeof analysisResultManifestSchema>;
+
+export const analysisResultManifestResponseSchema = z.object({
+  result: analysisResultManifestSchema,
+});
+
+export type AnalysisResultManifestResponse = z.infer<typeof analysisResultManifestResponseSchema>;
+
+export const analysisArtifactDownloadResponseSchema = z.object({
+  downloadUrl: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+
+export type AnalysisArtifactDownloadResponse = z.infer<
+  typeof analysisArtifactDownloadResponseSchema
+>;
