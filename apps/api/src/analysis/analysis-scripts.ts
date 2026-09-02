@@ -27,3 +27,9 @@ export const MarkReadyScript = readScript('mark-ready.lua');
 export const ScheduleCleanupScript = readScript('schedule-cleanup.lua');
 
 export const ClaimCleanupScript = readScript('claim-cleanup.lua');
+
+export const QueueAnalysisScript = readScript('queue.lua');
+
+export const ClaimOutboxScript = readScript('claim-outbox.lua');
+
+export const DispatchOutboxScript = readScript('dispatch-outbox.lua');

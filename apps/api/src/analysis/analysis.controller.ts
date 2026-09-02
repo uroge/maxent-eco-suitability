@@ -80,4 +80,19 @@ export class AnalysisController {
       ),
     };
   }
+
+  @Post(':analysisId/queue')
+  @HttpCode(HttpStatus.OK)
+  public async queue(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisResponse> {
+    return {
+      analysis: await this.analysisService.queueAnalysis(
+        request.principal!,
+        analysisId,
+      ),
+    };
+  }
 }

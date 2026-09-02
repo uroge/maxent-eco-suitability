@@ -20,6 +20,8 @@ const createAnalysis = (
   expiresAt: '2026-09-02T12:00:00.000Z',
   expiredAt: null,
   failure: null,
+  progress: null,
+  execution: null,
 });
 
 describe.runIf(integrationEnabled)(

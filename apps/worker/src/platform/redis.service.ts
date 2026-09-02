@@ -63,6 +63,10 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  public getClient(): RedisClientType {
+    return this.client;
+  }
+
   private async withTimeout<T>(operation: Promise<T>): Promise<T> {
     let timeout: NodeJS.Timeout | undefined;
 

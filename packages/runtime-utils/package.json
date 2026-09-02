@@ -1,0 +1,17 @@
+{
+  "name": "@ecosuitability/runtime-utils",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.cjs"
+    }
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --passWithNoTests"
+  }
+}

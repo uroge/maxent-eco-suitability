@@ -5,12 +5,16 @@ import {
   ClaimCleanupScript,
   TransitionAnalysisScript,
   ScheduleCleanupScript,
+  ClaimOutboxScript,
+  DispatchOutboxScript,
+  QueueAnalysisScript,
 } from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
   CreateStoredAnalysisResult,
   StoredAnalysis,
   TransitionAnalysisInput,
+  AnalysisOutbox,
 } from './analysis.types';
 import type { CleanupRecord } from '../storage/storage.types';
 
@@ -38,6 +42,10 @@ const datasetIdempotencyKeyPrefix =
   'ecosuitability:upload-dataset:idempotency:';
 
 const datasetExpiryIndexKey = 'ecosuitability:upload-dataset:expiry';
+
+const outboxKeyPrefix = 'ecosuitability:analysis-outbox:';
+
+const outboxIndexKey = 'ecosuitability:analysis-outbox:pending';
 
 @Injectable()
 export class AnalysisRepository {
@@ -114,6 +122,73 @@ export class AnalysisRepository {
     return JSON.parse(result[1]) as StoredAnalysis;
   }
 
+  public async queue(
+    analysisId: string,
+    ownerId: string,
+  ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
+    const now = new Date();
+    const result = (await this.redis.getClient().eval(QueueAnalysisScript, {
+      keys: [
+        this.analysisKey(analysisId),
+        this.outboxKey(analysisId),
+        outboxIndexKey,
+      ],
+      arguments: [
+        ownerId,
+        analysisId,
+        now.toISOString(),
+        String(now.getTime()),
+      ],
+    })) as string[];
+
+    if (result[0] !== 'queued') {
+      return result[0] as 'missing' | 'invalid';
+    }
+
+    return JSON.parse(result[1]) as StoredAnalysis;
+  }
+
+  public async dueOutbox(now: Date): Promise<string[]> {
+    return this.redis
+      .getClient()
+      .zRangeByScore(outboxIndexKey, 0, now.getTime(), {
+        LIMIT: { offset: 0, count: 100 },
+      });
+  }
+
+  public async claimOutbox(
+    analysisId: string,
+    now: Date,
+  ): Promise<AnalysisOutbox | undefined> {
+    const leaseId = `outbox:${analysisId}:${now.getTime()}`;
+    const leaseExpiresAt = new Date(now.getTime() + 30_000);
+    const result = (await this.redis.getClient().eval(ClaimOutboxScript, {
+      keys: [this.outboxKey(analysisId), outboxIndexKey],
+      arguments: [
+        analysisId,
+        now.toISOString(),
+        leaseId,
+        leaseExpiresAt.toISOString(),
+      ],
+    })) as string[];
+
+    return result[0] === 'claimed'
+      ? (JSON.parse(result[1]) as AnalysisOutbox)
+      : undefined;
+  }
+
+  public async markOutboxDispatched(outbox: AnalysisOutbox): Promise<void> {
+    const now = new Date();
+    await this.redis.getClient().eval(DispatchOutboxScript, {
+      keys: [
+        this.outboxKey(outbox.analysisId),
+        this.analysisKey(outbox.analysisId),
+        outboxIndexKey,
+      ],
+      arguments: [outbox.leaseId ?? '', now.toISOString(), outbox.analysisId],
+    });
+  }
+
   public async expireDue(now: Date): Promise<void> {
     const analysisIds = await this.redis
       .getClient()
@@ -152,10 +227,25 @@ export class AnalysisRepository {
     analysisId: string,
     ownerId: string,
   ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
+    const existing = await this.findOwned(analysisId, ownerId);
+    if (!existing) {
+      return 'missing';
+    }
+
+    if (existing.status === 'running') {
+      return this.transition({
+        analysisId,
+        ownerId,
+        expectedStatuses: ['running'],
+        status: 'cancelling',
+        failure: null,
+      });
+    }
+
     return this.scheduleCleanup(
       analysisId,
       ownerId,
-      ['draft', 'uploading', 'ready'],
+      ['draft', 'uploading', 'ready', 'queued', 'cancelling'],
       'cancelled',
       new Date(),
     );
@@ -244,6 +334,8 @@ export class AnalysisRepository {
         uploadKeyPrefix,
         datasetIdempotencyKeyPrefix,
         datasetExpiryIndexKey,
+        this.outboxKey(analysisId),
+        outboxIndexKey,
       ],
       arguments: [
         ownerId,
@@ -277,6 +369,10 @@ export class AnalysisRepository {
 
   private cleanupKey(cleanupId: string): string {
     return `${cleanupKeyPrefix}${cleanupId}`;
+  }
+
+  private outboxKey(analysisId: string): string {
+    return `${outboxKeyPrefix}${analysisId}`;
   }
 
   private analysisSessionsKey(analysisId: string): string {

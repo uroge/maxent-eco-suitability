@@ -53,6 +53,8 @@ for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
   end
 end
 redis.call('DEL', KEYS[7])
+redis.call('DEL', KEYS[12])
+redis.call('ZREM', KEYS[13], analysis.id)
 
 local cleanup = {
   id = ARGV[3],
