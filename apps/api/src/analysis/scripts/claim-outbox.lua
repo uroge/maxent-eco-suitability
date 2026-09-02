@@ -10,7 +10,7 @@ if outbox.status == 'dispatched' then
   return { 'dispatched' }
 end
 
-if outbox.leaseExpiresAt and outbox.leaseExpiresAt > ARGV[2] then
+if type(outbox.leaseExpiresAt) == 'string' and outbox.leaseExpiresAt > ARGV[2] then
   return { 'leased' }
 end
 

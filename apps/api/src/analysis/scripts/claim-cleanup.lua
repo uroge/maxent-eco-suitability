@@ -5,7 +5,7 @@ if not payload then
 end
 
 local cleanup = cjson.decode(payload)
-if cleanup.claimExpiresAt and cleanup.claimExpiresAt > ARGV[2] then
+if type(cleanup.claimExpiresAt) == 'string' and cleanup.claimExpiresAt > ARGV[2] then
   return { 'claimed' }
 end
 

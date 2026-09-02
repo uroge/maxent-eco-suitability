@@ -1,5 +1,5 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type BeforeApplicationShutdown } from '@nestjs/common';
 import {
   analysisJobName,
   analysisQueueName,
@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import type { WorkerEnvironment } from '../env';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
+import { LifecycleService } from '../platform/lifecycle.service';
 
 const stages = [
   ['preparing', 25],
@@ -23,14 +24,20 @@ type Stage = (typeof stages)[number][0];
 
 class RetryableExecutionError extends Error {}
 
+class ExecutionCancelledError extends Error {}
+
 @Processor(analysisQueueName, { concurrency: 1 })
 @Injectable()
-export class AnalysisProcessor extends WorkerHost {
+export class AnalysisProcessor
+  extends WorkerHost
+  implements BeforeApplicationShutdown
+{
   public constructor(
     @InjectQueue(analysisQueueName) private readonly queue: Queue,
     private readonly lifecycle: WorkerLifecycleRepository,
     private readonly config: ConfigService<WorkerEnvironment, true>,
     private readonly logger: Logger,
+    private readonly serviceLifecycle: LifecycleService,
   ) {
     super();
   }
@@ -39,34 +46,46 @@ export class AnalysisProcessor extends WorkerHost {
     await this.queue.setGlobalConcurrency(1);
   }
 
+  public async beforeApplicationShutdown(): Promise<void> {
+    this.serviceLifecycle.beginDraining();
+    await this.worker.pause(true);
+    await this.serviceLifecycle.waitForDrain();
+  }
+
   public async process(job: Job<AnalysisJobPayload>): Promise<void> {
     if (job.name !== analysisJobName || !job.id) {
       return;
     }
 
-    const attempt = job.attemptsMade + 1;
-    const claim = await this.lifecycle.claim(
-      job.data.analysisId,
-      job.id,
-      attempt,
-    );
-    if (claim === 'cancelled') {
-      await this.lifecycle.finaliseCancellation(job.data.analysisId);
+    if (!this.serviceLifecycle.beginJob()) {
       return;
-    }
-    if (claim === 'terminal' || claim === 'stale_attempt') {
-      return;
-    }
-    if (claim === 'dependency_unavailable') {
-      throw new RetryableExecutionError('Lifecycle state is unavailable.');
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort(new Error('Analysis execution timed out.'));
-    }, this.config.getOrThrow('ANALYSIS_EXECUTION_TIMEOUT_MS'));
+    const attempt = job.attemptsMade + 1;
+    let timeout: NodeJS.Timeout | undefined;
 
     try {
+      const claim = await this.lifecycle.claim(
+        job.data.analysisId,
+        job.id,
+        attempt,
+      );
+      if (claim === 'cancelled') {
+        await this.lifecycle.finaliseCancellation(job.data.analysisId);
+        return;
+      }
+      if (claim === 'terminal' || claim === 'stale_attempt') {
+        return;
+      }
+      if (claim === 'dependency_unavailable') {
+        throw new RetryableExecutionError('Lifecycle state is unavailable.');
+      }
+
+      const controller = new AbortController();
+      timeout = setTimeout(() => {
+        controller.abort(new Error('Analysis execution timed out.'));
+      }, this.config.getOrThrow('ANALYSIS_EXECUTION_TIMEOUT_MS'));
+
       for (const [stage, percent] of stages) {
         await this.assertActive(
           job,
@@ -90,9 +109,17 @@ export class AnalysisProcessor extends WorkerHost {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
       }
     } catch (error) {
+      if (error instanceof ExecutionCancelledError) {
+        return;
+      }
+
       await this.handleFailure(job, attempt, error);
     } finally {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+
+      this.serviceLifecycle.endJob();
     }
   }
 
@@ -115,7 +142,7 @@ export class AnalysisProcessor extends WorkerHost {
     );
     if (outcome === 'cancelled') {
       await this.lifecycle.finaliseCancellation(job.data.analysisId);
-      throw new Error('Analysis execution was cancelled.');
+      throw new ExecutionCancelledError('Analysis execution was cancelled.');
     }
     if (outcome === 'dependency_unavailable') {
       throw new RetryableExecutionError('Lifecycle state is unavailable.');

@@ -9,7 +9,7 @@ end
 if analysis.status == 'cancelled' then
   return { 'cancelled', payload }
 end
-if analysis.status ~= 'running' or not analysis.execution or analysis.execution.jobId ~= ARGV[1] or analysis.execution.attempt ~= tonumber(ARGV[2]) then
+if analysis.status ~= 'running' or type(analysis.execution) ~= 'table' or analysis.execution.jobId ~= ARGV[1] or analysis.execution.attempt ~= tonumber(ARGV[2]) then
   return { 'stale_attempt' }
 end
 analysis.status = ARGV[4]

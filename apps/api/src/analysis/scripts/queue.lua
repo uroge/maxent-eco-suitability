@@ -8,7 +8,7 @@ if analysis.ownerId ~= ARGV[1] then
   return { 'missing' }
 end
 
-if analysis.status == 'queued' and analysis.execution and analysis.execution.jobId == ARGV[2] then
+if analysis.status == 'queued' and type(analysis.execution) == 'table' and analysis.execution.jobId == ARGV[2] then
   return { 'queued', payload }
 end
 

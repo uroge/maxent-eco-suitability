@@ -126,7 +126,7 @@ randomized single and multipart objects, verifies them, and removes them.
 
 API requires `REDIS_URL`, Clerk keys, explicit HTTPS `CLERK_AUTHORIZED_PARTIES` and `API_CORS_ORIGINS`, `TRUST_PROXY_CIDRS`, and a random 32+ character `METRICS_TOKEN`. The worker requires its own `WORKER_METRICS_TOKEN`. Set `APP_ENV=production`; invalid or blank values prevent startup.
 
-Shutdown handles `SIGTERM` and `SIGINT`: readiness becomes unhealthy, the service rejects new work, waits up to `SHUTDOWN_TIMEOUT_MS` for active requests, then closes listeners and Redis. A drain timeout fails shutdown rather than silently terminating active work. Investigate Clerk failures, Redis readiness failures, unexpected `401`/`429` growth, and metrics token failures using request IDs and redacted structured logs.
+Shutdown handles `SIGTERM` and `SIGINT`: readiness becomes unhealthy, the API rejects new requests, and the worker pauses BullMQ intake before both services wait up to `SHUTDOWN_TIMEOUT_MS` for active work. A worker drain timeout does not mark an unfinished analysis failed; BullMQ retains it for recovery or retry. A drain timeout fails shutdown rather than silently terminating active work. Investigate Clerk failures, Redis readiness failures, unexpected `401`/`429` growth, and metrics token failures using request IDs and redacted structured logs.
 
 Workers pause new work during shutdown and never mark an unfinished analysis as
 failed merely because the process stops. Every attempt has an

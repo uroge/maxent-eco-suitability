@@ -3,7 +3,7 @@ if not payload then
   return { 'dependency_unavailable' }
 end
 local analysis = cjson.decode(payload)
-if not analysis.execution or analysis.execution.jobId ~= ARGV[1] then
+if type(analysis.execution) ~= 'table' or analysis.execution.jobId ~= ARGV[1] then
   return { 'stale_attempt' }
 end
 if analysis.status == 'cancelling' or analysis.status == 'cancelled' then
@@ -17,7 +17,7 @@ if analysis.status == 'running' then
   if analysis.execution.attempt == attempt then
     return { 'already_running_same_attempt', payload }
   end
-  if analysis.execution.attempt and analysis.execution.attempt > attempt then
+  if type(analysis.execution.attempt) == 'number' and analysis.execution.attempt > attempt then
     return { 'stale_attempt' }
   end
 end
