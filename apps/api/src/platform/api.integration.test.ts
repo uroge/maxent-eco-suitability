@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configureApiApplication } from '../configure-api-application';
 import { AUTHENTICATION_VERIFIER } from './auth/authentication-verifier';
 import { ApiException } from './errors/api.exception';
+import { StorageService } from '../storage/storage.service';
 
 const integrationEnabled = process.env.RUN_REDIS_INTEGRATION === 'true';
 
@@ -34,6 +35,17 @@ describe.runIf(integrationEnabled)('API platform HTTP contracts', () => {
       HTTP_REQUEST_TIMEOUT_MS: '30000',
       HTTP_KEEP_ALIVE_TIMEOUT_MS: '5000',
       REDIS_URL: `redis://${container.getHost()}:${container.getMappedPort(6379)}`,
+      REDIS_DURABILITY_MODE: 'managed',
+      STORAGE_PROVIDER: 'r2',
+      STORAGE_INTERNAL_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
+      STORAGE_PRESIGN_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
+      STORAGE_BUCKET: 'ecosuitability',
+      STORAGE_REGION: 'auto',
+      STORAGE_ACCESS_KEY_ID: 'test-storage-access-key',
+      STORAGE_SECRET_ACCESS_KEY:
+        'test-storage-secret-key-with-sufficient-length',
+      STORAGE_FORCE_PATH_STYLE: 'false',
+      STORAGE_CORS_ORIGINS: productionOrigin,
       CLERK_SECRET_KEY: 'sk_test_platform_contract',
       CLERK_PUBLISHABLE_KEY: 'pk_test_platform_contract',
       CLERK_AUTHORIZED_PARTIES: productionOrigin,
@@ -66,6 +78,8 @@ describe.runIf(integrationEnabled)('API platform HTTP contracts', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AUTHENTICATION_VERIFIER)
       .useValue(verifier)
+      .overrideProvider(StorageService)
+      .useValue({ isReady: vi.fn(async () => true) })
       .compile();
 
     app = module.createNestApplication<NestExpressApplication>({

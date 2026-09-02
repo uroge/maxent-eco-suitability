@@ -17,7 +17,7 @@ Operational routes are version-neutral: `/health/live`, `/health/ready`, and `/m
 ## Analysis Lifecycle Foundation
 
 The API now provides the first Redis-only analysis resource. It is intentionally
-limited to draft management: it has no uploads, object storage, queue, worker
+limited to draft management and direct input staging: it has no queue, worker
 job, R execution, or artifacts.
 
 All analysis routes require a Clerk bearer token and use the authenticated Redis
@@ -28,20 +28,22 @@ rate-limit policies:
 - `GET /v1/analyses/:analysisId` returns an analysis owned by the authenticated
   Clerk user. A resource owned by someone else returns `404` to prevent
   enumeration.
-- `POST /v1/analyses/:analysisId/cancel` cancels a draft and is idempotent for
-  an already-cancelled draft.
+- `POST /v1/analyses/:analysisId/cancel` cancels a `draft`, `uploading`, or
+  `ready` analysis and is idempotent for an already-cancelled analysis.
 
-The internal lifecycle is `draft -> uploading -> queued -> running ->
-succeeded | failed | cancelled | expired`. Only creation and draft cancellation
-are public in this phase. Upload, queue, execution, success, and failure
-transitions are internal service operations until their supporting systems are
-implemented.
+The lifecycle is `draft -> uploading -> ready -> queued -> running ->
+succeeded | failed`. `ready` means exactly one occurrence dataset and at least
+one predictor dataset are storage-verified, attached, and immutable. `queued`
+is intentionally not public yet: it will mean configuration is valid and a
+durable BullMQ job exists. `draft`, `uploading`, and `ready` can become
+`cancelled` or `expired`.
 
-Analysis state lives only in Redis for 48 hours. An expiry sweep changes due
-records to an `expired` tombstone for one additional hour, then Redis removes
-the record. Expiry also removes the owner-scoped idempotency mapping. The same
-idempotency key and equivalent request replay the original analysis; reuse with
-a different request returns the standard `409 CONFLICT` error envelope.
+Analysis state has an explicit 48-hour `expiresAt`, starting at creation. A
+Redis sorted-set reconciliation sweep creates an independent cleanup record
+before replacing a due analysis with an `expired` tombstone for one hour.
+Cleanup records retain internal object references and retry storage deletion;
+they do not depend on Redis key expiry or keyspace notifications. Expiry removes
+the owner-scoped idempotency mapping.
 
 Run Redis-backed integration tests with Docker available:
 
@@ -65,7 +67,50 @@ Rate limits are Redis-backed: anonymous traffic is keyed by normalized client IP
 
 Production uses Caddy for TLS, redirects, timeouts, and forwarding headers. Caddy replaces client-supplied forwarded headers before proxying. API containers are not publicly published. The production Compose network gives Caddy `172.30.0.2`; API trusts only `172.30.0.2/32`. Broad proxy CIDRs are rejected in production.
 
-The API accepts JSON bodies up to `MAX_JSON_BODY_BYTES` (default `1048576`). This is intentionally a control-plane limit: future scientific files must use direct object-storage uploads, not API request bodies. HTTP header, request, and keep-alive timeouts are explicitly configured and validated.
+Redis is durable control-plane storage. Self-managed production Redis requires
+AOF persistence, `appendfsync everysec`, and `maxmemory-policy noeviction`.
+The API validates those settings with `REDIS_DURABILITY_MODE=required`. Managed
+providers use `REDIS_DURABILITY_MODE=managed`; verify equivalent durability and
+no-eviction configuration with the provider before deployment.
+
+The API accepts JSON bodies up to `MAX_JSON_BODY_BYTES` (default `1048576`). This is intentionally a control-plane limit: scientific files use direct object-storage uploads, not API request bodies. SeaweedFS supplies authenticated S3-compatible local storage; production uses a private Cloudflare R2 bucket. HTTP header, request, and keep-alive timeouts are explicitly configured and validated.
+
+## Direct Input Storage
+
+Datasets begin as temporary Redis upload sessions. The first session atomically
+moves an owned analysis from `draft` to `uploading`; sessions expire after one
+hour. Exactly one occurrence dataset may be created, while one or more
+predictor datasets are allowed. `POST /v1/analyses/:analysisId/upload-datasets` requires an
+`Idempotency-Key`; it creates a `collecting` dataset. Files are registered one
+at a time, uploaded directly to storage through signed URLs, verified by the
+API, and then the dataset is attached as `ready`. Attachment stores an internal
+manifest with storage keys, normalized names, sizes, declared SHA-256 values,
+and `client-declared` verification state. Browser checksums, filenames, and
+MIME types are declarations, not proof; a future worker may mark checksums
+`worker-verified`. `POST /v1/analyses/:analysisId/inputs/complete` changes
+`uploading` to `ready` only after one occurrence and at least one predictor are
+attached. Aborting a dataset, or its expiry sweep, aborts unfinished multipart
+uploads and deletes uploaded objects.
+
+Occurrence datasets accept CSV, XLSX, GeoJSON, or an explicit Shapefile set up
+to 100 MiB. A Shapefile is never a ZIP: `.shp`, `.shx`, and `.dbf` are
+required, `.prj` and `.cpg` are optional, every component must share a basename,
+and unsupported sidecars are rejected. Predictor datasets accept one TIFF or
+GeoTIFF up to 2 GiB. Files below 64 MiB use one signed PUT; larger files use
+16 MiB multipart parts and batches of at most 20 signed URLs.
+
+Local development uses SeaweedFS with a bucket created and CORS configured by
+the API for `STORAGE_CORS_ORIGINS`. Production uses a private R2 bucket and does
+not mutate bucket configuration at runtime. Configure R2 CORS for exact web
+origins, `PUT` and `HEAD`, `content-type` and `x-amz-*` request headers, and
+exposed `ETag` and checksum headers. Use a least-privilege R2 key and lifecycle
+rules to remove incomplete multipart uploads and the `analyses/` prefix after
+three days as a cleanup safety net.
+
+The `R2 Smoke` workflow is manual only and uses the protected `r2-staging`
+environment. Configure `R2_S3_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, and `R2_CORS_ORIGINS` as environment secrets. It writes
+randomized single and multipart objects, verifies them, and removes them.
 
 ## Required Production Variables
 

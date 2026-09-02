@@ -8,6 +8,7 @@ import type {
 export type StoredAnalysis = Analysis & {
   ownerId: string;
   idempotencyKey: IdempotencyKey;
+  occurrenceDatasetId?: string;
 };
 
 export type CreateStoredAnalysisInput = {

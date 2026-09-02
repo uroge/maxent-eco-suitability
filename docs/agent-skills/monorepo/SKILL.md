@@ -19,8 +19,8 @@ Use this skill for root tooling, workspace configuration, Docker, CI, generators
 ## Docker And Infrastructure
 
 - Docker containers receive configuration through environment variables only. Do not commit secrets.
-- Local Compose provides Redis and MinIO as temporary state/object storage. No SQL service belongs in Compose.
-- Keep health checks and named MinIO data volume intact.
+- Local Compose provides Redis and SeaweedFS as temporary state/object storage. No SQL service belongs in Compose.
+- Keep health checks and the named SeaweedFS data volume intact.
 - Keep web Docker build arguments aligned with `apps/web/.env.example`; `CLIENT_BRAND` is optional and build-time only.
 
 ## Shared Packages

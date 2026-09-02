@@ -24,16 +24,28 @@ services:
       HTTP_REQUEST_TIMEOUT_MS: ${HTTP_REQUEST_TIMEOUT_MS:-30000}
       HTTP_KEEP_ALIVE_TIMEOUT_MS: ${HTTP_KEEP_ALIVE_TIMEOUT_MS:-5000}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+      REDIS_DURABILITY_MODE: ${REDIS_DURABILITY_MODE:-required}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in infrastructure/docker/.env.local}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:?Set CLERK_AUTHORIZED_PARTIES in infrastructure/docker/.env.local}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:?Set API_CORS_ORIGINS in infrastructure/docker/.env.local}
       TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS:-127.0.0.1/32,::1/128}
       METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in infrastructure/docker/.env.local}
+      STORAGE_PROVIDER: seaweedfs
+      STORAGE_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      STORAGE_PRESIGN_ENDPOINT: http://localhost:8333
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:-http://localhost:3000}
+      STORAGE_FORCE_PATH_STYLE: 'true'
     ports: ['3001:3001']
     restart: unless-stopped
     depends_on:
       redis:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
   worker:
     build:
@@ -50,23 +62,37 @@ services:
   redis:
     image: redis:8-alpine@sha256:9c3ecc609a8087c0f11c494fefaf37a8f7bf9a967631d4a0da8967a9810be354
     ports: ['6379:6379']
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    volumes: ['redis-data:/data']
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 10
-  minio:
-    image: minio/minio:latest@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in infrastructure/docker/.env.local}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in infrastructure/docker/.env.local}
-    ports: ['9000:9000', '9001:9001']
-    volumes: ['minio-data:/data']
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.44@sha256:e67e8c385484120b78bff47ba5f4debbca47fbd27ed1a39f016f47e8baea615b
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        cat >/tmp/s3.json <<EOF
+        {"identities":[{"name":"ecosuitability","credentials":[{"accessKey":"${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}","secretKey":"${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}"}],"actions":["Admin","Read","List","Tagging","Write"]}]}
+        EOF
+        exec weed server -dir=/data -filer -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+    ports: ['127.0.0.1:8333:8333']
+    volumes: ['seaweedfs-data:/data']
     restart: unless-stopped
     healthcheck:
-      test: ['CMD-SHELL', 'curl --fail http://localhost:9000/minio/health/live']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8333/']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -77,4 +103,5 @@ services:
       dockerfile: services/analysis-r/Dockerfile
     command: ['sh', '-c', 'tail -f /dev/null']
 volumes:
-  minio-data:
+  redis-data:
+  seaweedfs-data:

@@ -1,0 +1,28 @@
+name: R2 Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  r2-smoke:
+    runs-on: ubuntu-latest
+    environment: r2-staging
+    env:
+      RUN_R2_SMOKE: 'true'
+      APP_ENV: staging
+      STORAGE_PROVIDER: r2
+      STORAGE_INTERNAL_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+      STORAGE_PRESIGN_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+      STORAGE_BUCKET: ${{ secrets.R2_BUCKET }}
+      STORAGE_REGION: auto
+      STORAGE_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      STORAGE_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      STORAGE_FORCE_PATH_STYLE: 'false'
+      STORAGE_CORS_ORIGINS: ${{ secrets.R2_CORS_ORIGINS }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with: { node-version: 24.19.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ecosuitability/api test -- storage.r2.smoke.test.ts

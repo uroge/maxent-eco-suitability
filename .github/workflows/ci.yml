@@ -18,8 +18,11 @@ jobs:
       WORKER_METRICS_TOKEN: ci-worker-metrics-token-with-32-characters
       REDIS_URL: redis://redis:6379
       RUN_REDIS_INTEGRATION: 'true'
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      RUN_STORAGE_INTEGRATION: 'true'
+      STORAGE_BUCKET: ecosuitability
+      STORAGE_ACCESS_KEY_ID: ci-storage-access-key
+      STORAGE_SECRET_ACCESS_KEY: ci-storage-secret-key
+      STORAGE_CORS_ORIGINS: http://localhost:3000
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6

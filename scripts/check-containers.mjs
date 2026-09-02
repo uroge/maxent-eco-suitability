@@ -11,8 +11,14 @@ const composeEnvironment = {
   METRICS_TOKEN: process.env.METRICS_TOKEN ?? 'test-metrics-token-with-at-least-32-characters',
   WORKER_METRICS_TOKEN:
     process.env.WORKER_METRICS_TOKEN ?? 'test-worker-metrics-token-with-at-least-32-characters',
-  MINIO_ROOT_USER: process.env.MINIO_ROOT_USER ?? 'minioadmin',
-  MINIO_ROOT_PASSWORD: process.env.MINIO_ROOT_PASSWORD ?? 'minioadmin',
+  STORAGE_BUCKET: process.env.STORAGE_BUCKET ?? 'ecosuitability',
+  STORAGE_INTERNAL_ENDPOINT:
+    process.env.STORAGE_INTERNAL_ENDPOINT ?? 'https://account-id.r2.cloudflarestorage.com',
+  STORAGE_PRESIGN_ENDPOINT:
+    process.env.STORAGE_PRESIGN_ENDPOINT ?? 'https://account-id.r2.cloudflarestorage.com',
+  STORAGE_ACCESS_KEY_ID: process.env.STORAGE_ACCESS_KEY_ID ?? 'test-storage-access-key',
+  STORAGE_SECRET_ACCESS_KEY: process.env.STORAGE_SECRET_ACCESS_KEY ?? 'test-storage-secret-key',
+  STORAGE_CORS_ORIGINS: process.env.STORAGE_CORS_ORIGINS ?? 'https://app.example.test',
   CADDY_EMAIL: process.env.CADDY_EMAIL ?? 'ops@example.test',
   WEB_DOMAIN: process.env.WEB_DOMAIN ?? 'app.example.test',
   API_DOMAIN: process.env.API_DOMAIN ?? 'api.example.test',
@@ -66,12 +72,17 @@ for (const serviceName of ['api', 'worker', 'web']) {
 
 assert(compose.services.caddy.ports?.length === 2, 'Only Caddy may publish ports.');
 
-for (const serviceName of ['api', 'worker', 'redis', 'minio']) {
+for (const serviceName of ['api', 'worker', 'redis']) {
   assert(
     !compose.services[serviceName].ports?.length,
     `${serviceName} must not publish a host port in production.`
   );
 }
+
+assert(
+  !compose.services.seaweedfs,
+  'SeaweedFS must not be included in the R2 production deployment.'
+);
 
 for (const image of ['ecosuitability-api', 'ecosuitability-worker', 'ecosuitability-web']) {
   const configuration = JSON.parse(run('docker', ['image', 'inspect', image]))[0].Config;
