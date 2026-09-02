@@ -2,6 +2,7 @@ import { createClerkClient } from '@clerk/backend';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Principal } from '@ecosuitability/contracts';
+import { withTimeout } from '@ecosuitability/runtime-utils';
 import type { ApiEnvironment } from '../../env';
 import { ApiException } from '../errors/api.exception';
 import type { AuthenticationVerifier } from './authentication-verifier';
@@ -37,11 +38,13 @@ export class ClerkAuthenticationVerifier implements AuthenticationVerifier {
       const request = new Request('https://api.internal/', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const state = await this.withTimeout(
+      const state = await withTimeout(
         this.clerk.authenticateRequest(request, {
           acceptsToken: 'session_token',
           authorizedParties: this.config.getOrThrow('CLERK_AUTHORIZED_PARTIES'),
         }),
+        authenticationTimeoutMs,
+        'Clerk authentication timed out.',
       );
 
       if (!state.isAuthenticated) {
@@ -78,26 +81,6 @@ export class ClerkAuthenticationVerifier implements AuthenticationVerifier {
       Reflect.get(metadata, 'role') === 'admin'
       ? 'admin'
       : 'user';
-  }
-
-  private async withTimeout<T>(operation: Promise<T>): Promise<T> {
-    let timeout: NodeJS.Timeout | undefined;
-
-    try {
-      return await Promise.race([
-        operation,
-        new Promise<T>((_, reject) => {
-          timeout = setTimeout(
-            () => reject(new Error('Clerk authentication timed out.')),
-            authenticationTimeoutMs,
-          );
-        }),
-      ]);
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    }
   }
 
   private authenticationRequired(): ApiException {

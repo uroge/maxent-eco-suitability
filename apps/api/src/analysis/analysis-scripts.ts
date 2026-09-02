@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadLuaScript } from '@ecosuitability/runtime-utils';
 
 const readScript = (filename: string): string =>
-  readFileSync(join(__dirname, 'scripts', filename), 'utf8');
+  loadLuaScript(join(__dirname, 'scripts'), filename);
 
 export const CreateAnalysisScript = readScript('create.lua');
 

@@ -6,6 +6,7 @@ import {
 import { Logger } from 'nestjs-pino';
 import { ConfigService } from '@nestjs/config';
 import { createClient, type RedisClientType } from 'redis';
+import { withTimeout } from '@ecosuitability/runtime-utils';
 import type { WorkerEnvironment } from '../env';
 
 @Injectable()
@@ -31,8 +32,12 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
 
   public async onModuleInit(): Promise<void> {
     try {
-      await this.withTimeout(this.client.connect());
-      await this.withTimeout(this.client.ping());
+      await withTimeout(
+        this.client.connect(),
+        5000,
+        'Redis operation timed out.',
+      );
+      await withTimeout(this.client.ping(), 5000, 'Redis operation timed out.');
     } catch (error) {
       this.logger.error({ error }, 'Redis startup check failed.');
 
@@ -65,25 +70,5 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
 
   public getClient(): RedisClientType {
     return this.client;
-  }
-
-  private async withTimeout<T>(operation: Promise<T>): Promise<T> {
-    let timeout: NodeJS.Timeout | undefined;
-
-    try {
-      return await Promise.race([
-        operation,
-        new Promise<T>((_, reject) => {
-          timeout = setTimeout(
-            () => reject(new Error('Redis operation timed out.')),
-            5000,
-          );
-        }),
-      ]);
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    }
   }
 }

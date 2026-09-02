@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- This package is loaded by compiled CommonJS Nest applications. */
+
 const { randomUUID, timingSafeEqual } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
@@ -22,26 +24,18 @@ const withTimeout = async (operation, timeoutMs, message) => {
 };
 
 const resolveRequestId = (incomingRequestId) =>
-  incomingRequestId && requestIdPattern.test(incomingRequestId)
-    ? incomingRequestId
-    : randomUUID();
+  incomingRequestId && requestIdPattern.test(incomingRequestId) ? incomingRequestId : randomUUID();
 
 const constantTimeBearerTokenEquals = (authorization, expected) => {
   const provided = Buffer.from(
-    authorization?.startsWith('Bearer ')
-      ? authorization.slice('Bearer '.length)
-      : '',
+    authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : ''
   );
   const expectedToken = Buffer.from(expected);
 
-  return (
-    provided.length === expectedToken.length &&
-    timingSafeEqual(provided, expectedToken)
-  );
+  return provided.length === expectedToken.length && timingSafeEqual(provided, expectedToken);
 };
 
-const loadLuaScript = (directory, filename) =>
-  readFileSync(join(directory, filename), 'utf8');
+const loadLuaScript = (directory, filename) => readFileSync(join(directory, filename), 'utf8');
 
 module.exports = {
   constantTimeBearerTokenEquals,

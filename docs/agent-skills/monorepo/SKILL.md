@@ -28,3 +28,6 @@ Use this skill for root tooling, workspace configuration, Docker, CI, generators
 - `contracts` owns transport-independent Zod schemas, inferred DTOs, status values, and typed errors.
 - `geo-utils` remains pure, browser/Node-safe, and free of DOM, filesystem, network, or framework dependencies.
 - `config` owns reusable configuration only. Use ESM `.mjs` where a consumer such as Vitest/Vite must load configuration directly in Node.
+- `runtime-utils` owns small Node-only, framework-independent runtime primitives used by more than one deployable service. It must not import Nest, browser APIs, product modules, or domain repositories.
+- Runtime utilities may use CommonJS only when direct compatibility with compiled Nest CommonJS output requires it. Keep any ESLint exception local to the individual `.cjs` file and retain ESM TypeScript imports everywhere else.
+- Extract duplication only when behavior and ownership are genuinely shared. Do not create generic abstractions for one-off feature flows or merely similar code.

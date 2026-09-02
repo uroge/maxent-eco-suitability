@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'node:crypto';
+import { constantTimeBearerTokenEquals } from '@ecosuitability/runtime-utils';
 import { Counter, Registry, collectDefaultMetrics } from 'prom-client';
 import { Req } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -78,17 +78,9 @@ export class OperationsController {
   }
 
   private isAuthorized(authorization: string | undefined): boolean {
-    const provided = Buffer.from(
-      authorization?.startsWith('Bearer ')
-        ? authorization.slice('Bearer '.length)
-        : '',
-    );
-    const expected = Buffer.from(
+    return constantTimeBearerTokenEquals(
+      authorization,
       this.config.getOrThrow('WORKER_METRICS_TOKEN'),
-    );
-
-    return (
-      provided.length === expected.length && timingSafeEqual(provided, expected)
     );
   }
 }
