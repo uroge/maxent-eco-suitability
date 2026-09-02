@@ -7,10 +7,21 @@ local dataset = cjson.decode(payload)
 if dataset.ownerId ~= ARGV[1] or dataset.analysisId ~= ARGV[2] then
   return { 'missing' }
 end
-if dataset.status == 'ready' then
-  return { 'ready', payload }
+
+local analysisPayload = redis.call('GET', KEYS[3])
+if not analysisPayload then
+  return { 'missing' }
 end
-if dataset.status ~= 'collecting' then
+local analysis = cjson.decode(analysisPayload)
+if analysis.status ~= 'uploading' then
+  return { 'invalid_analysis' }
+end
+
+local now = ARGV[5]
+if dataset.status == 'completing' and dataset.completionClaimExpiresAt and dataset.completionClaimExpiresAt > now then
+  return { 'claimed' }
+end
+if dataset.status ~= 'collecting' and dataset.status ~= 'completing' then
   return { 'invalid' }
 end
 
@@ -29,18 +40,18 @@ for _, uploadId in ipairs(dataset.uploadIds) do
     completed[upload.component] = true
   end
 end
-
 for _, component in ipairs(required) do
   if not completed[component] then
     return { 'incomplete' }
   end
 end
-
 if #dataset.uploadIds == 0 then
   return { 'incomplete' }
 end
 
-dataset.status = 'ready'
-dataset.updatedAt = ARGV[4]
+dataset.status = 'completing'
+dataset.updatedAt = now
+dataset.completionClaimId = ARGV[4]
+dataset.completionClaimExpiresAt = ARGV[6]
 redis.call('SET', KEYS[1], cjson.encode(dataset), 'KEEPTTL')
-return { 'ready', cjson.encode(dataset) }
+return { 'claimed', cjson.encode(dataset) }

@@ -21,6 +21,8 @@ const dataset = {
   uploadIds: [],
   createdAt: '2026-08-31T12:00:00.000Z',
   expiresAt: '2026-08-31T13:00:00.000Z',
+  completionClaimId: undefined,
+  completionClaimExpiresAt: undefined,
 };
 
 const createService = () => {
@@ -34,6 +36,10 @@ const createService = () => {
     findUploadOwned: vi.fn(),
     completeFile: vi.fn(),
     completeDataset: vi.fn(),
+    claimCompletion: vi.fn(),
+    attach: vi.fn(),
+    attached: vi.fn(),
+    markReady: vi.fn(),
     abortDataset: vi.fn(),
     deleteDataset: vi.fn(),
     deleteUpload: vi.fn(),
@@ -144,10 +150,40 @@ describe('UploadService', () => {
 
   it('requires all Shapefile components before completing a dataset', async () => {
     const { repository, service } = createService();
-    repository.completeDataset.mockResolvedValue('incomplete');
+    repository.claimCompletion.mockResolvedValue('incomplete');
 
     await expect(
       service.completeDataset(principal, dataset.analysisId, dataset.id),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
+  });
+
+  it('moves an analysis to ready only after required attached inputs exist', async () => {
+    const { repository, service } = createService();
+    repository.markReady.mockResolvedValue({
+      status: 'ready',
+      analysis: JSON.stringify({
+        id: dataset.analysisId,
+        status: 'ready',
+        displayName: null,
+        createdAt: dataset.createdAt,
+        updatedAt: dataset.createdAt,
+        expiresAt: '2026-09-02T12:00:00.000Z',
+        expiredAt: null,
+        failure: null,
+      }),
+    });
+
+    await expect(
+      service.completeInputs(principal, dataset.analysisId),
+    ).resolves.toMatchObject({ status: 'ready' });
+  });
+
+  it('rejects input completion when the occurrence/predictor set is incomplete', async () => {
+    const { repository, service } = createService();
+    repository.markReady.mockResolvedValue('incomplete');
+
+    await expect(
+      service.completeInputs(principal, dataset.analysisId),
     ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
   });
 

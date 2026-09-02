@@ -18,7 +18,8 @@ const retentionSeconds = retentionMs / 1000;
 
 const transitionRules: Record<AnalysisStatus, AnalysisStatus[]> = {
   draft: ['uploading', 'cancelled'],
-  uploading: ['queued', 'cancelled'],
+  uploading: ['ready', 'cancelled'],
+  ready: ['queued', 'cancelled'],
   queued: ['running', 'cancelled'],
   running: ['succeeded', 'failed', 'cancelled'],
   succeeded: [],
@@ -53,6 +54,7 @@ export class AnalysisService {
       expiresAt: new Date(now.getTime() + retentionMs).toISOString(),
       expiredAt: null,
       failure: null,
+      occurrenceDatasetId: undefined,
     };
     const result = await this.repository.create(
       { analysis, fingerprint: this.fingerprint(request) },
@@ -106,12 +108,7 @@ export class AnalysisService {
       return this.publicAnalysis(existing);
     }
 
-    const result = await this.repository.transition({
-      analysisId,
-      ownerId: principal.userId,
-      expectedStatuses: ['draft'],
-      status: 'cancelled',
-    });
+    const result = await this.repository.cancel(analysisId, principal.userId);
 
     if (result === 'missing') {
       throw this.notFound();

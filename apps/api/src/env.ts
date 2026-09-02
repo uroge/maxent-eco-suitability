@@ -55,6 +55,9 @@ const schema = z
     REDIS_URL: z
       .url()
       .refine((value) => /^rediss?:/.test(value), 'Use a Redis URL.'),
+    REDIS_DURABILITY_MODE: z
+      .enum(['disabled', 'required', 'managed'])
+      .default('disabled'),
     STORAGE_PROVIDER: z.enum(['seaweedfs', 'r2']),
     STORAGE_INTERNAL_ENDPOINT: z.url(),
     STORAGE_PRESIGN_ENDPOINT: z.url(),
@@ -85,6 +88,14 @@ const schema = z
   .superRefine((environment, context) => {
     if (environment.APP_ENV !== 'production') {
       return;
+    }
+
+    if (environment.REDIS_DURABILITY_MODE === 'disabled') {
+      context.addIssue({
+        code: 'custom',
+        path: ['REDIS_DURABILITY_MODE'],
+        message: 'Production requires durable Redis lifecycle storage.',
+      });
     }
 
     if (environment.STORAGE_PROVIDER !== 'r2') {

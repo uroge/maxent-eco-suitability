@@ -53,6 +53,18 @@ const createRepository = (analysis = createStoredAnalysis()) => {
       };
       return current;
     }),
+    cancel: vi.fn(async () => {
+      if (!['draft', 'uploading', 'ready'].includes(current.status)) {
+        return 'invalid';
+      }
+
+      current = {
+        ...current,
+        status: 'cancelled',
+        updatedAt: '2026-08-31T12:01:00.000Z',
+      };
+      return current;
+    }),
   };
 };
 
@@ -105,24 +117,29 @@ describe('AnalysisService', () => {
     ).rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
   });
 
-  it('cancels a draft and makes cancellation idempotent', async () => {
-    const repository = createRepository();
-    const service = new AnalysisService(repository as never);
-    const analysisId = createStoredAnalysis().id;
+  it.each(['draft', 'uploading', 'ready'] as const)(
+    'cancels a %s analysis and makes cancellation idempotent',
+    async (status) => {
+      const repository = createRepository(createStoredAnalysis(status));
+      const service = new AnalysisService(repository as never);
+      const analysisId = createStoredAnalysis().id;
 
-    await expect(service.cancel(principal, analysisId)).resolves.toMatchObject({
-      status: 'cancelled',
-    });
-    await expect(service.cancel(principal, analysisId)).resolves.toMatchObject({
-      status: 'cancelled',
-    });
-  });
+      await expect(
+        service.cancel(principal, analysisId),
+      ).resolves.toMatchObject({ status: 'cancelled' });
+      await expect(
+        service.cancel(principal, analysisId),
+      ).resolves.toMatchObject({ status: 'cancelled' });
+    },
+  );
 
   it.each([
     ['draft', 'uploading'],
     ['draft', 'cancelled'],
-    ['uploading', 'queued'],
+    ['uploading', 'ready'],
     ['uploading', 'cancelled'],
+    ['ready', 'queued'],
+    ['ready', 'cancelled'],
     ['queued', 'running'],
     ['queued', 'cancelled'],
     ['running', 'succeeded'],

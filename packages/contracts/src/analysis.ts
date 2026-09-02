@@ -7,6 +7,7 @@ export type AnalysisId = z.infer<typeof analysisIdSchema>;
 export const analysisStatusSchema = z.enum([
   'draft',
   'uploading',
+  'ready',
   'queued',
   'running',
   'succeeded',
@@ -60,6 +61,10 @@ export const analysisTransitionSchema = z.object({
 
 export type AnalysisTransition = z.infer<typeof analysisTransitionSchema>;
 
+export const sha256VerificationSchema = z.enum(['client-declared', 'worker-verified']);
+
+export type Sha256Verification = z.infer<typeof sha256VerificationSchema>;
+
 export const uploadDatasetIdSchema = z.string().regex(/^ds_[a-z0-9]{32}$/);
 
 export type UploadDatasetId = z.infer<typeof uploadDatasetIdSchema>;
@@ -80,7 +85,13 @@ export const shapefileComponentSchema = z.enum(['shp', 'shx', 'dbf', 'prj', 'cpg
 
 export type ShapefileComponent = z.infer<typeof shapefileComponentSchema>;
 
-export const uploadDatasetStatusSchema = z.enum(['collecting', 'ready', 'aborted']);
+export const uploadDatasetStatusSchema = z.enum([
+  'collecting',
+  'completing',
+  'ready',
+  'invalid',
+  'aborted',
+]);
 
 export type UploadDatasetStatus = z.infer<typeof uploadDatasetStatusSchema>;
 
@@ -162,3 +173,24 @@ export const uploadDatasetResponseSchema = z.object({
 });
 
 export type UploadDatasetResponse = z.infer<typeof uploadDatasetResponseSchema>;
+
+export const analysisInputFileSchema = z.object({
+  uploadId: uploadIdSchema,
+  storageKey: z.string().min(1).max(1024),
+  originalName: z.string().min(1).max(255),
+  size: z.number().int().positive(),
+  declaredSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  sha256Verification: sha256VerificationSchema,
+  contentType: z.string().max(128).nullable(),
+  component: shapefileComponentSchema.nullable(),
+});
+
+export type AnalysisInputFile = z.infer<typeof analysisInputFileSchema>;
+
+export const analysisInputDatasetSchema = z.object({
+  dataset: uploadDatasetSchema,
+  files: z.array(analysisInputFileSchema).min(1).max(5),
+  attachedAt: z.string().datetime(),
+});
+
+export type AnalysisInputDataset = z.infer<typeof analysisInputDatasetSchema>;

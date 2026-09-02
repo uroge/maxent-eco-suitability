@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import type { CompletedPart } from '@aws-sdk/client-s3';
 import type {
+  Analysis,
+  AnalysisInputDataset,
   CompleteUploadRequest,
   CreateUploadDatasetRequest,
   CreateUploadFileRequest,
@@ -50,7 +52,7 @@ export class UploadService {
     request: CreateUploadDatasetRequest,
   ): Promise<{ dataset: UploadDataset; replayed: boolean }> {
     const analysis = await this.analysisService.find(principal, analysisId);
-    if (analysis.status !== 'draft') {
+    if (!['draft', 'uploading'].includes(analysis.status)) {
       throw this.conflict(
         'The analysis cannot accept uploads in its current state.',
       );
@@ -73,11 +75,27 @@ export class UploadService {
       expiresAt: new Date(
         now.getTime() + sessionTtlSeconds * 1000,
       ).toISOString(),
+      completionClaimId: undefined,
+      completionClaimExpiresAt: undefined,
     };
     const result = await this.repository.create(dataset, sessionTtlSeconds);
     if (result === 'conflict') {
       throw this.conflict(
         'The idempotency key was already used for a different request.',
+      );
+    }
+
+    if (result === 'occurrence_reserved') {
+      throw this.conflict('The analysis already has an occurrence dataset.');
+    }
+
+    if (result === 'missing') {
+      throw this.notFound();
+    }
+
+    if (result === 'invalid_analysis') {
+      throw this.conflict(
+        'The analysis cannot accept uploads in its current state.',
       );
     }
 
@@ -281,10 +299,19 @@ export class UploadService {
     analysisId: string,
     datasetId: string,
   ): Promise<UploadDataset> {
+    await this.analysisService.find(principal, analysisId);
+    const attached = await this.repository.attached(analysisId, datasetId);
+    if (attached) {
+      return attached.dataset;
+    }
+
     const dataset = await this.dataset(principal, analysisId, datasetId);
-    const result = await this.repository.completeDataset(
+    const claimId = randomBytes(16).toString('hex');
+    const result = await this.repository.claimCompletion(
       dataset,
       dataset.format === 'shapefile' ? shapefileRequiredComponents : [],
+      claimId,
+      new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     );
     if (result === 'missing') {
       throw this.notFound();
@@ -294,13 +321,105 @@ export class UploadService {
       throw this.validationError('All required files must be completed first.');
     }
 
-    if (result === 'invalid') {
+    if (result === 'claimed') {
+      throw new ApiException(
+        503,
+        'DEPENDENCY_UNAVAILABLE',
+        'The dataset completion is in progress. Retry the request.',
+      );
+    }
+
+    if (result === 'invalid' || result === 'invalid_analysis') {
       throw this.conflict(
         'The dataset cannot be completed in its current state.',
       );
     }
 
-    return this.repository.publicDataset(result);
+    const uploads = await this.repository.uploads(result);
+    try {
+      const objects = await Promise.all(
+        uploads.map(async (upload) => ({
+          upload,
+          object: await this.storage.head(upload.objectKey),
+        })),
+      );
+      if (
+        objects.some(
+          ({ upload, object }) => !object || object.size !== upload.size,
+        )
+      ) {
+        await this.abortDataset(principal, analysisId, datasetId);
+        throw this.validationError('The uploaded file could not be verified.');
+      }
+    } catch (error) {
+      if (error instanceof ApiException) {
+        throw error;
+      }
+
+      throw new ApiException(
+        503,
+        'DEPENDENCY_UNAVAILABLE',
+        'Storage is temporarily unavailable. Retry the request.',
+      );
+    }
+
+    const attachedDataset: AnalysisInputDataset = {
+      dataset: this.repository.publicDataset({ ...result, status: 'ready' }),
+      files: uploads.map((upload) => ({
+        uploadId: upload.id,
+        storageKey: upload.objectKey,
+        originalName: upload.originalName,
+        size: upload.size,
+        declaredSha256: upload.sha256,
+        sha256Verification: 'client-declared',
+        contentType: upload.contentType ?? null,
+        component: upload.component ?? null,
+      })),
+      attachedAt: new Date().toISOString(),
+    };
+    const attachedResult = await this.repository.attach(
+      result,
+      claimId,
+      attachedDataset,
+    );
+    if (typeof attachedResult === 'string') {
+      if (attachedResult === 'missing') {
+        throw this.notFound();
+      }
+
+      throw this.conflict(
+        'The dataset cannot be completed in its current state.',
+      );
+    }
+
+    return attachedResult;
+  }
+
+  public async completeInputs(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<Analysis> {
+    const result = await this.repository.markReady(
+      analysisId,
+      principal.userId,
+    );
+    if (result === 'missing') {
+      throw this.notFound();
+    }
+
+    if (result === 'incomplete') {
+      throw this.validationError(
+        'One occurrence dataset and at least one predictor dataset are required.',
+      );
+    }
+
+    if (result === 'invalid') {
+      throw this.conflict(
+        'The analysis inputs cannot be completed in its current state.',
+      );
+    }
+
+    return JSON.parse(result.analysis) as Analysis;
   }
 
   public async abortDataset(

@@ -12,10 +12,13 @@ import type { ApiEnvironment } from '../../env';
 export class RedisService implements OnModuleInit, OnApplicationShutdown {
   private readonly client: RedisClientType;
 
+  private readonly durabilityMode: ApiEnvironment['REDIS_DURABILITY_MODE'];
+
   public constructor(
     config: ConfigService<ApiEnvironment, true>,
     private readonly logger: Logger,
   ) {
+    this.durabilityMode = config.getOrThrow('REDIS_DURABILITY_MODE');
     this.client = createClient({
       url: config.getOrThrow('REDIS_URL'),
       socket: {
@@ -33,6 +36,7 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
     try {
       await this.withTimeout(this.client.connect());
       await this.withTimeout(this.client.ping());
+      await this.validateDurability();
     } catch (error) {
       this.logger.error({ error }, 'Redis startup check failed.');
 
@@ -67,9 +71,33 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
 
     try {
       await this.client.ping();
+      await this.validateDurability();
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async validateDurability(): Promise<void> {
+    if (this.durabilityMode === 'disabled') {
+      return;
+    }
+
+    if (this.durabilityMode === 'managed') {
+      return;
+    }
+
+    const values = await this.client.configGet([
+      'appendonly',
+      'appendfsync',
+      'maxmemory-policy',
+    ]);
+    if (
+      values.appendonly !== 'yes' ||
+      values.appendfsync !== 'everysec' ||
+      values['maxmemory-policy'] !== 'noeviction'
+    ) {
+      throw new Error('Redis durability requirements are not satisfied.');
     }
   }
 

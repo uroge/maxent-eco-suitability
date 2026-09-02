@@ -24,6 +24,7 @@ services:
       HTTP_REQUEST_TIMEOUT_MS: ${HTTP_REQUEST_TIMEOUT_MS:-30000}
       HTTP_KEEP_ALIVE_TIMEOUT_MS: ${HTTP_KEEP_ALIVE_TIMEOUT_MS:-5000}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
+      REDIS_DURABILITY_MODE: ${REDIS_DURABILITY_MODE:-required}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in infrastructure/docker/.env.local}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:?Set CLERK_AUTHORIZED_PARTIES in infrastructure/docker/.env.local}
@@ -61,6 +62,17 @@ services:
   redis:
     image: redis:8-alpine@sha256:9c3ecc609a8087c0f11c494fefaf37a8f7bf9a967631d4a0da8967a9810be354
     ports: ['6379:6379']
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    volumes: ['redis-data:/data']
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
@@ -91,4 +103,5 @@ services:
       dockerfile: services/analysis-r/Dockerfile
     command: ['sh', '-c', 'tail -f /dev/null']
 volumes:
+  redis-data:
   seaweedfs-data:

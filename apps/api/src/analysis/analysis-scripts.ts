@@ -19,3 +19,11 @@ export const CompleteFileScript = readScript('complete-file.lua');
 export const CompleteDatasetScript = readScript('complete-dataset.lua');
 
 export const AbortDatasetScript = readScript('abort-dataset.lua');
+
+export const AttachDatasetScript = readScript('attach-dataset.lua');
+
+export const MarkReadyScript = readScript('mark-ready.lua');
+
+export const ScheduleCleanupScript = readScript('schedule-cleanup.lua');
+
+export const ClaimCleanupScript = readScript('claim-cleanup.lua');

@@ -19,6 +19,7 @@ import type {
   UploadDatasetResponse,
   UploadFileResponse,
   UploadPartRequest,
+  AnalysisResponse,
 } from '@ecosuitability/contracts';
 import {
   analysisIdSchema,
@@ -142,6 +143,20 @@ export class UploadController {
         analysisId,
         datasetId,
         uploadId,
+      ),
+    };
+  }
+
+  @Post('inputs/complete')
+  public async completeInputs(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisResponse> {
+    return {
+      analysis: await this.uploadService.completeInputs(
+        request.principal!,
+        analysisId,
       ),
     };
   }

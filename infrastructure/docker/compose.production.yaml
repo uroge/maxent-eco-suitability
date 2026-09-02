@@ -37,6 +37,7 @@ services:
     tmpfs: ['/tmp']
     environment:
       APP_ENV: production
+      REDIS_DURABILITY_MODE: required
       TRUST_PROXY_CIDRS: 172.30.0.2/32
       STORAGE_PROVIDER: r2
       STORAGE_INTERNAL_ENDPOINT: ${STORAGE_INTERNAL_ENDPOINT:?Set the R2 endpoint in the production environment}

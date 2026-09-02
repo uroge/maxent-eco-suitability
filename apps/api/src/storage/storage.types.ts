@@ -1,4 +1,5 @@
 import type {
+  AnalysisInputDataset,
   ShapefileComponent,
   UploadDatasetFormat,
   UploadDatasetKind,
@@ -12,11 +13,13 @@ export type DatasetSession = {
   fingerprint: string;
   kind: UploadDatasetKind;
   format: UploadDatasetFormat;
-  status: 'collecting' | 'ready' | 'aborted';
+  status: 'collecting' | 'completing' | 'ready' | 'invalid' | 'aborted';
   shapefileBasename: string | undefined;
   uploadIds: string[];
   createdAt: string;
   expiresAt: string;
+  completionClaimId: string | undefined;
+  completionClaimExpiresAt: string | undefined;
 };
 
 export type UploadSession = {
@@ -34,4 +37,20 @@ export type UploadSession = {
   component: ShapefileComponent | undefined;
   multipartUploadId: string | undefined;
   status: 'pending' | 'completed' | 'aborted';
+};
+
+export type AnalysisInputManifest = {
+  datasets: AnalysisInputDataset[];
+};
+
+export type CleanupRecord = {
+  id: string;
+  analysisId: string;
+  objectKeys: string[];
+  multipartUploads: Array<{ key: string; uploadId: string }>;
+  attempt: number;
+  nextAttemptAt: string;
+  createdAt: string;
+  claimId?: string;
+  claimExpiresAt?: string;
 };
