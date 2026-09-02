@@ -7,6 +7,14 @@ const schema = z.object({
   REDIS_URL: z
     .url()
     .refine((value) => /^rediss?:/.test(value), 'Use a Redis URL.'),
+  STORAGE_INTERNAL_ENDPOINT: z.url(),
+  STORAGE_REGION: z.string().min(1).max(64),
+  STORAGE_BUCKET: z.string().min(3).max(63),
+  STORAGE_ACCESS_KEY_ID: z.string().min(1),
+  STORAGE_SECRET_ACCESS_KEY: z.string().min(16),
+  STORAGE_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true'),
   WORKER_OPERATIONS_PORT: z.coerce
     .number()
     .int()
@@ -23,6 +31,12 @@ const schema = z.object({
     .min(1000)
     .max(120000)
     .default(30000),
+  ANALYSIS_EXECUTION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(24 * 60 * 60 * 1000)
+    .default(30 * 60 * 1000),
 });
 
 export type WorkerEnvironment = z.output<typeof schema>;

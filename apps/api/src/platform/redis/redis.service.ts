@@ -6,6 +6,7 @@ import {
 import { Logger } from 'nestjs-pino';
 import { ConfigService } from '@nestjs/config';
 import { createClient, type RedisClientType } from 'redis';
+import { withTimeout } from '@ecosuitability/runtime-utils';
 import type { ApiEnvironment } from '../../env';
 
 @Injectable()
@@ -34,8 +35,12 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
 
   public async onModuleInit(): Promise<void> {
     try {
-      await this.withTimeout(this.client.connect());
-      await this.withTimeout(this.client.ping());
+      await withTimeout(
+        this.client.connect(),
+        5000,
+        'Redis operation timed out.',
+      );
+      await withTimeout(this.client.ping(), 5000, 'Redis operation timed out.');
       await this.validateDurability();
     } catch (error) {
       this.logger.error({ error }, 'Redis startup check failed.');
@@ -51,7 +56,11 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
   public async onApplicationShutdown(): Promise<void> {
     if (this.client.isOpen) {
       try {
-        await this.withTimeout(this.client.close());
+        await withTimeout(
+          this.client.close(),
+          5000,
+          'Redis operation timed out.',
+        );
       } catch {
         if (this.client.isOpen) {
           this.client.destroy();
@@ -98,27 +107,6 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       values['maxmemory-policy'] !== 'noeviction'
     ) {
       throw new Error('Redis durability requirements are not satisfied.');
-    }
-  }
-
-  private async withTimeout<T>(operation: Promise<T>): Promise<T> {
-    const timeoutMs = 5000;
-    let timeout: NodeJS.Timeout | undefined;
-
-    try {
-      return await Promise.race([
-        operation,
-        new Promise<T>((_, reject) => {
-          timeout = setTimeout(
-            () => reject(new Error('Redis operation timed out.')),
-            timeoutMs,
-          );
-        }),
-      ]);
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
     }
   }
 }

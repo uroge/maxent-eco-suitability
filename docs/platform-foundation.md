@@ -16,9 +16,9 @@ Operational routes are version-neutral: `/health/live`, `/health/ready`, and `/m
 
 ## Analysis Lifecycle Foundation
 
-The API now provides the first Redis-only analysis resource. It is intentionally
-limited to draft management and direct input staging: it has no queue, worker
-job, R execution, or artifacts.
+The API provides a Redis-only analysis resource with durable input staging and
+a deterministic BullMQ execution baseline. It has no scientific configuration,
+R execution, or scientific result artifacts yet.
 
 All analysis routes require a Clerk bearer token and use the authenticated Redis
 rate-limit policies:
@@ -28,17 +28,41 @@ rate-limit policies:
 - `GET /v1/analyses/:analysisId` returns an analysis owned by the authenticated
   Clerk user. A resource owned by someone else returns `404` to prevent
   enumeration.
-- `POST /v1/analyses/:analysisId/cancel` cancels a `draft`, `uploading`, or
-  `ready` analysis and is idempotent for an already-cancelled analysis.
+- `POST /v1/analyses/:analysisId/queue` creates a durable execution request for
+  a `ready` analysis. It atomically moves the record to `queued` and persists
+  an outbox record before BullMQ insertion.
+- `POST /v1/analyses/:analysisId/cancel` is idempotent. It cancels preparation
+  and queued work immediately; running work becomes `cancelling` until the
+  worker cooperatively finalizes it as `cancelled`.
 
 The lifecycle is `draft -> uploading -> ready -> queued -> running ->
-succeeded | failed`. `ready` means exactly one occurrence dataset and at least
-one predictor dataset are storage-verified, attached, and immutable. `queued`
-is intentionally not public yet: it will mean configuration is valid and a
-durable BullMQ job exists. `draft`, `uploading`, and `ready` can become
-`cancelled` or `expired`.
+succeeded | failed`, with `running -> cancelling -> cancelled`. `ready` means
+exactly one occurrence dataset and at least one predictor dataset are
+storage-verified, attached, and immutable. `queued` means a durable execution
+request exists; a leased reconciler inserts the deterministic BullMQ job
+(`jobId = analysisId`) and repairs undispatched outbox records after failures.
+The current worker runs four deterministic no-op stages, reports progress,
+retries up to three total attempts with five-second exponential backoff, and has
+global queue concurrency one. A future configuration phase will validate
+execution settings before queue submission; a future R phase replaces only the
+no-op executor. `draft`, `uploading`, and `ready` can become `cancelled` or
+`expired`.
 
-Analysis state has an explicit 48-hour `expiresAt`, starting at creation. A
+Successful deterministic runs create a crash-safe provisional result record
+before writing output. The worker produces `execution-summary.json` and
+`run.log.txt`, verifies their size, content metadata, and worker-generated
+SHA-256 values with storage, then atomically publishes a result manifest and
+marks the analysis succeeded. A failed publication is retried by BullMQ using
+the same artifact IDs, keys, and completion timestamp; ordinary reconciliation
+only cleans abandoned provisional records. Result manifests are available only
+to the owning user at `GET /v1/analyses/:analysisId/results`. The download
+endpoint issues a direct storage URL with a maximum five-minute lifetime,
+bounded by result expiry, and never returns URLs from the manifest response.
+
+Input preparation has an explicit 48-hour deadline starting at creation. Queue
+submission establishes a separate 48-hour processing deadline for `queued` and
+`running` analyses. Successful publication establishes a new 48-hour result
+deadline. A
 Redis sorted-set reconciliation sweep creates an independent cleanup record
 before replacing a due analysis with an `expired` tombstone for one hour.
 Cleanup records retain internal object references and retry storage deletion;
@@ -116,7 +140,13 @@ randomized single and multipart objects, verifies them, and removes them.
 
 API requires `REDIS_URL`, Clerk keys, explicit HTTPS `CLERK_AUTHORIZED_PARTIES` and `API_CORS_ORIGINS`, `TRUST_PROXY_CIDRS`, and a random 32+ character `METRICS_TOKEN`. The worker requires its own `WORKER_METRICS_TOKEN`. Set `APP_ENV=production`; invalid or blank values prevent startup.
 
-Shutdown handles `SIGTERM` and `SIGINT`: readiness becomes unhealthy, the service rejects new work, waits up to `SHUTDOWN_TIMEOUT_MS` for active requests, then closes listeners and Redis. A drain timeout fails shutdown rather than silently terminating active work. Investigate Clerk failures, Redis readiness failures, unexpected `401`/`429` growth, and metrics token failures using request IDs and redacted structured logs.
+Shutdown handles `SIGTERM` and `SIGINT`: readiness becomes unhealthy, the API rejects new requests, and the worker pauses BullMQ intake before both services wait up to `SHUTDOWN_TIMEOUT_MS` for active work. A worker drain timeout does not mark an unfinished analysis failed; BullMQ retains it for recovery or retry. A drain timeout fails shutdown rather than silently terminating active work. Investigate Clerk failures, Redis readiness failures, unexpected `401`/`429` growth, and metrics token failures using request IDs and redacted structured logs.
+
+Workers pause new work during shutdown and never mark an unfinished analysis as
+failed merely because the process stops. Every attempt has an
+`ANALYSIS_EXECUTION_TIMEOUT_MS` AbortController. Timeouts are retryable until
+the final attempt. Cancellation always wins over success, timeout, and retry;
+cleanup records remain independent from BullMQ job retention.
 
 ## Delivery Checks
 

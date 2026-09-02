@@ -4,6 +4,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutBucketCorsCommand,
@@ -73,9 +74,15 @@ export class StorageService implements OnModuleInit {
           CORSRules: [
             {
               AllowedOrigins: this.corsOrigins,
-              AllowedMethods: ['PUT', 'HEAD'],
+              AllowedMethods: ['PUT', 'HEAD', 'GET'],
               AllowedHeaders: ['content-type', 'x-amz-*'],
-              ExposeHeaders: ['ETag', 'x-amz-checksum-sha256'],
+              ExposeHeaders: [
+                'Content-Length',
+                'Content-Type',
+                'Content-Disposition',
+                'ETag',
+                'x-amz-checksum-sha256',
+              ],
               MaxAgeSeconds: 600,
             },
           ],
@@ -114,7 +121,35 @@ export class StorageService implements OnModuleInit {
         Key: key,
         ContentType: contentType,
       }),
-      { expiresIn: 900 },
+      {
+        expiresIn: 900,
+        signableHeaders: contentType ? new Set(['content-type']) : undefined,
+      },
+    );
+  }
+
+  public async presignGet(key: string, expiresIn: number): Promise<string> {
+    return getSignedUrl(
+      this.presignClient,
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      { expiresIn },
+    );
+  }
+
+  public async put(
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+    contentDisposition: string,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentDisposition: contentDisposition,
+      }),
     );
   }
 
@@ -160,12 +195,23 @@ export class StorageService implements OnModuleInit {
     );
   }
 
-  public async head(key: string): Promise<{ size: number } | undefined> {
+  public async head(key: string): Promise<
+    | {
+        size: number;
+        contentType: string | undefined;
+        contentDisposition: string | undefined;
+      }
+    | undefined
+  > {
     try {
       const response = await this.client.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
       );
-      return { size: response.ContentLength ?? 0 };
+      return {
+        size: response.ContentLength ?? 0,
+        contentType: response.ContentType,
+        contentDisposition: response.ContentDisposition,
+      };
     } catch {
       return undefined;
     }

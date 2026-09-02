@@ -8,6 +8,8 @@ Use this skill for changes under `apps/api` and `apps/worker`.
 - The API is the only public HTTP service. The worker uses `NestFactory.createApplicationContext` and must not expose HTTP routes.
 - Keep feature behavior out of scaffold changes. Queue processing, uploads, object storage adapters, R orchestration, and analysis endpoints are feature work.
 - Always wrap control-flow bodies in braces, even when they contain one statement.
+- Search both services before introducing a helper. Reuse `@ecosuitability/runtime-utils` for shared Node-only primitives instead of copying them between API and worker.
+- Keep shared utilities stateless and framework-independent. Nest modules, Redis repositories, lifecycle coordinators, and feature services remain application-owned unless they have a stable cross-service contract.
 
 ## Environment And Startup
 
@@ -15,6 +17,7 @@ Use this skill for changes under `apps/api` and `apps/worker`.
 - API local environment: `apps/api/.env`; worker local environment: `apps/worker/.env`.
 - The API requires `PORT` and `REDIS_URL`; the worker requires `REDIS_URL`.
 - Keep `dev` mapped to `pnpm start:dev` so root `pnpm dev` starts both services through Turbo.
+- Use `withTimeout` from `@ecosuitability/runtime-utils` for bounded external or Redis operations. Use its request-ID, bearer-token, and Lua-loading helpers rather than reimplementing those security-sensitive details.
 
 ## TypeScript Build Output
 

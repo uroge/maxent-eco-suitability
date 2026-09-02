@@ -26,6 +26,8 @@ const createStoredAnalysis = (
   expiresAt: '2026-09-02T12:00:00.000Z',
   expiredAt: null,
   failure: null,
+  progress: null,
+  execution: null,
 });
 
 const createRepository = (analysis = createStoredAnalysis()) => {
@@ -65,6 +67,18 @@ const createRepository = (analysis = createStoredAnalysis()) => {
       };
       return current;
     }),
+    queue: vi.fn(async () => {
+      if (!['ready', 'queued'].includes(current.status)) {
+        return 'invalid';
+      }
+
+      current = {
+        ...current,
+        status: 'queued',
+        updatedAt: '2026-08-31T12:01:00.000Z',
+      };
+      return current;
+    }),
   };
 };
 
@@ -73,7 +87,12 @@ describe('AnalysisService', () => {
     const repository = createRepository();
     const stored = createStoredAnalysis();
     repository.create.mockResolvedValue({ analysis: stored, replayed: false });
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
 
     const result = await service.create(principal, 'request-key-123', {
       displayName: 'Wildcat',
@@ -89,6 +108,8 @@ describe('AnalysisService', () => {
         expiresAt: stored.expiresAt,
         expiredAt: stored.expiredAt,
         failure: stored.failure,
+        progress: stored.progress,
+        execution: stored.execution,
       },
       replayed: false,
     });
@@ -98,7 +119,12 @@ describe('AnalysisService', () => {
   it('rejects a conflicting idempotency key', async () => {
     const repository = createRepository();
     repository.create.mockResolvedValue('conflict');
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
 
     await expect(
       service.create(principal, 'request-key-123', {}),
@@ -107,7 +133,12 @@ describe('AnalysisService', () => {
 
   it('returns not found for an analysis owned by another user', async () => {
     const repository = createRepository();
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
 
     await expect(
       service.find(
@@ -121,7 +152,12 @@ describe('AnalysisService', () => {
     'cancels a %s analysis and makes cancellation idempotent',
     async (status) => {
       const repository = createRepository(createStoredAnalysis(status));
-      const service = new AnalysisService(repository as never);
+      const service = new AnalysisService(
+        repository as never,
+        {
+          remove: vi.fn(),
+        } as never,
+      );
       const analysisId = createStoredAnalysis().id;
 
       await expect(
@@ -144,10 +180,17 @@ describe('AnalysisService', () => {
     ['queued', 'cancelled'],
     ['running', 'succeeded'],
     ['running', 'failed'],
-    ['running', 'cancelled'],
+    ['running', 'queued'],
+    ['running', 'cancelling'],
+    ['cancelling', 'cancelled'],
   ] as const)('allows the internal %s -> %s transition', async (from, to) => {
     const repository = createRepository(createStoredAnalysis(from));
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
     const failure: AnalysisFailure | null =
       to === 'failed'
         ? { code: 'ANALYSIS_FAILED', message: 'Analysis failed.' }
@@ -165,7 +208,12 @@ describe('AnalysisService', () => {
 
   it('rejects invalid internal transitions', async () => {
     const repository = createRepository(createStoredAnalysis('draft'));
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
 
     await expect(
       service.transitionInternal(
@@ -178,7 +226,12 @@ describe('AnalysisService', () => {
 
   it('accepts failure details only for the failed state', async () => {
     const repository = createRepository();
-    const service = new AnalysisService(repository as never);
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
 
     await expect(
       service.transitionInternal(
@@ -194,5 +247,24 @@ describe('AnalysisService', () => {
       statusCode: 400,
       code: 'VALIDATION_FAILED',
     });
+  });
+
+  it('queues only a ready analysis through the durable queue repository operation', async () => {
+    const repository = createRepository(createStoredAnalysis('ready'));
+    const service = new AnalysisService(
+      repository as never,
+      {
+        remove: vi.fn(),
+      } as never,
+    );
+
+    await expect(
+      service.queueAnalysis(principal, createStoredAnalysis().id),
+    ).resolves.toMatchObject({ status: 'queued' });
+    expect(repository.queue).toHaveBeenCalledWith(
+      createStoredAnalysis().id,
+      principal.userId,
+      expect.any(Date),
+    );
   });
 });

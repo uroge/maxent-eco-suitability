@@ -10,6 +10,7 @@ export const analysisStatusSchema = z.enum([
   'ready',
   'queued',
   'running',
+  'cancelling',
   'succeeded',
   'failed',
   'cancelled',
@@ -25,6 +26,37 @@ export const analysisFailureSchema = z.object({
 
 export type AnalysisFailure = z.infer<typeof analysisFailureSchema>;
 
+export const analysisStageSchema = z.enum([
+  'queued',
+  'preparing',
+  'validating-inputs',
+  'executing',
+  'finalizing',
+  'retrying',
+  'cancelled',
+  'completed',
+  'failed',
+]);
+
+export type AnalysisStage = z.infer<typeof analysisStageSchema>;
+
+export const analysisProgressSchema = z.object({
+  stage: analysisStageSchema,
+  percent: z.number().int().min(0).max(100),
+  attempt: z.number().int().positive().nullable(),
+  updatedAt: z.string().datetime(),
+});
+
+export type AnalysisProgress = z.infer<typeof analysisProgressSchema>;
+
+export const analysisExecutionSchema = z.object({
+  jobId: z.string().min(1).max(128).nullable(),
+  attempt: z.number().int().positive().nullable(),
+  outboxDispatchedAt: z.string().datetime().nullable(),
+});
+
+export type AnalysisExecution = z.infer<typeof analysisExecutionSchema>;
+
 export const analysisSchema = z.object({
   id: analysisIdSchema,
   status: analysisStatusSchema,
@@ -34,6 +66,8 @@ export const analysisSchema = z.object({
   expiresAt: z.string().datetime(),
   expiredAt: z.string().datetime().nullable(),
   failure: analysisFailureSchema.nullable(),
+  progress: analysisProgressSchema.nullable(),
+  execution: analysisExecutionSchema.nullable(),
 });
 
 export type Analysis = z.infer<typeof analysisSchema>;
@@ -60,6 +94,34 @@ export const analysisTransitionSchema = z.object({
 });
 
 export type AnalysisTransition = z.infer<typeof analysisTransitionSchema>;
+
+export const analysisJobPayloadSchema = z.object({
+  analysisId: analysisIdSchema,
+  ownerId: z.string().min(1).max(128),
+});
+
+export type AnalysisJobPayload = z.infer<typeof analysisJobPayloadSchema>;
+
+export const analysisOutboxStatusSchema = z.enum(['pending', 'dispatched']);
+
+export type AnalysisOutboxStatus = z.infer<typeof analysisOutboxStatusSchema>;
+
+export const analysisWorkerClaimOutcomeSchema = z.enum([
+  'claimed',
+  'already_running_same_attempt',
+  'cancelled',
+  'terminal',
+  'stale_attempt',
+  'dependency_unavailable',
+]);
+
+export type AnalysisWorkerClaimOutcome = z.infer<typeof analysisWorkerClaimOutcomeSchema>;
+
+export const analysisQueueName = 'analysis-execution';
+
+export const analysisQueuePrefix = 'ecosuitability';
+
+export const analysisJobName = 'run-analysis';
 
 export const sha256VerificationSchema = z.enum(['client-declared', 'worker-verified']);
 
@@ -194,3 +256,52 @@ export const analysisInputDatasetSchema = z.object({
 });
 
 export type AnalysisInputDataset = z.infer<typeof analysisInputDatasetSchema>;
+
+export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
+
+export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
+
+export const analysisArtifactKindSchema = z.enum(['execution-summary', 'run-log']);
+
+export type AnalysisArtifactKind = z.infer<typeof analysisArtifactKindSchema>;
+
+export const workerSha256VerificationSchema = z.literal('worker-generated');
+
+export type WorkerSha256Verification = z.infer<typeof workerSha256VerificationSchema>;
+
+export const analysisArtifactSchema = z.object({
+  id: analysisArtifactIdSchema,
+  kind: analysisArtifactKindSchema,
+  filename: z.string().min(1).max(255),
+  contentType: z.string().min(1).max(128),
+  size: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  sha256Verification: workerSha256VerificationSchema,
+  createdAt: z.string().datetime(),
+});
+
+export type AnalysisArtifact = z.infer<typeof analysisArtifactSchema>;
+
+export const analysisResultManifestSchema = z.object({
+  analysisId: analysisIdSchema,
+  completedAt: z.string().datetime(),
+  resultExpiresAt: z.string().datetime(),
+  artifacts: z.array(analysisArtifactSchema).length(2),
+});
+
+export type AnalysisResultManifest = z.infer<typeof analysisResultManifestSchema>;
+
+export const analysisResultManifestResponseSchema = z.object({
+  result: analysisResultManifestSchema,
+});
+
+export type AnalysisResultManifestResponse = z.infer<typeof analysisResultManifestResponseSchema>;
+
+export const analysisArtifactDownloadResponseSchema = z.object({
+  downloadUrl: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+
+export type AnalysisArtifactDownloadResponse = z.infer<
+  typeof analysisArtifactDownloadResponseSchema
+>;

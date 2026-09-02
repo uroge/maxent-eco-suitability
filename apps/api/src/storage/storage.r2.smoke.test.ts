@@ -8,10 +8,14 @@ describe.runIf(enabled)('R2 storage smoke test', () => {
   const service = new StorageService({
     getOrThrow: (key: string) => process.env[key],
   } as never);
-  const prefix = `smoke/${randomUUID()}`;
-  const objects = [`${prefix}/single`, `${prefix}/multipart`];
+  const prefix = `smoke-tests/${randomUUID()}/`;
+  const objects = [`${prefix}single`, `${prefix}multipart`];
 
   afterAll(async () => {
+    if (!/^smoke-tests\/[0-9a-f-]+\/$/.test(prefix)) {
+      throw new Error('R2 smoke cleanup prefix is invalid.');
+    }
+
     await Promise.all(objects.map(async (key) => service.delete(key)));
   });
 

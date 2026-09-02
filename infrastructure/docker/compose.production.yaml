@@ -56,6 +56,12 @@ services:
   worker:
     environment:
       APP_ENV: production
+      STORAGE_INTERNAL_ENDPOINT: ${STORAGE_INTERNAL_ENDPOINT:?Set the R2 endpoint in the production environment}
+      STORAGE_REGION: auto
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set the R2 bucket in the production environment}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set the R2 access key in the production environment}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in the production environment}
+      STORAGE_FORCE_PATH_STYLE: 'false'
     ports: !reset []
     read_only: true
     cap_drop: ['ALL']

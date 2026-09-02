@@ -27,7 +27,7 @@ elseif analysis.status ~= 'uploading' then
 end
 
 if ARGV[8] == 'occurrence' then
-  if analysis.occurrenceDatasetId and analysis.occurrenceDatasetId ~= ARGV[1] then
+  if type(analysis.occurrenceDatasetId) == 'string' and analysis.occurrenceDatasetId ~= ARGV[1] then
     return { 'occurrence_reserved' }
   end
   analysis.occurrenceDatasetId = ARGV[1]

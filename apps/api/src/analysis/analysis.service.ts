@@ -10,18 +10,22 @@ import type {
 } from '@ecosuitability/contracts';
 import { ApiException } from '../platform/errors/api.exception';
 import { AnalysisRepository } from './analysis.repository';
+import { AnalysisQueueService } from './analysis-queue.service';
 import type { StoredAnalysis } from './analysis.types';
 
 const retentionMs = 48 * 60 * 60 * 1000;
 
 const retentionSeconds = retentionMs / 1000;
 
+const processingRetentionMs = 48 * 60 * 60 * 1000;
+
 const transitionRules: Record<AnalysisStatus, AnalysisStatus[]> = {
   draft: ['uploading', 'cancelled'],
   uploading: ['ready', 'cancelled'],
   ready: ['queued', 'cancelled'],
   queued: ['running', 'cancelled'],
-  running: ['succeeded', 'failed', 'cancelled'],
+  running: ['succeeded', 'failed', 'queued', 'cancelling'],
+  cancelling: ['cancelled'],
   succeeded: [],
   failed: [],
   cancelled: [],
@@ -35,7 +39,10 @@ type CreateAnalysisResult = {
 
 @Injectable()
 export class AnalysisService {
-  public constructor(private readonly repository: AnalysisRepository) {}
+  public constructor(
+    private readonly repository: AnalysisRepository,
+    private readonly queue: AnalysisQueueService,
+  ) {}
 
   public async create(
     principal: Principal,
@@ -55,6 +62,8 @@ export class AnalysisService {
       expiredAt: null,
       failure: null,
       occurrenceDatasetId: undefined,
+      progress: null,
+      execution: null,
     };
     const result = await this.repository.create(
       { analysis, fingerprint: this.fingerprint(request) },
@@ -104,7 +113,7 @@ export class AnalysisService {
       throw this.notFound();
     }
 
-    if (existing.status === 'cancelled') {
+    if (existing.status === 'cancelled' || existing.status === 'cancelling') {
       return this.publicAnalysis(existing);
     }
 
@@ -119,6 +128,40 @@ export class AnalysisService {
         409,
         'CONFLICT',
         'The analysis cannot be cancelled in its current state.',
+      );
+    }
+
+    if (existing.status === 'queued') {
+      try {
+        await this.queue.remove(analysisId);
+      } catch {
+        // The lifecycle transition is authoritative; outbox reconciliation prevents execution.
+      }
+    }
+
+    return this.publicAnalysis(result);
+  }
+
+  public async queueAnalysis(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<Analysis> {
+    const now = new Date();
+    const result = await this.repository.queue(
+      analysisId,
+      principal.userId,
+      new Date(now.getTime() + processingRetentionMs),
+    );
+
+    if (result === 'missing') {
+      throw this.notFound();
+    }
+
+    if (result === 'invalid') {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'The analysis cannot be queued in its current state.',
       );
     }
 
@@ -190,6 +233,8 @@ export class AnalysisService {
       expiresAt: analysis.expiresAt,
       expiredAt: analysis.expiredAt,
       failure: analysis.failure,
+      progress: analysis.progress,
+      execution: analysis.execution,
     };
   }
 

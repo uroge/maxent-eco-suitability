@@ -27,6 +27,9 @@
 - Keep declarations separated by a blank line.
 - Always use braces for `if`, `else`, `for`, `while`, and similar control-flow bodies, including one-line returns or calls.
 - Keep files focused. One reusable component per PascalCase component file; do not recreate aggregate component files.
+- Before adding a helper, search the workspace for equivalent behavior. Extract repeated framework-independent server behavior into `@ecosuitability/runtime-utils`; do not duplicate it between API and worker.
+- `@ecosuitability/runtime-utils` is Node-only. Use it for stateless runtime primitives such as bounded promise timeouts, request-ID normalization, constant-time bearer-token comparison, and packaged Lua asset loading. Keep domain behavior, Nest providers, and feature workflows inside their owning application.
+- Keep runtime utilities CommonJS only when they must be loaded directly by compiled CommonJS Nest output. Scope any required lint exception to the individual `.cjs` file; do not weaken the TypeScript import rules elsewhere.
 - Validate only the scope changed, then run broader checks when practical.
 
 ## Environment And Branding

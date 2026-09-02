@@ -7,7 +7,7 @@ import {
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'node:crypto';
+import { constantTimeBearerTokenEquals } from '@ecosuitability/runtime-utils';
 import type { Request, Response } from 'express';
 import { Req } from '@nestjs/common';
 import type { ApiEnvironment } from '../../env';
@@ -35,17 +35,9 @@ export class MetricsController {
   }
 
   private isAuthorized(authorization: string | undefined): boolean {
-    const provided = authorization?.startsWith('Bearer ')
-      ? authorization.slice('Bearer '.length)
-      : '';
-    const expected = this.config.getOrThrow('METRICS_TOKEN');
-    const providedBuffer = Buffer.from(provided);
-    const expectedBuffer = Buffer.from(expected);
-
-    if (providedBuffer.length !== expectedBuffer.length) {
-      return false;
-    }
-
-    return timingSafeEqual(providedBuffer, expectedBuffer);
+    return constantTimeBearerTokenEquals(
+      authorization,
+      this.config.getOrThrow('METRICS_TOKEN'),
+    );
   }
 }

@@ -84,6 +84,12 @@ const schema = z
       .min(1000)
       .max(120000)
       .default(30000),
+    ANALYSIS_EXECUTION_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(24 * 60 * 60 * 1000)
+      .default(30 * 60 * 1000),
   })
   .superRefine((environment, context) => {
     if (environment.APP_ENV !== 'production') {

@@ -40,6 +40,7 @@ services:
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
       STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:-http://localhost:3000}
       STORAGE_FORCE_PATH_STYLE: 'true'
+      ANALYSIS_EXECUTION_TIMEOUT_MS: ${ANALYSIS_EXECUTION_TIMEOUT_MS:-1800000}
     ports: ['3001:3001']
     restart: unless-stopped
     depends_on:
@@ -55,6 +56,13 @@ services:
       APP_ENV: development
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in infrastructure/docker/.env.local}
       WORKER_METRICS_TOKEN: ${WORKER_METRICS_TOKEN:?Set WORKER_METRICS_TOKEN in infrastructure/docker/.env.local}
+      ANALYSIS_EXECUTION_TIMEOUT_MS: ${ANALYSIS_EXECUTION_TIMEOUT_MS:-1800000}
+      STORAGE_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      STORAGE_FORCE_PATH_STYLE: 'true'
     depends_on:
       redis:
         condition: service_healthy

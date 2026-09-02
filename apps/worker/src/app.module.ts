@@ -8,6 +8,7 @@ import { LifecycleMiddleware } from './platform/lifecycle.middleware';
 import { LifecycleService } from './platform/lifecycle.service';
 import { RequestIdMiddleware } from './platform/request-id.middleware';
 import { RedisService } from './platform/redis.service';
+import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { RedisService } from './platform/redis.service';
         },
       },
     }),
+    AnalysisModule,
   ],
   controllers: [OperationsController],
   providers: [

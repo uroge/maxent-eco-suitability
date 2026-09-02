@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadLuaScript } from '@ecosuitability/runtime-utils';
 
 const readScript = (filename: string): string =>
-  readFileSync(join(__dirname, 'scripts', filename), 'utf8');
+  loadLuaScript(join(__dirname, 'scripts'), filename);
 
 export const CreateAnalysisScript = readScript('create.lua');
 
@@ -27,3 +27,9 @@ export const MarkReadyScript = readScript('mark-ready.lua');
 export const ScheduleCleanupScript = readScript('schedule-cleanup.lua');
 
 export const ClaimCleanupScript = readScript('claim-cleanup.lua');
+
+export const QueueAnalysisScript = readScript('queue.lua');
+
+export const ClaimOutboxScript = readScript('claim-outbox.lua');
+
+export const DispatchOutboxScript = readScript('dispatch-outbox.lua');

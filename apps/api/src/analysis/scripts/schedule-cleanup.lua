@@ -32,6 +32,11 @@ for _, dataset in ipairs(manifest.datasets) do
     objectKeys[#objectKeys + 1] = file.storageKey
   end
 end
+if type(analysis.resultManifest) == 'table' then
+  for _, artifact in ipairs(analysis.resultManifest.artifacts) do
+    objectKeys[#objectKeys + 1] = artifact.storageKey
+  end
+end
 for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
   local datasetPayload = redis.call('GET', KEYS[8] .. datasetId)
   if datasetPayload then
@@ -53,6 +58,9 @@ for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
   end
 end
 redis.call('DEL', KEYS[7])
+redis.call('DEL', KEYS[12])
+redis.call('ZREM', KEYS[13], analysis.id)
+redis.call('DEL', KEYS[14])
 
 local cleanup = {
   id = ARGV[3],
