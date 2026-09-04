@@ -7,10 +7,69 @@ import {
 import { createClient, type RedisClientType } from 'redis';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { AnalysisQueueService } from './analysis-queue.service';
+import { ConfigurationService } from './configuration.service';
 import { AnalysisRepository } from './analysis.repository';
 import type { StoredAnalysis } from './analysis.types';
 
 const integrationEnabled = process.env.RUN_REDIS_INTEGRATION === 'true';
+
+const analysisInputsKey = (analysisId: string): string =>
+  `ecosuitability:analysis-inputs:${analysisId}`;
+
+const inputManifest = (
+  predictorId = 'ds_0123456789abcdef0123456789abcdef',
+) => ({
+  datasets: [
+    {
+      dataset: {
+        id: 'ds_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        analysisId: 'an_placeholder',
+        kind: 'occurrence',
+        format: 'csv',
+        status: 'ready',
+        createdAt: '2026-08-31T12:00:00.000Z',
+        expiresAt: '2026-08-31T13:00:00.000Z',
+      },
+      files: [
+        {
+          uploadId: 'up_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          storageKey: 'analyses/original/occurrences.csv',
+          originalName: 'occurrences.csv',
+          size: 64,
+          declaredSha256: 'a'.repeat(64),
+          sha256Verification: 'client-declared',
+          contentType: 'text/csv',
+          component: null,
+        },
+      ],
+      attachedAt: '2026-08-31T12:00:00.000Z',
+    },
+    {
+      dataset: {
+        id: predictorId,
+        analysisId: 'an_placeholder',
+        kind: 'predictor',
+        format: 'geotiff',
+        status: 'ready',
+        createdAt: '2026-08-31T12:00:00.000Z',
+        expiresAt: '2026-08-31T13:00:00.000Z',
+      },
+      files: [
+        {
+          uploadId: 'up_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          storageKey: 'analyses/original/predictor.tif',
+          originalName: 'predictor.tif',
+          size: 64,
+          declaredSha256: 'b'.repeat(64),
+          sha256Verification: 'client-declared',
+          contentType: 'image/tiff',
+          component: null,
+        },
+      ],
+      attachedAt: '2026-08-31T12:00:00.000Z',
+    },
+  ],
+});
 
 const createAnalysis = (
   id: string,
@@ -169,6 +228,10 @@ describe.runIf(integrationEnabled)(
         status: 'ready' as const,
       };
       await repository.create({ analysis, fingerprint: 'fingerprint-5' }, 3600);
+      await client.set(
+        analysisInputsKey(analysis.id),
+        JSON.stringify(inputManifest()),
+      );
 
       await expect(
         repository.queue(
@@ -196,6 +259,113 @@ describe.runIf(integrationEnabled)(
       ).resolves.toMatchObject({
         status: 'queued',
         execution: { outboxDispatchedAt: expect.any(String) },
+        executionSnapshot: {
+          configuration: analysis.configuration,
+          inputManifest: inputManifest(),
+          inputFingerprint: expect.stringMatching(/^jcs-sha256-v1:/),
+        },
+      });
+    });
+
+    it('persists idempotent configuration revisions only for attached inputs', async () => {
+      const analysis = {
+        ...createAnalysis(
+          'an_99999999999999999999999999999999',
+          'request-key-999',
+        ),
+        status: 'ready' as const,
+        configuration: undefined,
+        configurationRevision: undefined,
+        configurationFingerprint: undefined,
+      };
+      await repository.create({ analysis, fingerprint: 'fingerprint-9' }, 3600);
+      await client.set(
+        analysisInputsKey(analysis.id),
+        JSON.stringify(inputManifest()),
+      );
+      const service = new ConfigurationService(repository);
+      const principal = {
+        userId: analysis.ownerId,
+        sessionId: 'session_123',
+        role: 'user' as const,
+      };
+      const request = {
+        expectedRevision: 0,
+        configuration: createAnalysis('an_unused').configuration!,
+      };
+
+      const initial = await service.update(
+        principal,
+        analysis.id,
+        'configuration-key-999',
+        request,
+      );
+      const replay = await service.update(
+        principal,
+        analysis.id,
+        'configuration-key-999',
+        request,
+      );
+
+      expect(initial).toMatchObject({ revision: 1, mode: 'editable' });
+      expect(replay).toEqual(initial);
+      await expect(
+        service.update(principal, analysis.id, 'configuration-key-999', {
+          ...request,
+          configuration: {
+            ...request.configuration,
+            speciesName: 'Different species',
+          },
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+      await expect(
+        service.update(principal, analysis.id, 'configuration-key-998', {
+          expectedRevision: 1,
+          configuration: {
+            ...request.configuration,
+            predictors: [
+              {
+                ...request.configuration.predictors[0],
+                datasetId: 'ds_cccccccccccccccccccccccccccccccc',
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
+    });
+
+    it('freezes the original input manifest even if its Redis key is later corrupted', async () => {
+      const analysis = {
+        ...createAnalysis(
+          'an_88888888888888888888888888888888',
+          'request-key-888',
+        ),
+        status: 'ready' as const,
+      };
+      await repository.create(
+        { analysis, fingerprint: 'fingerprint-10' },
+        3600,
+      );
+      const originalManifest = inputManifest();
+      await client.set(
+        analysisInputsKey(analysis.id),
+        JSON.stringify(originalManifest),
+      );
+      await repository.queue(
+        analysis.id,
+        analysis.ownerId,
+        new Date('2026-09-03T12:00:00.000Z'),
+      );
+      await client.set(
+        analysisInputsKey(analysis.id),
+        JSON.stringify(inputManifest('ds_dddddddddddddddddddddddddddddddd')),
+      );
+
+      await expect(
+        repository.findOwned(analysis.id, analysis.ownerId),
+      ).resolves.toMatchObject({
+        status: 'queued',
+        executionSnapshot: { inputManifest: originalManifest },
       });
     });
 
