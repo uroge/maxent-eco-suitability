@@ -374,7 +374,10 @@ export const analysisConfigurationSchema = z
       .default({ strategy: 'random', pointCount: 10000 }),
     model: z
       .object({
-        featureClasses: z.array(featureClassSchema).min(1),
+        featureClasses: z
+          .array(featureClassSchema)
+          .min(1)
+          .default(['linear', 'quadratic', 'product', 'hinge']),
         regularizationMultiplier: z.number().finite().min(0.5).max(5).default(1),
       })
       .strict()

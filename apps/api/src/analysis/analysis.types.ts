@@ -8,6 +8,7 @@ import type {
   IdempotencyKey,
   AnalysisResultManifest,
   AnalysisConfiguration,
+  AnalysisInputDataset,
 } from '@ecosuitability/contracts';
 
 export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
@@ -28,6 +29,13 @@ export type StoredAnalysis = Analysis & {
     configuration: AnalysisConfiguration;
     revision: number;
     fingerprint: string;
+    inputManifest: {
+      datasets: AnalysisInputDataset[];
+    };
+    inputFingerprint: string;
+    queuedAt: string;
+    processingExpiresAt: string;
+    seed: number;
   };
 };
 

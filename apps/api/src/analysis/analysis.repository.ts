@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { canonicalizeJson } from '@ecosuitability/runtime-utils';
+import type { AnalysisInputDataset } from '@ecosuitability/contracts';
 import { RedisService } from '../platform/redis/redis.service';
 import {
   CreateAnalysisScript,
@@ -136,12 +139,15 @@ export class AnalysisRepository {
     StoredAnalysis | 'missing' | 'invalid' | 'configuration_required'
   > {
     const now = new Date();
+    const inputManifest = await this.inputManifest(analysisId);
+    const inputFingerprint = this.fingerprint(inputManifest);
     const result = (await this.redis.getClient().eval(QueueAnalysisScript, {
       keys: [
         this.analysisKey(analysisId),
         this.outboxKey(analysisId),
         outboxIndexKey,
         `${resultKeyPrefix}${analysisId}`,
+        this.analysisInputsKey(analysisId),
       ],
       arguments: [
         ownerId,
@@ -149,6 +155,8 @@ export class AnalysisRepository {
         now.toISOString(),
         String(now.getTime()),
         processingExpiresAt.toISOString(),
+        JSON.stringify(inputManifest),
+        inputFingerprint,
       ],
     })) as string[];
 
@@ -178,6 +186,10 @@ export class AnalysisRepository {
           ownerId,
           String(expectedRevision),
           fingerprint,
+          this.fingerprint({
+            expectedRevision,
+            configurationFingerprint: fingerprint,
+          }),
           JSON.stringify(configuration),
           new Date().toISOString(),
         ],
@@ -430,5 +442,24 @@ export class AnalysisRepository {
 
   private analysisSessionsKey(analysisId: string): string {
     return `${analysisSessionsKeyPrefix}${analysisId}`;
+  }
+
+  public async inputManifest(
+    analysisId: string,
+  ): Promise<{ datasets: AnalysisInputDataset[] }> {
+    const payload = await this.redis
+      .getClient()
+      .get(this.analysisInputsKey(analysisId));
+    return payload
+      ? (JSON.parse(payload) as {
+          datasets: AnalysisInputDataset[];
+        })
+      : { datasets: [] };
+  }
+
+  private fingerprint(value: unknown): string {
+    return `jcs-sha256-v1:${createHash('sha256')
+      .update(canonicalizeJson(value))
+      .digest('hex')}`;
   }
 }

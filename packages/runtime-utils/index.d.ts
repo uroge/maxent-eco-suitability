@@ -11,4 +11,6 @@ export declare const constantTimeBearerTokenEquals: (
   expected: string
 ) => boolean;
 
+export declare const canonicalizeJson: (value: unknown) => string;
+
 export declare const loadLuaScript: (directory: string, filename: string) => string;

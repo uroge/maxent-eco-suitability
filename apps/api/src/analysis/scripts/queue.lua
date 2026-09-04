@@ -19,13 +19,18 @@ if type(analysis.configuration) ~= 'table' or type(analysis.configurationRevisio
   return { 'configuration_required' }
 end
 
+local inputManifest = cjson.decode(ARGV[6])
+if type(inputManifest.datasets) ~= 'table' then
+  return { 'invalid' }
+end
+
 local now = ARGV[3]
 local processingExpiresAt = ARGV[5]
 analysis.status = 'queued'
 analysis.updatedAt = now
 analysis.expiresAt = processingExpiresAt
 analysis.processingExpiresAt = processingExpiresAt
-analysis.executionSnapshot = { configuration = analysis.configuration, revision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
+analysis.executionSnapshot = { configuration = analysis.configuration, revision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, inputManifest = inputManifest, inputFingerprint = ARGV[7], queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
 analysis.failure = cjson.null
 analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, updatedAt = now }
 analysis.execution = { jobId = ARGV[2], attempt = cjson.null, outboxDispatchedAt = cjson.null }

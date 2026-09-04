@@ -37,8 +37,36 @@ const constantTimeBearerTokenEquals = (authorization, expected) => {
 
 const loadLuaScript = (directory, filename) => readFileSync(join(directory, filename), 'utf8');
 
+const canonicalizeJson = (value) => {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError('Canonical JSON does not support non-finite numbers.');
+    }
+
+    return JSON.stringify(Object.is(value, -0) ? 0 : value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalizeJson(entry)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeJson(value[key])}`)
+      .join(',')}}`;
+  }
+
+  throw new TypeError('Canonical JSON supports only JSON values.');
+};
+
 module.exports = {
   constantTimeBearerTokenEquals,
+  canonicalizeJson,
   loadLuaScript,
   resolveRequestId,
   withTimeout,

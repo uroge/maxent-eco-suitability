@@ -136,6 +136,18 @@ environment. Configure `R2_S3_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, and `R2_CORS_ORIGINS` as environment secrets. It writes
 randomized single and multipart objects, verifies them, and removes them.
 
+## Analysis Configuration And Immutable Submission
+
+An analysis models exactly one species. Configuration `schemaVersion: 1` is a stable production contract: unsupported fields, boundary datasets, multi-species batches, automatic reprojection/resampling, and other model algorithms are rejected rather than ignored. A CSV or XLSX occurrence dataset uses exact WGS84 longitude and latitude columns; XLSX additionally names an exact worksheet. GeoJSON follows RFC 7946 WGS84 point semantics, while a Shapefile requires `.shp`, `.shx`, `.dbf`, and `.prj` (with optional `.cpg`). No coordinate transformation or grid correction occurs.
+
+Configuration requires a Unicode-NFC, whitespace-normalized `speciesName` and one or more selected attached GeoTIFF predictors. Predictor names are bounded ASCII identifiers and unique case-insensitively; their supplied order is preserved. The supported study area is the selected predictor intersection. Defaults are server-authoritative: 10,000 random background points without replacement, linear/quadratic/product/hinge feature classes, regularization multiplier `1`, and a 20% train/test split. The supported bounds are 1,000 to 100,000 background points, regularization `0.5` to `5`, train/test fraction `0.1` to `0.5`, and two to ten folds. The execution seed is a required unsigned 32-bit integer.
+
+`PUT /v1/analyses/:analysisId/configuration` accepts an exact `expectedRevision` and an `Idempotency-Key`. A missing configuration is revision zero; its first successful write is revision one. Every replacement with the current revision increments exactly once. Repeating the same request key and request fingerprint returns its original response; reusing the key for a different request returns `409`. `GET /v1/analyses/:analysisId/configuration` returns either editable configuration or the safe frozen submission after queueing, never storage keys, object URLs, ownership fields, or raw manifests.
+
+The API materializes defaults and canonicalizes values before hashing them as `jcs-sha256-v1:<lowercase-sha256>` over canonical JSON. Feature classes are ordered by their fixed enum order; selected predictor order is preserved. Queueing snapshots the configuration, revision, configuration fingerprint, selected internal input manifest, input-manifest fingerprint, seed, queue time, and processing deadline in the same Redis transition that creates the durable outbox request. BullMQ receives only the analysis ID. Configuration editing ends at queueing; subsequent review reads the API's frozen snapshot.
+
+The API validates configuration shape, bounds, references, ownership, and lifecycle permissions. The R execution service validates file contents and scientific compatibility: at least ten valid deduplicated coordinates, meaningful partitions, predictor coverage and grids, categorical values, background capacity, and CRS equivalence. Tabular and GeoJSON occurrences require WGS84 predictors; Shapefile `.prj` must be equivalent to selected predictor CRS. Source species values, when mapped, must normalize case-insensitively to the configured species name.
+
 ## Required Production Variables
 
 API requires `REDIS_URL`, Clerk keys, explicit HTTPS `CLERK_AUTHORIZED_PARTIES` and `API_CORS_ORIGINS`, `TRUST_PROXY_CIDRS`, and a random 32+ character `METRICS_TOKEN`. The worker requires its own `WORKER_METRICS_TOKEN`. Set `APP_ENV=production`; invalid or blank values prevent startup.

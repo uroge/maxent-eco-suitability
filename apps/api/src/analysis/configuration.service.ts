@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { canonicalizeJson } from '@ecosuitability/runtime-utils';
 import type {
   AnalysisConfigurationResponse,
   IdempotencyKey,
@@ -42,6 +43,21 @@ export class ConfigurationService {
     request: UpdateAnalysisConfigurationRequest,
   ): Promise<AnalysisConfigurationResponse> {
     const configuration = this.canonical(request.configuration);
+    const analysis = await this.repository.findOwned(
+      analysisId,
+      principal.userId,
+    );
+    if (!analysis) {
+      throw this.notFound();
+    }
+    if (analysis.status !== 'ready') {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'The analysis configuration is immutable.',
+      );
+    }
+    await this.validateInputs(analysisId, configuration);
     const fingerprint = this.fingerprint(configuration);
     const result = await this.repository.updateConfiguration(
       analysisId,
@@ -94,22 +110,42 @@ export class ConfigurationService {
   private fingerprint(
     configuration: UpdateAnalysisConfigurationRequest['configuration'],
   ): string {
-    const canonical = this.sort(configuration);
-    return `jcs-sha256-v1:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
+    return `jcs-sha256-v1:${createHash('sha256')
+      .update(canonicalizeJson(configuration))
+      .digest('hex')}`;
   }
 
-  private sort(value: unknown): unknown {
-    if (Array.isArray(value)) {
-      return value.map((entry) => this.sort(entry));
-    }
-    if (value && typeof value === 'object') {
-      return Object.fromEntries(
-        Object.entries(value)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, entry]) => [key, this.sort(entry)]),
+  private async validateInputs(
+    analysisId: string,
+    configuration: UpdateAnalysisConfigurationRequest['configuration'],
+  ): Promise<void> {
+    const manifest = await this.repository.inputManifest(analysisId);
+    const occurrence = manifest.datasets.find(
+      (entry) => entry.dataset.kind === 'occurrence',
+    );
+    const predictors = new Map(
+      manifest.datasets
+        .filter(
+          (entry) =>
+            entry.dataset.kind === 'predictor' &&
+            entry.dataset.format === 'geotiff',
+        )
+        .map((entry) => [entry.dataset.id, entry]),
+    );
+
+    if (
+      !occurrence ||
+      occurrence.dataset.format !== configuration.occurrence.format ||
+      configuration.predictors.some(
+        (predictor) => !predictors.has(predictor.datasetId),
+      )
+    ) {
+      throw new ApiException(
+        400,
+        'VALIDATION_FAILED',
+        'The configuration does not match the attached inputs.',
       );
     }
-    return Object.is(value, -0) ? 0 : value;
   }
 
   private notFound(): ApiException {
