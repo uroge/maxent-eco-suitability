@@ -305,3 +305,136 @@ export const analysisArtifactDownloadResponseSchema = z.object({
 export type AnalysisArtifactDownloadResponse = z.infer<
   typeof analysisArtifactDownloadResponseSchema
 >;
+
+const normalizedText = z
+  .string()
+  .transform((value) => value.normalize('NFC').trim().replace(/\s+/g, ' '))
+  .refine(
+    (value) => value.length > 0 && value.length <= 120 && !/[\u0000-\u001F\u007F]/.test(value)
+  );
+
+const identifierSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine((value) => !/[\u0000-\u001F\u007F]/.test(value));
+
+const featureClassSchema = z.enum(['linear', 'quadratic', 'product', 'hinge', 'threshold']);
+
+export const analysisConfigurationSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    speciesName: normalizedText,
+    occurrence: z.discriminatedUnion('format', [
+      z
+        .object({
+          format: z.literal('csv'),
+          longitudeColumn: identifierSchema,
+          latitudeColumn: identifierSchema,
+          speciesColumn: identifierSchema.optional(),
+        })
+        .strict(),
+      z
+        .object({
+          format: z.literal('xlsx'),
+          worksheet: identifierSchema,
+          longitudeColumn: identifierSchema,
+          latitudeColumn: identifierSchema,
+          speciesColumn: identifierSchema.optional(),
+        })
+        .strict(),
+      z.object({ format: z.literal('geojson') }).strict(),
+      z.object({ format: z.literal('shapefile') }).strict(),
+    ]),
+    predictors: z
+      .array(
+        z
+          .object({
+            datasetId: uploadDatasetIdSchema,
+            variableName: z
+              .string()
+              .trim()
+              .regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+            type: z.enum(['continuous', 'categorical']),
+          })
+          .strict()
+      )
+      .min(1),
+    studyArea: z
+      .object({ strategy: z.literal('predictor-intersection') })
+      .strict()
+      .default({ strategy: 'predictor-intersection' }),
+    background: z
+      .object({
+        strategy: z.literal('random').default('random'),
+        pointCount: z.number().int().min(1000).max(100000).default(10000),
+      })
+      .strict()
+      .default({ strategy: 'random', pointCount: 10000 }),
+    model: z
+      .object({
+        featureClasses: z.array(featureClassSchema).min(1),
+        regularizationMultiplier: z.number().finite().min(0.5).max(5).default(1),
+      })
+      .strict()
+      .default({
+        featureClasses: ['linear', 'quadratic', 'product', 'hinge'],
+        regularizationMultiplier: 1,
+      }),
+    validation: z
+      .discriminatedUnion('method', [
+        z
+          .object({
+            method: z.literal('train-test-split'),
+            testFraction: z.number().finite().min(0.1).max(0.5).default(0.2),
+          })
+          .strict(),
+        z
+          .object({
+            method: z.literal('k-fold'),
+            folds: z.number().int().min(2).max(10).default(5),
+          })
+          .strict(),
+      ])
+      .default({ method: 'train-test-split', testFraction: 0.2 }),
+    seed: z.number().int().min(0).max(4294967295),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const names = new Set<string>();
+    const datasets = new Set<string>();
+    for (const predictor of value.predictors) {
+      const name = predictor.variableName.toLowerCase();
+      if (names.has(name) || datasets.has(predictor.datasetId)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Predictors must have unique dataset IDs and variable names.',
+        });
+      }
+      names.add(name);
+      datasets.add(predictor.datasetId);
+    }
+    if (new Set(value.model.featureClasses).size !== value.model.featureClasses.length) {
+      context.addIssue({ code: 'custom', message: 'Feature classes must be unique.' });
+    }
+  });
+
+export type AnalysisConfiguration = z.infer<typeof analysisConfigurationSchema>;
+
+export const updateAnalysisConfigurationRequestSchema = z
+  .object({ expectedRevision: z.number().int().min(0), configuration: analysisConfigurationSchema })
+  .strict();
+
+export type UpdateAnalysisConfigurationRequest = z.infer<
+  typeof updateAnalysisConfigurationRequestSchema
+>;
+
+export const analysisConfigurationResponseSchema = z.object({
+  mode: z.enum(['editable', 'frozen']),
+  configuration: analysisConfigurationSchema.nullable(),
+  revision: z.number().int().min(0),
+  fingerprint: z.string().optional(),
+});
+
+export type AnalysisConfigurationResponse = z.infer<typeof analysisConfigurationResponseSchema>;

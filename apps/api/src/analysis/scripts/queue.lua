@@ -15,6 +15,9 @@ end
 if analysis.status ~= 'ready' then
   return { 'invalid' }
 end
+if type(analysis.configuration) ~= 'table' or type(analysis.configurationRevision) ~= 'number' or type(analysis.configurationFingerprint) ~= 'string' then
+  return { 'configuration_required' }
+end
 
 local now = ARGV[3]
 local processingExpiresAt = ARGV[5]
@@ -22,6 +25,7 @@ analysis.status = 'queued'
 analysis.updatedAt = now
 analysis.expiresAt = processingExpiresAt
 analysis.processingExpiresAt = processingExpiresAt
+analysis.executionSnapshot = { configuration = analysis.configuration, revision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
 analysis.failure = cjson.null
 analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, updatedAt = now }
 analysis.execution = { jobId = ARGV[2], attempt = cjson.null, outboxDispatchedAt = cjson.null }

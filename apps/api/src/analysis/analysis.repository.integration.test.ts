@@ -28,6 +28,32 @@ const createAnalysis = (
   failure: null,
   progress: null,
   execution: null,
+  configuration: {
+    schemaVersion: 1,
+    speciesName: 'Wildcat',
+    occurrence: {
+      format: 'csv',
+      longitudeColumn: 'longitude',
+      latitudeColumn: 'latitude',
+    },
+    predictors: [
+      {
+        datasetId: 'ds_0123456789abcdef0123456789abcdef',
+        variableName: 'temperature',
+        type: 'continuous',
+      },
+    ],
+    studyArea: { strategy: 'predictor-intersection' },
+    background: { strategy: 'random', pointCount: 10000 },
+    model: {
+      featureClasses: ['linear', 'quadratic', 'product', 'hinge'],
+      regularizationMultiplier: 1,
+    },
+    validation: { method: 'train-test-split', testFraction: 0.2 },
+    seed: 42,
+  },
+  configurationRevision: 1,
+  configurationFingerprint: 'jcs-sha256-v1:test',
 });
 
 describe.runIf(integrationEnabled)(

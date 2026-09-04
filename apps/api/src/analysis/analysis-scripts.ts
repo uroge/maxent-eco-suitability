@@ -33,3 +33,5 @@ export const QueueAnalysisScript = readScript('queue.lua');
 export const ClaimOutboxScript = readScript('claim-outbox.lua');
 
 export const DispatchOutboxScript = readScript('dispatch-outbox.lua');
+
+export const UpdateConfigurationScript = readScript('update-configuration.lua');

@@ -8,6 +8,7 @@ import {
   ClaimOutboxScript,
   DispatchOutboxScript,
   QueueAnalysisScript,
+  UpdateConfigurationScript,
 } from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
@@ -48,6 +49,9 @@ const outboxKeyPrefix = 'ecosuitability:analysis-outbox:';
 const outboxIndexKey = 'ecosuitability:analysis-outbox:pending';
 
 const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
+
+const configurationIdempotencyKeyPrefix =
+  'ecosuitability:analysis-configuration:idempotency:';
 
 @Injectable()
 export class AnalysisRepository {
@@ -128,7 +132,9 @@ export class AnalysisRepository {
     analysisId: string,
     ownerId: string,
     processingExpiresAt: Date,
-  ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
+  ): Promise<
+    StoredAnalysis | 'missing' | 'invalid' | 'configuration_required'
+  > {
     const now = new Date();
     const result = (await this.redis.getClient().eval(QueueAnalysisScript, {
       keys: [
@@ -147,9 +153,41 @@ export class AnalysisRepository {
     })) as string[];
 
     if (result[0] !== 'queued') {
-      return result[0] as 'missing' | 'invalid';
+      return result[0] as 'missing' | 'invalid' | 'configuration_required';
     }
 
+    return JSON.parse(result[1]) as StoredAnalysis;
+  }
+
+  public async updateConfiguration(
+    analysisId: string,
+    ownerId: string,
+    idempotencyKey: string,
+    expectedRevision: number,
+    configuration: StoredAnalysis['configuration'],
+    fingerprint: string,
+  ): Promise<StoredAnalysis | 'missing' | 'invalid' | 'conflict'> {
+    const result = (await this.redis
+      .getClient()
+      .eval(UpdateConfigurationScript, {
+        keys: [
+          this.analysisKey(analysisId),
+          `${configurationIdempotencyKeyPrefix}${ownerId}:${analysisId}:${idempotencyKey}`,
+        ],
+        arguments: [
+          ownerId,
+          String(expectedRevision),
+          fingerprint,
+          JSON.stringify(configuration),
+          new Date().toISOString(),
+        ],
+      })) as string[];
+    if (result[0] === 'idempotency_conflict') {
+      return 'conflict';
+    }
+    if (result[0] !== 'updated' && result[0] !== 'replay') {
+      return result[0] as 'missing' | 'invalid' | 'conflict';
+    }
     return JSON.parse(result[1]) as StoredAnalysis;
   }
 
