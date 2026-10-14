@@ -37,6 +37,26 @@ const schema = z.object({
     .min(1000)
     .max(24 * 60 * 60 * 1000)
     .default(30 * 60 * 1000),
+  R_RUNTIME_URL: z.url(),
+  R_RUNTIME_SHARED_SECRET: z.string().min(32),
+  R_RUNTIME_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(10000)
+    .default(10000),
+  R_RUNTIME_RUN_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(60000)
+    .max(10 * 60 * 1000)
+    .default(10 * 60 * 1000),
+  R_RUNTIME_INPUT_URL_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(900)
+    .max(1800)
+    .default(900),
 });
 
 export type WorkerEnvironment = z.output<typeof schema>;

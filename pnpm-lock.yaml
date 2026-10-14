@@ -254,6 +254,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: 3.1121.0
         version: 3.1121.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: 3.1121.0
+        version: 3.1121.0
       '@ecosuitability/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -384,7 +387,17 @@ importers:
 
   packages/geo-utils: {}
 
-  packages/runtime-utils: {}
+  packages/runtime-utils:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: 3.1121.0
+        version: 3.1121.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: 3.1121.0
+        version: 3.1121.0
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
 
   packages/ui: {}
 

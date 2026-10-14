@@ -21,6 +21,13 @@
     "docker:build": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml build",
     "docker:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up --build",
     "docker:down": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml down --remove-orphans",
+    "docker:r:build": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml build analysis-r",
+    "docker:r:bootstrap:build": "docker build --target bootstrap -t ecosuitability-analysis-r-bootstrap -f services/analysis-r/Dockerfile services/analysis-r",
+    "docker:r:bootstrap": "docker run --rm --user \"$(id -u):$(id -g)\" -e HOME=/tmp -e RENV_PATHS_CACHE=/tmp/renv-cache -v \"$PWD/services/analysis-r:/opt/analysis-r\" --entrypoint sh ecosuitability-analysis-r-bootstrap -c 'mkdir -p \"$HOME/.R\" \"$RENV_PATHS_CACHE\" && Rscript --vanilla scripts/bootstrap-renv.R'",
+    "docker:r:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up -d analysis-r",
+    "docker:r:status": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml ps analysis-r",
+    "docker:r:health": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml exec -T analysis-r Rscript scripts/healthcheck.R",
+    "docker:r:logs": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml logs --follow analysis-r",
     "container:check": "node scripts/check-containers.mjs"
   },
   "devDependencies": {

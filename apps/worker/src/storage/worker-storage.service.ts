@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { presignS3Get } from '@ecosuitability/runtime-utils';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { WorkerEnvironment } from '../env';
@@ -74,5 +75,9 @@ export class WorkerStorageService {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
+  }
+
+  public async presignGet(key: string, expiresIn: number): Promise<string> {
+    return presignS3Get(this.client, this.bucket, key, expiresIn);
   }
 }

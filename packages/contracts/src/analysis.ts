@@ -441,3 +441,118 @@ export const analysisConfigurationResponseSchema = z.object({
 });
 
 export type AnalysisConfigurationResponse = z.infer<typeof analysisConfigurationResponseSchema>;
+
+export const scientificValidationFailureCodeSchema = z.enum([
+  'INPUT_RESOURCE_LIMIT_EXCEEDED',
+  'OCCURRENCE_RECORD_LIMIT_EXCEEDED',
+  'OCCURRENCE_FILE_UNREADABLE',
+  'OCCURRENCE_FORMAT_INVALID',
+  'OCCURRENCE_SCHEMA_INVALID',
+  'OCCURRENCE_COORDINATES_INVALID',
+  'OCCURRENCE_SPECIES_INVALID',
+  'OCCURRENCE_MINIMUM_NOT_MET',
+  'OCCURRENCE_PARTITION_INVALID',
+  'OCCURRENCE_GEOMETRY_INVALID',
+  'OCCURRENCE_CRS_MISSING',
+  'OCCURRENCE_CRS_INCOMPATIBLE',
+  'PREDICTOR_FILE_UNREADABLE',
+  'PREDICTOR_GEOTIFF_INVALID',
+  'PREDICTOR_LAYER_COUNT_INVALID',
+  'PREDICTOR_CRS_INCOMPATIBLE',
+  'PREDICTOR_GRID_INCOMPATIBLE',
+  'PREDICTOR_VALUES_INVALID',
+  'PREDICTOR_CATEGORICAL_INVALID',
+  'PREDICTOR_COVERAGE_INSUFFICIENT',
+  'BACKGROUND_CAPACITY_INSUFFICIENT',
+]);
+
+export type ScientificValidationFailureCode = z.infer<typeof scientificValidationFailureCodeSchema>;
+
+export const rValidationEventsResponseSchema = z.object({
+  events: z
+    .array(
+      z.object({
+        sequence: z.number().int().nonnegative(),
+        stage: z.enum(['accepted', 'downloading', 'parsing', 'validating', 'completed']),
+        percent: z.number().int().min(0).max(100),
+        message: z.string().max(256),
+      })
+    )
+    .max(100),
+  nextSequence: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  state: z.enum(['accepted', 'running', 'succeeded', 'failed', 'cancelling', 'cancelled']),
+  summary: z
+    .object({
+      acceptedOccurrences: z.number().int().nonnegative(),
+      deduplicatedOccurrences: z.number().int().nonnegative(),
+      selectedPredictors: z.number().int().positive(),
+      validatedAt: z.string().datetime(),
+    })
+    .nullable(),
+  failureCode: scientificValidationFailureCodeSchema.nullable(),
+});
+
+export type RValidationEventsResponse = z.infer<typeof rValidationEventsResponseSchema>;
+
+export const rRuntimeFailureCodeSchema = z.enum([
+  'R_RUNTIME_UNAVAILABLE',
+  'R_RUNTIME_TIMEOUT',
+  'R_RUNTIME_PROTOCOL_INVALID',
+  'R_RUNTIME_CANCEL_FAILED',
+]);
+
+export type RRuntimeFailureCode = z.infer<typeof rRuntimeFailureCodeSchema>;
+
+export const rValidationFailureCodeSchema = z.union([
+  scientificValidationFailureCodeSchema,
+  rRuntimeFailureCodeSchema,
+]);
+
+export type RValidationFailureCode = z.infer<typeof rValidationFailureCodeSchema>;
+
+export const rValidationEventSchema = z
+  .object({
+    sequence: z.number().int().nonnegative(),
+    stage: z.enum(['accepted', 'downloading', 'parsing', 'validating', 'completed']),
+    percent: z.number().int().min(0).max(100),
+    message: z.string().min(1).max(256),
+  })
+  .strict();
+
+export type RValidationEvent = z.infer<typeof rValidationEventSchema>;
+
+export const rValidationRunStateSchema = z.enum([
+  'accepted',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelling',
+  'cancelled',
+]);
+
+export type RValidationRunState = z.infer<typeof rValidationRunStateSchema>;
+
+export const rValidationSummarySchema = z
+  .object({
+    acceptedOccurrences: z.number().int().nonnegative(),
+    deduplicatedOccurrences: z.number().int().nonnegative(),
+    selectedPredictors: z.number().int().positive(),
+    validatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export type RValidationSummary = z.infer<typeof rValidationSummarySchema>;
+
+export const rValidationEventsPageSchema = z
+  .object({
+    events: z.array(rValidationEventSchema).max(100),
+    nextSequence: z.number().int().nonnegative(),
+    hasMore: z.boolean(),
+    state: rValidationRunStateSchema,
+    summary: rValidationSummarySchema.nullable(),
+    failureCode: rValidationFailureCodeSchema.nullable(),
+  })
+  .strict();
+
+export type RValidationEventsPage = z.infer<typeof rValidationEventsPageSchema>;

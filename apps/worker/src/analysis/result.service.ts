@@ -237,7 +237,13 @@ export class ResultService {
   private bytes(kind: AnalysisArtifactKind, completedAt: string): Uint8Array {
     const value =
       kind === 'execution-summary'
-        ? JSON.stringify({ status: 'succeeded', completedAt })
+        ? JSON.stringify({
+            status: 'succeeded',
+            completedAt,
+            placeholder: true,
+            scientificModelExecuted: false,
+            validationCompleted: true,
+          })
         : `preparing\nvalidating-inputs\nexecuting\nfinalizing\ncompleted:${completedAt}\n`;
     return new TextEncoder().encode(value);
   }

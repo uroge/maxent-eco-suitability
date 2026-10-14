@@ -13,8 +13,13 @@ import {
   PublishResultScript,
   ScheduleCleanupScript,
   UpdateWorkerScript,
+  UpdateValidationScript,
 } from './worker-scripts';
 import type { AnalysisResultManifest } from '@ecosuitability/contracts';
+import type {
+  RValidationEvent,
+  RValidationSummary,
+} from '@ecosuitability/contracts';
 import type { ProvisionalArtifact, ProvisionalResult } from './result.service';
 
 const analysisKeyPrefix = 'ecosuitability:analysis:';
@@ -42,6 +47,46 @@ export class WorkerLifecycleRepository {
       ClaimWorkerScript,
       [this.analysisKey(analysisId)],
       [jobId, String(attempt), new Date().toISOString()],
+    );
+  }
+
+  public async executionSnapshot(
+    analysisId: string,
+  ): Promise<unknown | undefined> {
+    const payload = await this.redis
+      .getClient()
+      .get(this.analysisKey(analysisId));
+    if (!payload) {
+      return undefined;
+    }
+    const analysis = JSON.parse(payload) as { executionSnapshot?: unknown };
+    return analysis.executionSnapshot;
+  }
+
+  public async updateValidation(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+    event: RValidationEvent,
+    summary: RValidationSummary | null,
+    failureCode: string | null,
+  ): Promise<AnalysisWorkerClaimOutcome> {
+    return this.evalOutcome(
+      UpdateValidationScript,
+      [this.analysisKey(analysisId)],
+      [
+        jobId,
+        String(attempt),
+        JSON.stringify({
+          lastSequence: event.sequence,
+          stage: event.stage,
+          percent: event.percent,
+          summary,
+          failureCode,
+          updatedAt: new Date().toISOString(),
+        }),
+        new Date().toISOString(),
+      ],
     );
   }
 

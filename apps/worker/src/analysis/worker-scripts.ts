@@ -19,3 +19,5 @@ export const CompleteResultScript = readScript('complete-result.lua');
 export const PublishResultScript = readScript('publish-result.lua');
 
 export const CleanupProvisionalScript = readScript('cleanup-provisional.lua');
+
+export const UpdateValidationScript = readScript('update-validation.lua');

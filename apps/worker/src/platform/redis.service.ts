@@ -5,8 +5,12 @@ import {
 } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { ConfigService } from '@nestjs/config';
-import { createClient, type RedisClientType } from 'redis';
-import { withTimeout } from '@ecosuitability/runtime-utils';
+import type { RedisClientType } from 'redis';
+import {
+  closeRedisClient,
+  createRedisClient,
+  withTimeout,
+} from '@ecosuitability/runtime-utils';
 import type { WorkerEnvironment } from '../env';
 
 @Injectable()
@@ -17,15 +21,7 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
     config: ConfigService<WorkerEnvironment, true>,
     private readonly logger: Logger,
   ) {
-    this.client = createClient({
-      url: config.getOrThrow('REDIS_URL'),
-      socket: {
-        connectTimeout: 5000,
-        reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
-      },
-      disableOfflineQueue: true,
-    });
-    this.client.on('error', (error) => {
+    this.client = createRedisClient(config.getOrThrow('REDIS_URL'), (error) => {
       this.logger.error({ error }, 'Redis client error.');
     });
   }
@@ -40,19 +36,14 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       await withTimeout(this.client.ping(), 5000, 'Redis operation timed out.');
     } catch (error) {
       this.logger.error({ error }, 'Redis startup check failed.');
-
-      if (this.client.isOpen) {
-        await this.client.close();
-      }
+      await closeRedisClient(this.client, 5000, 'Redis operation timed out.');
 
       throw new Error('Redis is unavailable during startup.');
     }
   }
 
   public async onApplicationShutdown(): Promise<void> {
-    if (this.client.isOpen) {
-      await this.client.close();
-    }
+    await closeRedisClient(this.client, 5000, 'Redis operation timed out.');
   }
 
   public async isReady(): Promise<boolean> {

@@ -63,8 +63,15 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
       STORAGE_FORCE_PATH_STYLE: 'true'
+      R_RUNTIME_URL: http://analysis-r:8080
+      R_RUNTIME_SHARED_SECRET: ${R_RUNTIME_SHARED_SECRET:?Set R_RUNTIME_SHARED_SECRET in infrastructure/docker/.env.local}
+      R_RUNTIME_HTTP_TIMEOUT_MS: ${R_RUNTIME_HTTP_TIMEOUT_MS:-10000}
+      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-600000}
+      R_RUNTIME_INPUT_URL_TTL_SECONDS: ${R_RUNTIME_INPUT_URL_TTL_SECONDS:-900}
     depends_on:
       redis:
+        condition: service_healthy
+      analysis-r:
         condition: service_healthy
     restart: unless-stopped
   redis:
@@ -100,16 +107,32 @@ services:
     volumes: ['seaweedfs-data:/data']
     restart: unless-stopped
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8333/']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8333/']
       interval: 5s
       timeout: 3s
       retries: 10
   analysis-r:
-    profiles: ['analysis']
     build:
-      context: ../..
-      dockerfile: services/analysis-r/Dockerfile
-    command: ['sh', '-c', 'tail -f /dev/null']
+      context: ../../services/analysis-r
+      dockerfile: Dockerfile
+    environment:
+      R_RUNTIME_PORT: 8080
+      R_RUNTIME_SHARED_SECRET: ${R_RUNTIME_SHARED_SECRET:?Set R_RUNTIME_SHARED_SECRET in infrastructure/docker/.env.local}
+      R_RUNTIME_WORKSPACE_ROOT: /workspaces
+      R_RUNTIME_WORKSPACE_QUOTA_BYTES: ${R_RUNTIME_WORKSPACE_QUOTA_BYTES:-6442450944}
+      R_RUNTIME_CHILD_MEMORY_BYTES: ${R_RUNTIME_CHILD_MEMORY_BYTES:-2147483648}
+    read_only: true
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    tmpfs: ['/run/analysis-r:uid=10001,gid=10001,mode=0700,size=16m']
+    volumes: ['analysis-r-workspaces:/workspaces']
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 128
+    ulimits:
+      nofile: 256
+    restart: unless-stopped
 volumes:
   redis-data:
   seaweedfs-data:
+  analysis-r-workspaces:

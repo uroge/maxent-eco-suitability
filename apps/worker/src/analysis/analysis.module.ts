@@ -8,6 +8,7 @@ import {
 import type { WorkerEnvironment } from '../env';
 import { WorkerStorageModule } from '../storage/worker-storage.module';
 import { AnalysisProcessor } from './analysis.processor';
+import { RValidationClient } from './r-validation.client';
 import { ResultService } from './result.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 
@@ -33,6 +34,12 @@ import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
     }),
     BullModule.registerQueue({ name: analysisQueueName }),
   ],
-  providers: [WorkerLifecycleRepository, ResultService, AnalysisProcessor],
+  providers: [
+    WorkerLifecycleRepository,
+    ResultService,
+    RValidationClient,
+    AnalysisProcessor,
+  ],
+  exports: [RValidationClient],
 })
 export class AnalysisModule {}

@@ -3,6 +3,9 @@
 const { randomUUID, timingSafeEqual } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { createClient } = require('redis');
 
 const requestIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -37,6 +40,50 @@ const constantTimeBearerTokenEquals = (authorization, expected) => {
 
 const loadLuaScript = (directory, filename) => readFileSync(join(directory, filename), 'utf8');
 
+const createRedisClient = (url, onError) => {
+  const client = createClient({
+    url,
+    socket: {
+      connectTimeout: 5000,
+      reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
+    },
+    disableOfflineQueue: true,
+  });
+
+  client.on('error', onError);
+  return client;
+};
+
+const closeRedisClient = async (client, timeoutMs, message) => {
+  if (!client.isOpen) {
+    return;
+  }
+
+  try {
+    await withTimeout(client.close(), timeoutMs, message);
+  } catch {
+    if (client.isOpen) {
+      client.destroy();
+    }
+  }
+};
+
+const presignS3Get = (client, bucket, key, expiresIn) =>
+  getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
+
+const completeOnResponseEnd = (response, complete) => {
+  let completed = false;
+  const finish = () => {
+    if (!completed) {
+      completed = true;
+      complete();
+    }
+  };
+
+  response.once('finish', finish);
+  response.once('close', finish);
+};
+
 const canonicalizeJson = (value) => {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
     return JSON.stringify(value);
@@ -65,9 +112,13 @@ const canonicalizeJson = (value) => {
 };
 
 module.exports = {
+  closeRedisClient,
+  completeOnResponseEnd,
   constantTimeBearerTokenEquals,
   canonicalizeJson,
+  createRedisClient,
   loadLuaScript,
+  presignS3Get,
   resolveRequestId,
   withTimeout,
 };

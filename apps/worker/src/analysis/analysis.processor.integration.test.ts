@@ -121,6 +121,7 @@ describe.runIf(integrationEnabled)(
             },
           ),
         } as never,
+        { validate: vi.fn().mockResolvedValue(undefined) } as never,
       );
       await queue.setGlobalConcurrency(1);
       worker = new Worker(

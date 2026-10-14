@@ -13,6 +13,12 @@ import type { WorkerEnvironment } from '../env';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 import { LifecycleService } from '../platform/lifecycle.service';
 import { ResultService } from './result.service';
+import {
+  RValidationClient,
+  RValidationCancelledError,
+  RRuntimeError,
+  ScientificValidationError,
+} from './r-validation.client';
 
 const stages = [
   ['preparing', 25],
@@ -40,6 +46,7 @@ export class AnalysisProcessor
     private readonly logger: Logger,
     private readonly serviceLifecycle: LifecycleService,
     private readonly results: ResultService,
+    private readonly validation: RValidationClient,
   ) {
     super();
   }
@@ -101,23 +108,72 @@ export class AnalysisProcessor
         controller.abort(new Error('Analysis execution timed out.'));
       }, this.config.getOrThrow('ANALYSIS_EXECUTION_TIMEOUT_MS'));
 
-      for (const [stage, percent] of stages) {
-        await this.assertActive(
-          job,
-          attempt,
-          stage,
-          percent,
-          controller.signal,
-        );
-        await this.delay(controller.signal);
-      }
+      await this.assertActive(job, attempt, 'preparing', 25, controller.signal);
+      await this.delay(controller.signal);
+      await this.assertActive(
+        job,
+        attempt,
+        'validating-inputs',
+        50,
+        controller.signal,
+      );
+      await this.validation.validate(
+        job.data.analysisId,
+        job.id,
+        attempt,
+        controller.signal,
+        async (event, summary) => {
+          const outcome = await this.lifecycle.updateValidation(
+            job.data.analysisId,
+            job.id!,
+            attempt,
+            event,
+            summary,
+            null,
+          );
+          if (outcome === 'cancelled') {
+            await this.lifecycle.finaliseCancellation(job.data.analysisId);
+            throw new ExecutionCancelledError(
+              'Analysis execution was cancelled.',
+            );
+          }
+          if (outcome === 'dependency_unavailable') {
+            throw new RetryableExecutionError(
+              'Lifecycle state is unavailable.',
+            );
+          }
+          if (outcome === 'stale_attempt' || outcome === 'terminal') {
+            throw new ExecutionCancelledError(
+              'Analysis execution is no longer current.',
+            );
+          }
+          await job.updateProgress({
+            stage: 'validating-inputs',
+            percent: Math.max(25, Math.min(50, event.percent)),
+            attempt,
+          });
+        },
+      );
+      await this.assertActive(job, attempt, 'executing', 75, controller.signal);
+      await this.delay(controller.signal);
+      await this.assertActive(
+        job,
+        attempt,
+        'finalizing',
+        100,
+        controller.signal,
+      );
+      await this.delay(controller.signal);
 
       const outcome = await this.results.publish(job, attempt);
       if (outcome === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
       }
     } catch (error) {
-      if (error instanceof ExecutionCancelledError) {
+      if (
+        error instanceof ExecutionCancelledError ||
+        error instanceof RValidationCancelledError
+      ) {
         return;
       }
 
@@ -170,7 +226,9 @@ export class AnalysisProcessor
     const message =
       error instanceof Error ? error.message : 'Execution failed.';
     const totalAttempts = job.opts.attempts ?? 1;
-    const isFinalAttempt = job.attemptsMade + 1 >= totalAttempts;
+    const isFinalAttempt =
+      error instanceof ScientificValidationError ||
+      job.attemptsMade + 1 >= totalAttempts;
     const status = isFinalAttempt ? 'failed' : 'queued';
     const progress = this.progress(
       isFinalAttempt ? 'failed' : 'retrying',
@@ -183,7 +241,14 @@ export class AnalysisProcessor
       attempt,
       status,
       isFinalAttempt
-        ? { code: 'EXECUTION_FAILED', message: 'Analysis execution failed.' }
+        ? {
+            code:
+              error instanceof ScientificValidationError ||
+              error instanceof RRuntimeError
+                ? error.message
+                : 'EXECUTION_FAILED',
+            message: 'Analysis execution failed.',
+          }
         : null,
       progress,
     );

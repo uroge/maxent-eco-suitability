@@ -41,12 +41,52 @@ exactly one occurrence dataset and at least one predictor dataset are
 storage-verified, attached, and immutable. `queued` means a durable execution
 request exists; a leased reconciler inserts the deterministic BullMQ job
 (`jobId = analysisId`) and repairs undispatched outbox records after failures.
-The current worker runs four deterministic no-op stages, reports progress,
-retries up to three total attempts with five-second exponential backoff, and has
-global queue concurrency one. A future configuration phase will validate
-execution settings before queue submission; a future R phase replaces only the
-no-op executor. `draft`, `uploading`, and `ready` can become `cancelled` or
-`expired`.
+The worker reports progress, retries up to three total attempts with five-second
+exponential backoff, and has global queue concurrency one. Its scientific-input
+validation stage calls the private `analysis-r` service, while the remaining
+deterministic placeholder stages do not claim that a scientific model ran.
+`analysis-r` has one replica, no public port, no Redis/Clerk/object-storage
+credentials, a read-only root filesystem, a small control-only tmpfs, and a
+dedicated disk-backed workspace volume. The worker passes only short-lived
+signed GET capabilities for frozen input objects. The runtime uses HMAC-authenticated
+requests and sequenced polling; it has no callback endpoint. A runtime restart
+forgets in-memory runs, and BullMQ safely recreates the same semantic run.
+
+The R runtime validates the frozen input files before placeholder execution:
+at most 500 occurrence records, 20 selected predictors, 5 GiB aggregate inputs,
+2 GiB per predictor, 100 million cells per raster, and 500 million cells across
+predictors. It rejects unsupported geometry, CRS/grid incompatibility, invalid
+coverage, unsafe input complexity, and invalid partitions using stable safe
+codes. It does not fit MaxEnt in this phase. The placeholder summary explicitly
+contains `placeholder: true`, `scientificModelExecuted: false`, and
+`validationCompleted: true`.
+
+The R image is reproducible through `renv`; generate `services/analysis-r/renv.lock`
+after changing `scripts/bootstrap-renv.R`, never by hand:
+
+```sh
+docker build --target bootstrap -t ecosuitability-analysis-r-bootstrap \
+  -f services/analysis-r/Dockerfile services/analysis-r
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/services/analysis-r:/opt/analysis-r" \
+  ecosuitability-analysis-r-bootstrap Rscript scripts/bootstrap-renv.R
+```
+
+Record the resulting lockfile in Git. Local/prod deployments require a shared
+random `R_RUNTIME_SHARED_SECRET` (32+ bytes), `R_RUNTIME_URL`, a 10-second HTTP
+timeout, ten-minute run deadline, 15-minute input-capability expiry, a 6 GiB
+workspace quota, and a 2 GiB child R memory limit. The deployed host must reserve
+at least 20 GiB of workspace disk; 8 GiB Docker memory is recommended for the
+full SeaweedFS/R integration suite.
+
+`services/analysis-r/system-packages.txt` is the reviewed OS dependency manifest
+for the pinned R package set. It covers the compiled geospatial stack (`sf`,
+`s2`, and `terra`) and its CMake, GDAL, GEOS, PROJ, Abseil, Protobuf, OpenSSL,
+and `pkg-config` dependencies. Update it deliberately when the R dependency
+set changes, then verify a clean bootstrap build rather than adding packages in
+response to an incidental runtime failure.
+
+`draft`, `uploading`, and `ready` can become `cancelled` or `expired`.
 
 Successful deterministic runs create a crash-safe provisional result record
 before writing output. The worker produces `execution-summary.json` and

@@ -1,8 +1,14 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import runtimeUtils from './index.cjs';
 
-const { canonicalizeJson, constantTimeBearerTokenEquals, resolveRequestId, withTimeout } =
-  runtimeUtils;
+const {
+  canonicalizeJson,
+  completeOnResponseEnd,
+  constantTimeBearerTokenEquals,
+  resolveRequestId,
+  withTimeout,
+} = runtimeUtils;
 
 describe('runtime utils', () => {
   it('canonicalizes JSON object keys and numeric negative zero', () => {
@@ -26,5 +32,18 @@ describe('runtime utils', () => {
     await expect(
       withTimeout(new Promise((resolve) => setTimeout(resolve, 25)), 1, 'Timed out.')
     ).rejects.toThrow('Timed out.');
+  });
+
+  it('completes a response lifecycle only once', () => {
+    const response = new EventEmitter();
+    let completions = 0;
+
+    completeOnResponseEnd(response, () => {
+      completions += 1;
+    });
+    response.emit('finish');
+    response.emit('close');
+
+    expect(completions).toBe(1);
   });
 });

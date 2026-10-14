@@ -1,0 +1,26 @@
+# Native build and runtime dependencies for the pinned R package set in
+# scripts/bootstrap-renv.R. Keep this file reviewed alongside renv.lock.
+build-essential
+cmake
+curl
+gdal-bin
+libabsl-dev
+libbz2-dev
+libcurl4-openssl-dev
+libgdal-dev
+libgeos-dev
+libicu-dev
+liblzma-dev
+libproj-dev
+libprotobuf-dev
+libsodium-dev
+libsodium23
+libsqlite3-dev
+libssl-dev
+libx11-dev
+libudunits2-dev
+libxml2-dev
+make
+pkg-config
+protobuf-compiler
+zlib1g-dev

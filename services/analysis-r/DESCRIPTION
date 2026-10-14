@@ -1,0 +1,21 @@
+Type: Project
+Package: ecosuitabilityanalysisr
+Title: EcoSuitability Analysis R Runtime
+Version: 0.0.0
+Description: Runtime dependency manifest for the isolated R validation service.
+License: UNLICENSED
+Encoding: UTF-8
+Depends:
+    R (>= 4.6.1)
+Imports:
+    curl,
+    digest,
+    jsonlite,
+    openssl,
+    plumber,
+    processx,
+    readr,
+    readxl,
+    sf,
+    stringi,
+    terra

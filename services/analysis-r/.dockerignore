@@ -1,0 +1,7 @@
+# The lockfile, not the host-specific package library, defines runtime dependencies.
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/sandbox/
+renv/staging/
