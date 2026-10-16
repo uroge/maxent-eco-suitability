@@ -282,7 +282,7 @@ predictor_configuration <- list(
     list(datasetId = "categorical", variableName = "land_cover", type = "categorical")
   )
 )
-coordinates <- terra::xyFromCell(raster_a, c(1L, 2L, 3L, 4L))
+coordinates <- terra::xyFromCell(raster_a, c(1L, 2L, 3L, 4L, 5L))
 validated <- validate_predictors(
   datasets,
   files,
@@ -336,7 +336,7 @@ excluded_coverage <- validate_predictors(
   "EPSG:4326",
   coordinates
 )
-if (attr(excluded_coverage, "coverage_percent") != 75) {
+if (attr(excluded_coverage, "coverage_percent") != 80) {
   stop("Occurrence coverage percentage is incorrect.", call. = FALSE)
 }
 expect_code(
@@ -348,7 +348,7 @@ expect_code(
       inputValidation = list(
         coordinatePolicy = "reject-all",
         coveragePolicy = "exclude-uncovered",
-        minimumCoveragePercent = 80L
+        minimumCoveragePercent = 81L
       )
     ),
     "EPSG:4326",
