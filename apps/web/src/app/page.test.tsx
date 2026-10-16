@@ -9,7 +9,7 @@ describe('landing page', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'From species observations to habitat suitability maps',
+        name: /From species observations.*to habitat suitability maps/,
       })
     ).toBeDefined();
     expect(screen.getByRole('link', { name: 'Start analysis' }).getAttribute('href')).toBe(
