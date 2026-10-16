@@ -36,6 +36,16 @@ export declare const presignS3Get: (
   expiresIn: number
 ) => Promise<string>;
 
+export declare const presignS3Put: (
+  client: S3Client,
+  bucket: string,
+  key: string,
+  expiresIn: number,
+  contentType: string,
+  contentDisposition: string,
+  sha256: string
+) => Promise<string>;
+
 export declare const completeOnResponseEnd: (
   response: {
     once: (event: 'finish' | 'close', listener: () => void) => unknown;

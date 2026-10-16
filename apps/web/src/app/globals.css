@@ -2,5 +2,7 @@
 @import '@ecosuitability/ui/styles.css';
 
 html {
+  --font-inter: 'Inter Variable';
+  --font-jetbrains-mono: 'JetBrains Mono Variable';
   background: var(--background);
 }

@@ -5,9 +5,13 @@ dir.create(bootstrap_library, recursive = TRUE, showWarnings = FALSE)
 .libPaths(c(bootstrap_library, .libPaths()))
 
 packages <- c(
+  "class",
+  "KernSmooth",
   "plumber",
   "processx",
   "jsonlite",
+  "maxnet",
+  "glmnet",
   "curl",
   "readr",
   "readxl",

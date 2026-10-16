@@ -16,6 +16,16 @@ emit_event <- function(emit, stage, percent, message) {
   emit(list(kind = "event", stage = stage, percent = percent, message = message))
 }
 
+extract_raster_values <- function(raster, coordinates) {
+  extracted <- as.data.frame(terra::extract(raster, coordinates))
+  layer_count <- terra::nlyr(raster)
+  if (ncol(extracted) == layer_count + 1L && identical(names(extracted)[[1L]], "ID")) {
+    extracted <- extracted[, -1L, drop = FALSE]
+  }
+  if (ncol(extracted) != layer_count) abort_validation("PREDICTOR_VALUES_INVALID")
+  extracted
+}
+
 capability_map <- function(capabilities) {
   entries <- capabilities$capabilities
   if (is.null(entries) || length(entries) == 0L || length(entries) > 128L) abort_validation("R_RUNTIME_PROTOCOL_INVALID")
@@ -35,6 +45,15 @@ download_file <- function(file, urls, workspace, index, failure_code) {
   }, error = function(error) NULL)
   if (is.null(result) || !file.exists(result)) abort_validation(failure_code)
   if (file.info(result)$size != file$size) abort_validation(failure_code)
+  if (
+    is.null(file$declaredSha256) ||
+      !identical(
+        tolower(digest::digest(file = result, algo = "sha256", serialize = FALSE)),
+        tolower(file$declaredSha256)
+      )
+  ) {
+    abort_validation(failure_code)
+  }
   target
 }
 
@@ -63,7 +82,11 @@ read_occurrences <- function(dataset, files, configuration) {
     if (nrow(shape) > 500L || any(sf::st_geometry_type(shape) != "POINT")) abort_validation("OCCURRENCE_GEOMETRY_INVALID")
     coordinates <- sf::st_coordinates(shape)
     if (ncol(coordinates) != 2L) abort_validation("OCCURRENCE_GEOMETRY_INVALID")
-    return(list(coordinates = coordinates, crs = "EPSG:4326", species = NULL))
+    shape_crs <- sf::st_crs(shape)
+    if (is.na(shape_crs)) {
+      shape_crs <- sf::st_crs(4326)
+    }
+    return(list(coordinates = coordinates, crs = shape_crs$wkt, species = NULL))
   } else if (identical(format, "shapefile")) {
     shp <- files[[which(vapply(dataset$files, function(file) identical(file$component, "shp"), logical(1)))]]
     shape <- tryCatch(sf::st_read(shp, quiet = TRUE), error = function(error) NULL)
@@ -96,10 +119,14 @@ validate_predictors <- function(datasets, files_by_dataset, configuration, occur
     if (is.null(raster)) abort_validation("PREDICTOR_GEOTIFF_INVALID")
     if (terra::nlyr(raster) != 1L) abort_validation("PREDICTOR_LAYER_COUNT_INVALID")
     if (terra::ncell(raster) > 100000000L) abort_validation("INPUT_RESOURCE_LIMIT_EXCEEDED")
-    if (is.na(terra::crs(raster)) || identical(terra::crs(raster), "")) abort_validation("PREDICTOR_CRS_INCOMPATIBLE")
+    if (identical(terra::crs(raster), "")) abort_validation("PREDICTOR_CRS_INCOMPATIBLE")
     if (length(raster_list) > 0L && !terra::compareGeom(raster_list[[1L]], raster, stopOnError = FALSE)) abort_validation("PREDICTOR_GRID_INCOMPATIBLE")
-    if (identical(occurrence_crs, "EPSG:4326") && !sf::st_crs(terra::crs(raster)) == sf::st_crs(4326)) abort_validation("PREDICTOR_CRS_INCOMPATIBLE")
-    values <- terra::extract(raster, coordinates)[, 2L]
+    raster_crs <- sf::st_crs(terra::crs(raster))
+    occurrence_reference <- sf::st_crs(occurrence_crs)
+    if (is.na(raster_crs) || is.na(occurrence_reference) || !isTRUE(raster_crs == occurrence_reference)) {
+      abort_validation("PREDICTOR_CRS_INCOMPATIBLE")
+    }
+    values <- extract_raster_values(raster, coordinates)[[1L]]
     if (any(!is.finite(values))) abort_validation("PREDICTOR_COVERAGE_INSUFFICIENT")
     if (identical(predictor$type, "categorical")) {
       if (any(values != floor(values)) || length(unique(values)) < 2L || length(unique(values)) > 256L) abort_validation("PREDICTOR_CATEGORICAL_INVALID")
@@ -107,9 +134,10 @@ validate_predictors <- function(datasets, files_by_dataset, configuration, occur
     raster_list[[length(raster_list) + 1L]] <- raster
   }
   if (sum(vapply(raster_list, terra::ncell, numeric(1))) > 500000000L) abort_validation("INPUT_RESOURCE_LIMIT_EXCEEDED")
+  raster_list
 }
 
-validate_run <- function(request, capabilities, workspace, emit) {
+validate_run <- function(request, capabilities, workspace, emit, capability_path = NULL) {
   configuration <- request$configuration
   manifest <- request$inputManifest
   if (is.null(configuration) || is.null(manifest$datasets)) abort_validation("R_RUNTIME_PROTOCOL_INVALID")
@@ -124,6 +152,13 @@ validate_run <- function(request, capabilities, workspace, emit) {
     paths <- list()
     failure_code <- if (identical(dataset$dataset$kind, "occurrence")) "OCCURRENCE_FILE_UNREADABLE" else "PREDICTOR_FILE_UNREADABLE"
     for (file in dataset$files) {
+      if (!is.null(capability_path)) {
+        refreshed <- tryCatch(
+          jsonlite::read_json(capability_path, simplifyVector = FALSE),
+          error = function(error) NULL
+        )
+        if (!is.null(refreshed)) urls <- capability_map(refreshed)
+      }
       cursor <- cursor + 1L
       paths[[length(paths) + 1L]] <- download_file(file, urls, workspace, cursor, failure_code)
     }
@@ -149,7 +184,15 @@ validate_run <- function(request, capabilities, workspace, emit) {
   }
   emit_event(emit, "validating", 60L, "Validating selected predictor rasters.")
   datasets <- stats::setNames(manifest$datasets, vapply(manifest$datasets, function(dataset) dataset$dataset$id, character(1)))
-  validate_predictors(datasets, files_by_dataset, configuration, records$crs, coordinates)
+  rasters <- validate_predictors(datasets, files_by_dataset, configuration, records$crs, coordinates)
   emit_event(emit, "validating", 90L, "Scientific input validation completed.")
-  list(acceptedOccurrences = nrow(coordinates), deduplicatedOccurrences = sum(!unique_rows), selectedPredictors = length(configuration$predictors), validatedAt = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"))
+  list(
+    summary = list(acceptedOccurrences = nrow(coordinates), deduplicatedOccurrences = sum(!unique_rows), selectedPredictors = length(configuration$predictors), validatedAt = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")),
+    coordinates = coordinates,
+    occurrenceCrs = records$crs,
+    rasters = rasters,
+    configuration = configuration,
+    configurationFingerprint = request$configurationFingerprint,
+    inputFingerprint = request$inputFingerprint
+  )
 }

@@ -3,8 +3,9 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
 } from '@aws-sdk/client-s3';
-import { presignS3Get } from '@ecosuitability/runtime-utils';
+import { presignS3Get, presignS3Put } from '@ecosuitability/runtime-utils';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { WorkerEnvironment } from '../env';
@@ -66,8 +67,14 @@ export class WorkerStorageService {
         contentDisposition: response.ContentDisposition,
         sha256: response.Metadata?.sha256,
       };
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (
+        error instanceof S3ServiceException &&
+        (error.$metadata.httpStatusCode === 404 || error.name === 'NotFound')
+      ) {
+        return undefined;
+      }
+      throw error;
     }
   }
 
@@ -79,5 +86,23 @@ export class WorkerStorageService {
 
   public async presignGet(key: string, expiresIn: number): Promise<string> {
     return presignS3Get(this.client, this.bucket, key, expiresIn);
+  }
+
+  public async presignPut(
+    key: string,
+    expiresIn: number,
+    contentType: string,
+    contentDisposition: string,
+    sha256: string,
+  ): Promise<string> {
+    return presignS3Put(
+      this.client,
+      this.bucket,
+      key,
+      expiresIn,
+      contentType,
+      contentDisposition,
+      sha256,
+    );
   }
 }

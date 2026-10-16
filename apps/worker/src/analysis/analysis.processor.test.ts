@@ -21,12 +21,21 @@ const createServiceLifecycle = () => ({
 });
 
 const createResultService = () => ({
-  resumeVerified: vi.fn().mockResolvedValue('not-verified'),
-  publish: vi.fn().mockResolvedValue('succeeded'),
+  resumeAvailable: vi.fn().mockResolvedValue('not-ready'),
+  provision: vi.fn().mockResolvedValue({
+    candidateCompletedAt: '2026-09-02T12:00:00.000Z',
+    artifacts: [],
+  }),
+  beginUpload: vi
+    .fn()
+    .mockImplementation(async (_job, _attempt, provisional) => provisional),
+  uploadCapabilities: vi.fn().mockResolvedValue([]),
+  verifyAndPublish: vi.fn().mockResolvedValue('succeeded'),
 });
 
 const createValidationClient = () => ({
-  validate: vi.fn().mockResolvedValue(undefined),
+  validate: vi.fn().mockResolvedValue({ summary: null, artifacts: [] }),
+  acknowledge: vi.fn().mockResolvedValue(undefined),
 });
 
 describe('AnalysisProcessor', () => {
@@ -57,8 +66,12 @@ describe('AnalysisProcessor', () => {
       job.id,
       1,
     );
-    expect(lifecycle.updateProgress).toHaveBeenCalledTimes(4);
-    expect(results.publish).toHaveBeenCalledWith(job, 1);
+    expect(lifecycle.updateProgress).toHaveBeenCalledTimes(2);
+    expect(results.verifyAndPublish).toHaveBeenCalledWith(
+      job,
+      1,
+      expect.any(Object),
+    );
     expect(serviceLifecycle.endJob).toHaveBeenCalledOnce();
   }, 15_000);
 

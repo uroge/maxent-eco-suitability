@@ -318,7 +318,7 @@ The queue and object-storage boundaries allow the worker to be moved to dedicate
 | Raster GIS         | `terra`                    | Raster loading, validation, extraction and prediction              |
 | Vector GIS         | `sf`                       | Occurrence points, vectors, CRS operations and GeoJSON             |
 | Production storage | Cloudflare R2              | Temporary uploaded inputs and generated artifacts                  |
-| Local storage      | MinIO                      | S3-compatible local replacement for R2                             |
+| Local storage      | SeaweedFS                  | S3-compatible local replacement for R2                             |
 | R dependencies     | `renv`                     | Reproducible R package environment                                 |
 | Workspace          | pnpm workspaces, Turborepo | Shared packages, cached builds and CI                              |
 | Containers         | Docker / Docker Compose    | Reproducible local and production environments                     |
@@ -327,7 +327,7 @@ There is **no SQL database** in the architecture.
 
 Redis contains temporary runtime/job state only.
 
-R2/MinIO contains temporary analysis files only.
+R2/SeaweedFS contains temporary analysis files only.
 
 ---
 
@@ -377,7 +377,7 @@ infrastructure/
   docker/
     Dockerfiles
     Docker Compose
-    local Redis/MinIO configuration
+    local Redis/SeaweedFS configuration
 
 tests/
     Integration and end-to-end fixtures
@@ -702,7 +702,7 @@ NestJS API
    │
    ├──── BullMQ
    │
-   └──── MinIO
+   └──── SeaweedFS
              │
              ▼
           Worker
@@ -720,10 +720,10 @@ web
 api
 worker
 redis
-minio
+seaweedfs
 ```
 
-MinIO provides an S3-compatible API locally while Cloudflare R2 provides the same storage role in production.
+SeaweedFS provides an S3-compatible API locally while Cloudflare R2 provides the same storage role in production.
 
 The R worker image includes:
 
@@ -986,7 +986,7 @@ Redis
 BullMQ
 → asynchronous job delivery
 
-Cloudflare R2 / MinIO
+Cloudflare R2 / SeaweedFS
 → temporary scientific file storage
 
 Analysis Worker

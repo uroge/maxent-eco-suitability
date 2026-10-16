@@ -3,7 +3,7 @@
 const { randomUUID, timingSafeEqual } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { createClient } = require('redis');
 
@@ -71,6 +71,19 @@ const closeRedisClient = async (client, timeoutMs, message) => {
 const presignS3Get = (client, bucket, key, expiresIn) =>
   getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
 
+const presignS3Put = (client, bucket, key, expiresIn, contentType, contentDisposition, sha256) =>
+  getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      ContentDisposition: contentDisposition,
+      Metadata: { sha256 },
+    }),
+    { expiresIn }
+  );
+
 const completeOnResponseEnd = (response, complete) => {
   let completed = false;
   const finish = () => {
@@ -119,6 +132,7 @@ module.exports = {
   createRedisClient,
   loadLuaScript,
   presignS3Get,
+  presignS3Put,
   resolveRequestId,
   withTimeout,
 };

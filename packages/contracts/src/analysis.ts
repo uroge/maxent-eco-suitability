@@ -30,6 +30,15 @@ export const analysisStageSchema = z.enum([
   'queued',
   'preparing',
   'validating-inputs',
+  'downloading',
+  'parsing',
+  'validating',
+  'sampling-background',
+  'training',
+  'evaluating',
+  'projecting',
+  'writing-artifacts',
+  'uploading-artifacts',
   'executing',
   'finalizing',
   'retrying',
@@ -261,11 +270,51 @@ export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
 
 export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
 
-export const analysisArtifactKindSchema = z.enum(['execution-summary', 'run-log']);
+export const analysisArtifactKinds = [
+  'execution-summary',
+  'metrics',
+  'variable-importance',
+  'response-curves',
+  'suitability-raster',
+  'suitability-threshold-raster',
+  'occurrences',
+  'background',
+  'run-log',
+] as const;
+
+export const analysisArtifactKindSchema = z.enum(analysisArtifactKinds);
 
 export type AnalysisArtifactKind = z.infer<typeof analysisArtifactKindSchema>;
 
-export const workerSha256VerificationSchema = z.literal('worker-generated');
+export const analysisArtifactSpecifications: ReadonlyArray<{
+  kind: AnalysisArtifactKind;
+  filename: string;
+  contentType: string;
+}> = [
+  {
+    kind: 'execution-summary',
+    filename: 'execution-summary.json',
+    contentType: 'application/json',
+  },
+  { kind: 'metrics', filename: 'metrics.json', contentType: 'application/json' },
+  {
+    kind: 'variable-importance',
+    filename: 'variable-importance.json',
+    contentType: 'application/json',
+  },
+  { kind: 'response-curves', filename: 'response-curves.json', contentType: 'application/json' },
+  { kind: 'suitability-raster', filename: 'suitability.tif', contentType: 'image/tiff' },
+  {
+    kind: 'suitability-threshold-raster',
+    filename: 'suitability-threshold.tif',
+    contentType: 'image/tiff',
+  },
+  { kind: 'occurrences', filename: 'occurrences.geojson', contentType: 'application/geo+json' },
+  { kind: 'background', filename: 'background.geojson', contentType: 'application/geo+json' },
+  { kind: 'run-log', filename: 'run.log.txt', contentType: 'text/plain; charset=utf-8' },
+];
+
+export const workerSha256VerificationSchema = z.literal('worker-verified');
 
 export type WorkerSha256Verification = z.infer<typeof workerSha256VerificationSchema>;
 
@@ -282,12 +331,26 @@ export const analysisArtifactSchema = z.object({
 
 export type AnalysisArtifact = z.infer<typeof analysisArtifactSchema>;
 
-export const analysisResultManifestSchema = z.object({
-  analysisId: analysisIdSchema,
-  completedAt: z.string().datetime(),
-  resultExpiresAt: z.string().datetime(),
-  artifacts: z.array(analysisArtifactSchema).length(2),
-});
+const completeArtifactSet = <T extends { kind: AnalysisArtifactKind }>(artifacts: T[]): boolean =>
+  artifacts.length === analysisArtifactKinds.length &&
+  new Set(artifacts.map((artifact) => artifact.kind)).size === analysisArtifactKinds.length &&
+  analysisArtifactKinds.every((kind) => artifacts.some((artifact) => artifact.kind === kind));
+
+export const analysisResultManifestSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    completedAt: z.string().datetime(),
+    resultExpiresAt: z.string().datetime(),
+    artifacts: z.array(analysisArtifactSchema).length(analysisArtifactKinds.length),
+  })
+  .superRefine((value, context) => {
+    if (!completeArtifactSet(value.artifacts)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Result manifest must contain every artifact once.',
+      });
+    }
+  });
 
 export type AnalysisResultManifest = z.infer<typeof analysisResultManifestSchema>;
 
@@ -464,6 +527,11 @@ export const scientificValidationFailureCodeSchema = z.enum([
   'PREDICTOR_CATEGORICAL_INVALID',
   'PREDICTOR_COVERAGE_INSUFFICIENT',
   'BACKGROUND_CAPACITY_INSUFFICIENT',
+  'MODEL_TRAINING_FAILED',
+  'MODEL_EVALUATION_FAILED',
+  'MODEL_PROJECTION_FAILED',
+  'MODEL_THRESHOLD_INVALID',
+  'MODEL_ARTIFACT_GENERATION_FAILED',
 ]);
 
 export type ScientificValidationFailureCode = z.infer<typeof scientificValidationFailureCodeSchema>;
@@ -473,7 +541,19 @@ export const rValidationEventsResponseSchema = z.object({
     .array(
       z.object({
         sequence: z.number().int().nonnegative(),
-        stage: z.enum(['accepted', 'downloading', 'parsing', 'validating', 'completed']),
+        stage: z.enum([
+          'accepted',
+          'downloading',
+          'parsing',
+          'validating',
+          'sampling-background',
+          'training',
+          'evaluating',
+          'projecting',
+          'writing-artifacts',
+          'uploading-artifacts',
+          'completed',
+        ]),
         percent: z.number().int().min(0).max(100),
         message: z.string().max(256),
       })
@@ -481,7 +561,15 @@ export const rValidationEventsResponseSchema = z.object({
     .max(100),
   nextSequence: z.number().int().nonnegative(),
   hasMore: z.boolean(),
-  state: z.enum(['accepted', 'running', 'succeeded', 'failed', 'cancelling', 'cancelled']),
+  state: z.enum([
+    'accepted',
+    'running',
+    'awaiting-output-capabilities',
+    'succeeded',
+    'failed',
+    'cancelling',
+    'cancelled',
+  ]),
   summary: z
     .object({
       acceptedOccurrences: z.number().int().nonnegative(),
@@ -490,6 +578,8 @@ export const rValidationEventsResponseSchema = z.object({
       validatedAt: z.string().datetime(),
     })
     .nullable(),
+  artifacts: z.array(z.unknown()).nullable(),
+  candidateCompletedAt: z.string().datetime().nullable(),
   failureCode: scientificValidationFailureCodeSchema.nullable(),
 });
 
@@ -514,7 +604,19 @@ export type RValidationFailureCode = z.infer<typeof rValidationFailureCodeSchema
 export const rValidationEventSchema = z
   .object({
     sequence: z.number().int().nonnegative(),
-    stage: z.enum(['accepted', 'downloading', 'parsing', 'validating', 'completed']),
+    stage: z.enum([
+      'accepted',
+      'downloading',
+      'parsing',
+      'validating',
+      'sampling-background',
+      'training',
+      'evaluating',
+      'projecting',
+      'writing-artifacts',
+      'uploading-artifacts',
+      'completed',
+    ]),
     percent: z.number().int().min(0).max(100),
     message: z.string().min(1).max(256),
   })
@@ -525,6 +627,7 @@ export type RValidationEvent = z.infer<typeof rValidationEventSchema>;
 export const rValidationRunStateSchema = z.enum([
   'accepted',
   'running',
+  'awaiting-output-capabilities',
   'succeeded',
   'failed',
   'cancelling',
@@ -544,13 +647,117 @@ export const rValidationSummarySchema = z
 
 export type RValidationSummary = z.infer<typeof rValidationSummarySchema>;
 
+export const analysisThresholdMetricsSchema = z
+  .object({
+    threshold: z.number().finite().min(0).max(1),
+    sensitivity: z.number().finite().min(0).max(1),
+    specificity: z.number().finite().min(0).max(1),
+    truePositive: z.number().int().nonnegative(),
+    falseNegative: z.number().int().nonnegative(),
+    trueNegative: z.number().int().nonnegative(),
+    falsePositive: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const analysisMetricsArtifactSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    method: z.enum(['train-test-split', 'k-fold']),
+    folds: z.number().int().positive(),
+    auc: z.number().finite().min(0).max(1),
+    aucStandardDeviation: z.number().finite().nonnegative(),
+    threshold: analysisThresholdMetricsSchema,
+  })
+  .strict();
+
+export const analysisVariableImportanceArtifactSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    variables: z.array(
+      z
+        .object({
+          variable: z.string().min(1).max(64),
+          importance: z.number().finite().nonnegative(),
+          percent: z.number().finite().min(0).max(100),
+        })
+        .strict()
+    ),
+  })
+  .strict();
+
+export const analysisResponseCurvesArtifactSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    curves: z.array(
+      z
+        .object({
+          variable: z.string().min(1).max(64),
+          type: z.enum(['continuous', 'categorical']),
+          values: z.array(z.number().finite()).min(1),
+          suitability: z.array(z.number().finite().min(0).max(1)).min(1),
+        })
+        .strict()
+        .refine((curve) => curve.values.length === curve.suitability.length)
+    ),
+  })
+  .strict();
+
+export const analysisExecutionSummaryArtifactSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    placeholder: z.literal(false),
+    scientificModelExecuted: z.literal(true),
+    completedAt: z.string().datetime(),
+    configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
+    inputFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
+    validation: rValidationSummarySchema,
+    evaluationMethod: z.enum(['train-test-split', 'k-fold']),
+    threshold: z.number().finite().min(0).max(1),
+    runtime: z
+      .object({
+        R: z.string().min(1),
+        maxnet: z.string().min(1),
+        glmnet: z.string().min(1),
+        terra: z.string().min(1),
+        sf: z.string().min(1),
+        GDAL: z.string().min(1),
+        GEOS: z.string().min(1),
+        PROJ: z.string().min(1),
+      })
+      .strict(),
+    artifactSchemaVersion: z.literal(1),
+  })
+  .strict();
+
+export const rGeneratedArtifactSchema = z
+  .object({
+    kind: analysisArtifactKindSchema,
+    size: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  })
+  .strict();
+
+export type RGeneratedArtifact = z.infer<typeof rGeneratedArtifactSchema>;
+
+export const rGeneratedArtifactSetSchema = z
+  .array(rGeneratedArtifactSchema)
+  .length(analysisArtifactKinds.length)
+  .superRefine((value, context) => {
+    if (!completeArtifactSet(value)) {
+      context.addIssue({ code: 'custom', message: 'R runtime must produce every artifact once.' });
+    }
+  });
+
 export const rValidationEventsPageSchema = z
   .object({
+    generation: z.number().int().positive(),
     events: z.array(rValidationEventSchema).max(100),
     nextSequence: z.number().int().nonnegative(),
     hasMore: z.boolean(),
     state: rValidationRunStateSchema,
     summary: rValidationSummarySchema.nullable(),
+    artifacts: rGeneratedArtifactSetSchema.nullable(),
+    candidateCompletedAt: z.string().datetime().nullable(),
     failureCode: rValidationFailureCodeSchema.nullable(),
   })
   .strict();

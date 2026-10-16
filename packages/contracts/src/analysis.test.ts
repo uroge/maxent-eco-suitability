@@ -5,6 +5,8 @@ import {
   createAnalysisRequestSchema,
   idempotencyKeySchema,
   analysisConfigurationSchema,
+  analysisArtifactSpecifications,
+  analysisResultManifestSchema,
 } from './analysis';
 
 describe('analysis contracts', () => {
@@ -84,6 +86,36 @@ describe('analysis contracts', () => {
           },
         ],
         seed: 42,
+      }).success
+    ).toBe(false);
+  });
+
+  it('requires exactly one of every scientific result artifact', () => {
+    const artifacts = analysisArtifactSpecifications.map((definition, index) => ({
+      id: `ar_${String(index).padStart(32, '0')}`,
+      kind: definition.kind,
+      filename: definition.filename,
+      contentType: definition.contentType,
+      size: 1,
+      sha256: 'a'.repeat(64),
+      sha256Verification: 'worker-verified' as const,
+      createdAt: '2026-09-02T12:30:00.000Z',
+    }));
+    const manifest = {
+      analysisId: 'an_0123456789abcdef0123456789abcdef',
+      completedAt: '2026-09-02T12:30:00.000Z',
+      resultExpiresAt: '2026-09-04T12:30:00.000Z',
+      artifacts,
+    };
+
+    expect(analysisResultManifestSchema.safeParse(manifest).success).toBe(true);
+    expect(
+      analysisResultManifestSchema.safeParse({
+        ...manifest,
+        artifacts: artifacts.map((artifact) => ({
+          ...artifact,
+          kind: 'execution-summary' as const,
+        })),
       }).success
     ).toBe(false);
   });

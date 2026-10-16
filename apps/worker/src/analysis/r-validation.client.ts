@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   rValidationEventsPageSchema,
   type RValidationEvent,
+  type RGeneratedArtifact,
   type RValidationSummary,
 } from '@ecosuitability/contracts';
 import { ConfigService } from '@nestjs/config';
@@ -19,7 +20,12 @@ type ExecutionSnapshot = {
   inputManifest: {
     datasets: Array<{
       dataset: { id: string; kind: string; format: string };
-      files: Array<{ storageKey: string }>;
+      files: Array<{
+        storageKey: string;
+        size: number;
+        declaredSha256: string;
+        component?: string | null;
+      }>;
     }>;
   };
 };
@@ -28,6 +34,7 @@ type RunAccepted = {
   runId: string;
   state: string;
   eventSequence: number;
+  generation: number;
 };
 
 export class ScientificValidationError extends Error {
@@ -68,11 +75,17 @@ export class RValidationClient {
     onEvent: (
       event: RValidationEvent,
       summary: RValidationSummary | null,
+      generation: number,
     ) => Promise<void>,
-  ): Promise<RValidationSummary> {
+    onHeartbeat: () => Promise<void>,
+    onArtifactsReady: (
+      artifacts: RGeneratedArtifact[],
+      candidateCompletedAt: string,
+    ) => Promise<unknown[]>,
+  ): Promise<{ summary: RValidationSummary; artifacts: RGeneratedArtifact[] }> {
     const snapshot = await this.snapshot(analysisId);
     const inputManifest = this.selectedManifest(snapshot);
-    const runId = `${analysisId}.${attempt}`;
+    const runId = `${analysisId}.1`;
     const accepted = await this.request<RunAccepted>(
       'POST',
       '/v1/runs',
@@ -93,12 +106,24 @@ export class RValidationClient {
     }
 
     await this.refreshCapabilities(runId, inputManifest, signal);
+    let inputCapabilitiesIssuedAt = Date.now();
     const deadline =
       Date.now() + this.config.getOrThrow('R_RUNTIME_RUN_TIMEOUT_MS');
     let afterSequence = accepted.eventSequence;
+    let generation = accepted.generation;
+    let capabilitiesIssued = false;
+    let outputCapabilitiesIssuedAt = 0;
 
     try {
       while (Date.now() < deadline) {
+        await onHeartbeat();
+        if (
+          Date.now() - inputCapabilitiesIssuedAt >=
+          this.config.getOrThrow('R_RUNTIME_INPUT_URL_TTL_SECONDS') * 750
+        ) {
+          await this.refreshCapabilities(runId, inputManifest, signal);
+          inputCapabilitiesIssuedAt = Date.now();
+        }
         const page = rValidationEventsPageSchema.parse(
           await this.request<unknown>(
             'GET',
@@ -107,16 +132,55 @@ export class RValidationClient {
             signal,
           ),
         );
+        if (page.generation < generation) {
+          throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+        }
+        if (page.generation > generation) {
+          generation = page.generation;
+          afterSequence = 0;
+          capabilitiesIssued = false;
+          outputCapabilitiesIssuedAt = 0;
+          continue;
+        }
         for (const event of page.events) {
-          await onEvent(event, page.summary);
+          await onEvent(event, page.summary, page.generation);
         }
         afterSequence = page.nextSequence;
+
+        if (
+          (page.state === 'awaiting-output-capabilities' ||
+            page.state === 'running') &&
+          page.artifacts &&
+          page.candidateCompletedAt &&
+          (!capabilitiesIssued ||
+            Date.now() - outputCapabilitiesIssuedAt >=
+              this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS') * 750)
+        ) {
+          const capabilities = await onArtifactsReady(
+            page.artifacts,
+            page.candidateCompletedAt,
+          );
+          await this.request(
+            'PUT',
+            `/v1/runs/${encodeURIComponent(runId)}/output-capabilities`,
+            { capabilities },
+            signal,
+          );
+          capabilitiesIssued = true;
+          outputCapabilitiesIssuedAt = Date.now();
+        }
 
         if (page.state === 'succeeded') {
           if (!page.summary) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
           }
-          return page.summary;
+          if (!page.artifacts) {
+            throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+          }
+          if (!page.candidateCompletedAt) {
+            throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+          }
+          return { summary: page.summary, artifacts: page.artifacts };
         }
         if (page.state === 'failed') {
           if (!page.failureCode) {
@@ -136,10 +200,20 @@ export class RValidationClient {
     } catch (error) {
       if (signal.aborted) {
         await this.cancel(runId).catch(() => undefined);
-        throw new RValidationCancelledError('R validation was cancelled.');
+        throw new RRuntimeError('R_RUNTIME_TIMEOUT');
+      }
+      if (!(error instanceof RRuntimeError)) {
+        await this.cancel(runId).catch(() => undefined);
       }
       throw error;
     }
+  }
+
+  public async acknowledge(analysisId: string): Promise<void> {
+    await this.request(
+      'POST',
+      `/v1/runs/${encodeURIComponent(`${analysisId}.1`)}/complete`,
+    );
   }
 
   public async cancel(runId: string): Promise<void> {

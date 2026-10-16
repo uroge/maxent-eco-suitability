@@ -65,8 +65,9 @@ services:
       R_RUNTIME_URL: http://analysis-r:8080
       R_RUNTIME_SHARED_SECRET: ${R_RUNTIME_SHARED_SECRET:?Set R_RUNTIME_SHARED_SECRET in the production environment}
       R_RUNTIME_HTTP_TIMEOUT_MS: ${R_RUNTIME_HTTP_TIMEOUT_MS:-10000}
-      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-600000}
+      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-1800000}
       R_RUNTIME_INPUT_URL_TTL_SECONDS: ${R_RUNTIME_INPUT_URL_TTL_SECONDS:-900}
+      R_RUNTIME_OUTPUT_URL_TTL_SECONDS: ${R_RUNTIME_OUTPUT_URL_TTL_SECONDS:-900}
     ports: !reset []
     read_only: true
     cap_drop: ['ALL']
@@ -81,16 +82,7 @@ services:
       R_RUNTIME_WORKSPACE_ROOT: /workspaces
       R_RUNTIME_WORKSPACE_QUOTA_BYTES: ${R_RUNTIME_WORKSPACE_QUOTA_BYTES:-6442450944}
       R_RUNTIME_CHILD_MEMORY_BYTES: ${R_RUNTIME_CHILD_MEMORY_BYTES:-2147483648}
-    read_only: true
-    cap_drop: ['ALL']
-    security_opt: ['no-new-privileges:true']
-    tmpfs: ['/run/analysis-r:uid=10001,gid=10001,mode=0700,size=16m']
-    volumes: ['analysis-r-workspaces:/workspaces']
-    mem_limit: 3g
-    cpus: 2
-    pids_limit: 128
-    ulimits:
-      nofile: 256
+      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-1800000}
     ports: !reset []
     networks: [backend]
 

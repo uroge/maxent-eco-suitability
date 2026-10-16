@@ -49,9 +49,15 @@ const schema = z.object({
     .number()
     .int()
     .min(60000)
-    .max(10 * 60 * 1000)
-    .default(10 * 60 * 1000),
+    .max(30 * 60 * 1000)
+    .default(30 * 60 * 1000),
   R_RUNTIME_INPUT_URL_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(900)
+    .max(1800)
+    .default(900),
+  R_RUNTIME_OUTPUT_URL_TTL_SECONDS: z.coerce
     .number()
     .int()
     .min(900)

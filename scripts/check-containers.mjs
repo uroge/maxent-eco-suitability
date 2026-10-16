@@ -11,6 +11,8 @@ const composeEnvironment = {
   METRICS_TOKEN: process.env.METRICS_TOKEN ?? 'test-metrics-token-with-at-least-32-characters',
   WORKER_METRICS_TOKEN:
     process.env.WORKER_METRICS_TOKEN ?? 'test-worker-metrics-token-with-at-least-32-characters',
+  R_RUNTIME_SHARED_SECRET:
+    process.env.R_RUNTIME_SHARED_SECRET ?? 'test-r-runtime-secret-with-at-least-32-characters',
   STORAGE_BUCKET: process.env.STORAGE_BUCKET ?? 'ecosuitability',
   STORAGE_INTERNAL_ENDPOINT:
     process.env.STORAGE_INTERNAL_ENDPOINT ?? 'https://account-id.r2.cloudflarestorage.com',
@@ -59,7 +61,7 @@ const compose = JSON.parse(
   ])
 );
 
-for (const serviceName of ['api', 'worker', 'web']) {
+for (const serviceName of ['analysis-r', 'api', 'worker', 'web']) {
   const service = compose.services[serviceName];
 
   assert(service.read_only === true, `${serviceName} must use a read-only filesystem.`);
@@ -72,7 +74,7 @@ for (const serviceName of ['api', 'worker', 'web']) {
 
 assert(compose.services.caddy.ports?.length === 2, 'Only Caddy may publish ports.');
 
-for (const serviceName of ['api', 'worker', 'redis']) {
+for (const serviceName of ['analysis-r', 'api', 'worker', 'redis']) {
   assert(
     !compose.services[serviceName].ports?.length,
     `${serviceName} must not publish a host port in production.`
@@ -105,3 +107,8 @@ for (const image of ['ecosuitability-api', 'ecosuitability-worker', 'ecosuitabil
   ]);
   assert(!sourceMaps.trim(), `${image} must not contain source maps.`);
 }
+
+const rConfiguration = JSON.parse(
+  run('docker', ['image', 'inspect', 'ecosuitability-analysis-r'])
+)[0].Config;
+assert(rConfiguration.User === 'analysis', 'The R runtime must run as the non-root analysis user.');

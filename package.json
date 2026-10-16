@@ -27,6 +27,7 @@
     "docker:r:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up -d analysis-r",
     "docker:r:status": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml ps analysis-r",
     "docker:r:health": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml exec -T analysis-r Rscript scripts/healthcheck.R",
+    "docker:r:test": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml run --rm --no-deps analysis-r Rscript tests/test-model.R",
     "docker:r:logs": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml logs --follow analysis-r",
     "container:check": "node scripts/check-containers.mjs"
   },

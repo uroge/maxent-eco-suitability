@@ -28,11 +28,16 @@ COPY renv.lock ./renv.lock
 COPY renv ./renv
 RUN --mount=type=cache,target=/root/.cache/R/renv \
     Rscript -e "renv::restore(project = '/opt/analysis-r', library = '/opt/analysis-r/runtime-library', prompt = FALSE)"
-RUN Rscript -e "library <- '/opt/analysis-r/runtime-library'; .libPaths(c(library, .libPaths())); required <- c('plumber', 'processx', 'jsonlite', 'curl', 'readr', 'readxl', 'sf', 'terra', 'stringi', 'digest', 'openssl'); missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; if (length(missing)) stop(paste('Missing runtime packages:', paste(missing, collapse = ', ')))"
+RUN Rscript -e "library <- '/opt/analysis-r/runtime-library'; .libPaths(c(library, .libPaths())); required <- c('class', 'KernSmooth', 'maxnet', 'glmnet', 'plumber', 'processx', 'jsonlite', 'curl', 'readr', 'readxl', 'sf', 'terra', 'stringi', 'digest', 'openssl'); missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; if (length(missing)) stop(paste('Missing runtime packages:', paste(missing, collapse = ', ')))"
 
 COPY r ./r
 COPY scripts ./scripts
+COPY tests ./tests
 COPY .Rprofile ./.Rprofile
+
+RUN Rscript tests/test-validation.R \
+    && Rscript tests/test-model.R \
+    && Rscript tests/test-run-store.R
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin analysis \
     && mkdir -p /workspaces /run/analysis-r \

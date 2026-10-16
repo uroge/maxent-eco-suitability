@@ -14,9 +14,11 @@ import {
   ScheduleCleanupScript,
   UpdateWorkerScript,
   UpdateValidationScript,
+  VerifyResultScript,
 } from './worker-scripts';
 import type { AnalysisResultManifest } from '@ecosuitability/contracts';
 import type {
+  RGeneratedArtifact,
   RValidationEvent,
   RValidationSummary,
 } from '@ecosuitability/contracts';
@@ -70,6 +72,7 @@ export class WorkerLifecycleRepository {
     event: RValidationEvent,
     summary: RValidationSummary | null,
     failureCode: string | null,
+    generation: number,
   ): Promise<AnalysisWorkerClaimOutcome> {
     return this.evalOutcome(
       UpdateValidationScript,
@@ -79,6 +82,7 @@ export class WorkerLifecycleRepository {
         String(attempt),
         JSON.stringify({
           lastSequence: event.sequence,
+          generation,
           stage: event.stage,
           percent: event.percent,
           summary,
@@ -162,28 +166,73 @@ export class WorkerLifecycleRepository {
     jobId: string,
     attempt: number,
     provisional: ProvisionalResult,
-  ): Promise<ProvisionalResult | 'cancelled' | 'terminal' | 'stale_attempt'> {
+  ): Promise<
+    | ProvisionalResult
+    | 'cancelled'
+    | 'dependency_unavailable'
+    | 'terminal'
+    | 'stale_attempt'
+  > {
     const result = (await this.redis.getClient().eval(ProvisionResultScript, {
       keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
       arguments: [jobId, String(attempt), JSON.stringify(provisional)],
     })) as string[];
     return result[0] === 'provisioned'
       ? (JSON.parse(result[1]) as ProvisionalResult)
-      : (result[0] as 'cancelled' | 'terminal' | 'stale_attempt');
+      : (result[0] as
+          | 'cancelled'
+          | 'dependency_unavailable'
+          | 'terminal'
+          | 'stale_attempt');
   }
 
   public async completeResult(
     analysisId: string,
     jobId: string,
     attempt: number,
-  ): Promise<ProvisionalResult | 'cancelled' | 'stale_attempt'> {
+    candidateCompletedAt: string,
+    artifacts: RGeneratedArtifact[],
+  ): Promise<
+    | ProvisionalResult
+    | 'cancelled'
+    | 'dependency_unavailable'
+    | 'invalid'
+    | 'stale_attempt'
+  > {
     const result = (await this.redis.getClient().eval(CompleteResultScript, {
       keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
-      arguments: [jobId, String(attempt), new Date().toISOString()],
+      arguments: [
+        jobId,
+        String(attempt),
+        candidateCompletedAt,
+        JSON.stringify(artifacts),
+      ],
     })) as string[];
     return result[0] === 'ready'
       ? (JSON.parse(result[1]) as ProvisionalResult)
-      : (result[0] as 'cancelled' | 'stale_attempt');
+      : (result[0] as
+          'cancelled' | 'dependency_unavailable' | 'invalid' | 'stale_attempt');
+  }
+
+  public async verifyResult(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+  ): Promise<
+    | ProvisionalResult
+    | 'cancelled'
+    | 'dependency_unavailable'
+    | 'invalid'
+    | 'stale_attempt'
+  > {
+    const result = (await this.redis.getClient().eval(VerifyResultScript, {
+      keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
+      arguments: [jobId, String(attempt)],
+    })) as string[];
+    return result[0] === 'verified'
+      ? (JSON.parse(result[1]) as ProvisionalResult)
+      : (result[0] as
+          'cancelled' | 'dependency_unavailable' | 'invalid' | 'stale_attempt');
   }
 
   public async publishResult(
@@ -193,23 +242,6 @@ export class WorkerLifecycleRepository {
     manifest: AnalysisResultManifest,
     artifacts: ProvisionalArtifact[],
   ): Promise<'succeeded' | 'cancelled' | 'stale_attempt'> {
-    const provisional = await this.redis
-      .getClient()
-      .get(this.resultKey(analysisId));
-    if (!provisional) {
-      return 'stale_attempt';
-    }
-
-    const verified = {
-      ...(JSON.parse(provisional) as ProvisionalResult),
-      artifacts,
-      publicationState: 'verified',
-    };
-    await this.redis
-      .getClient()
-      .set(this.resultKey(analysisId), JSON.stringify(verified), {
-        KEEPTTL: true,
-      });
     const result = (await this.redis.getClient().eval(PublishResultScript, {
       keys: [
         this.analysisKey(analysisId),

@@ -1,4 +1,5 @@
 source("r/auth.R")
+source("r/artifacts.R")
 source("r/run-store.R")
 
 create_api <- function() {
@@ -26,6 +27,13 @@ create_api <- function() {
     res$status <- result$status
     result$body
   })
+  api$addEndpoint("PUT", "/v1/runs/<runId>/output-capabilities", function(req, res, runId) {
+    body <- parse_body(req, res)
+    if (is.null(body)) return(NULL)
+    result <- store$set_output_capabilities(runId, body)
+    res$status <- result$status
+    result$body
+  })
   api$addEndpoint("GET", "/v1/runs/<runId>/events", function(res, runId, afterSequence = "0", limit = "100") {
     result <- store$events(runId, afterSequence, limit)
     res$status <- result$status
@@ -33,6 +41,11 @@ create_api <- function() {
   })
   api$addEndpoint("DELETE", "/v1/runs/<runId>", function(res, runId) {
     result <- store$cancel(runId)
+    res$status <- result$status
+    result$body
+  })
+  api$addEndpoint("POST", "/v1/runs/<runId>/complete", function(res, runId) {
+    result <- store$complete(runId)
     res$status <- result$status
     result$body
   })

@@ -3,6 +3,7 @@
 build-essential
 cmake
 curl
+gfortran
 gdal-bin
 libabsl-dev
 libbz2-dev
@@ -11,6 +12,8 @@ libgdal-dev
 libgeos-dev
 libicu-dev
 liblzma-dev
+liblapack-dev
+libopenblas-dev
 libproj-dev
 libprotobuf-dev
 libsodium-dev
@@ -24,3 +27,4 @@ make
 pkg-config
 protobuf-compiler
 zlib1g-dev
+zip

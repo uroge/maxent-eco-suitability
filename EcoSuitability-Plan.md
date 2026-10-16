@@ -933,7 +933,7 @@ Use:
 ```text
 pnpm workspaces: dependency installation and workspace linking
 Turborepo: cached build, lint, typecheck, test, and development tasks
-Docker Compose: local Redis, MinIO, API, worker, and R runtime
+Docker Compose: local Redis, SeaweedFS, API, worker, and R runtime
 ```
 
 Example root scripts:
@@ -961,15 +961,15 @@ web
 api
 worker
 redis
-minio
+seaweedfs
 ```
 
-Use MinIO locally because it is S3-compatible.
+Use SeaweedFS locally because it is S3-compatible.
 
 Local:
 
 ```text
-MinIO
+SeaweedFS
 ```
 
 Production:
