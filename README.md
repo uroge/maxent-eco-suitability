@@ -132,7 +132,9 @@ Analysis data is temporary and automatically expires after the configured retent
 
 ### Occurrence Data
 
-Occurrence data can be uploaded as Excel or CSV.
+Occurrence data can be uploaded as Excel, CSV, GeoJSON, GeoPackage, or an
+explicit Shapefile component set. Environmental predictors accept GeoTIFF or a
+ZIP containing one GeoTIFF.
 
 Example:
 

@@ -97,6 +97,11 @@ export class ConfigurationService {
   ): UpdateAnalysisConfigurationRequest['configuration'] {
     return {
       ...configuration,
+      inputValidation: configuration.inputValidation ?? {
+        coordinatePolicy: 'reject-all',
+        coveragePolicy: 'require-all',
+        minimumCoveragePercent: 100,
+      },
       model: {
         ...configuration.model,
         featureClasses: [...configuration.model.featureClasses].sort(
@@ -128,7 +133,7 @@ export class ConfigurationService {
         .filter(
           (entry) =>
             entry.dataset.kind === 'predictor' &&
-            entry.dataset.format === 'geotiff',
+            ['geotiff', 'geotiff-zip'].includes(entry.dataset.format),
         )
         .map((entry) => [entry.dataset.id, entry]),
     );

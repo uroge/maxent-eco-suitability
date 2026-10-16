@@ -29,6 +29,8 @@ const occurrenceLimitBytes = 100 * 1024 * 1024;
 
 const predictorLimitBytes = 2 * 1024 * 1024 * 1024;
 
+const predictorArchiveLimitBytes = 500 * 1024 * 1024;
+
 const shapefileRequiredComponents: ShapefileComponent[] = ['shp', 'shx', 'dbf'];
 
 const shapefileAllowedComponents: ShapefileComponent[] = [
@@ -119,6 +121,12 @@ export class UploadService {
     }
 
     const component = this.validateFile(dataset, request);
+    if (
+      dataset.format === 'geotiff-zip' &&
+      request.size > predictorArchiveLimitBytes
+    ) {
+      throw this.validationError('The GeoTIFF archive exceeds the size limit.');
+    }
     const existingUploads = await this.repository.uploads(dataset);
     const totalSize =
       existingUploads.reduce((total, upload) => total + upload.size, 0) +
@@ -503,8 +511,8 @@ export class UploadService {
   ): void {
     const valid =
       kind === 'occurrence'
-        ? ['csv', 'xlsx', 'geojson', 'shapefile'].includes(format)
-        : format === 'geotiff';
+        ? ['csv', 'xlsx', 'geojson', 'gpkg', 'shapefile'].includes(format)
+        : ['geotiff', 'geotiff-zip'].includes(format);
     if (!valid) {
       throw this.validationError();
     }
@@ -534,11 +542,14 @@ export class UploadService {
       csv: ['csv'],
       xlsx: ['xlsx'],
       geojson: ['geojson', 'json'],
+      gpkg: ['gpkg'],
       geotiff: ['tif', 'tiff'],
+      'geotiff-zip': ['zip'],
     };
     if (
       file.component ||
-      !expectedExtension[dataset.format].includes(extension)
+      !expectedExtension[dataset.format].includes(extension) ||
+      !this.validContentType(dataset.format, file.contentType)
     ) {
       throw this.validationError();
     }
@@ -559,6 +570,41 @@ export class UploadService {
       PartNumber: part.partNumber,
       ETag: part.etag,
     }));
+  }
+
+  private validContentType(
+    format: Exclude<DatasetSession['format'], 'shapefile'>,
+    contentType: string | undefined,
+  ): boolean {
+    if (!contentType) {
+      return true;
+    }
+    const value = contentType.toLowerCase().split(';', 1)[0]?.trim();
+    const allowed: Record<typeof format, string[]> = {
+      csv: ['text/csv', 'application/csv', 'text/plain'],
+      xlsx: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/octet-stream',
+      ],
+      geojson: ['application/geo+json', 'application/json', 'text/json'],
+      gpkg: [
+        'application/geopackage+sqlite3',
+        'application/x-sqlite3',
+        'application/octet-stream',
+      ],
+      geotiff: [
+        'image/tiff',
+        'application/geotiff',
+        'application/x-geotiff',
+        'application/octet-stream',
+      ],
+      'geotiff-zip': [
+        'application/zip',
+        'application/x-zip-compressed',
+        'application/octet-stream',
+      ],
+    };
+    return Boolean(value && allowed[format].includes(value));
   }
 
   private objectKey(

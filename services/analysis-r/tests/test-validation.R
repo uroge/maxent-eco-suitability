@@ -147,6 +147,40 @@ geojson_result <- read_occurrences(
 )
 if (nrow(geojson_result$coordinates) != 10L) stop("GeoJSON occurrence parsing failed.")
 
+invalid_geojson_path <- file.path(workspace, "invalid-occurrences.geojson")
+invalid_geojson <- sf::st_as_sf(
+  data.frame(longitude = c(10, 200), latitude = c(44, 45)),
+  coords = c("longitude", "latitude"),
+  crs = 4326
+)
+sf::st_write(invalid_geojson, invalid_geojson_path, quiet = TRUE)
+expect_code(
+  read_occurrences(
+    list(dataset = list(format = "geojson")),
+    list(invalid_geojson_path),
+    list(occurrence = list(format = "geojson"))
+  ),
+  "OCCURRENCE_COORDINATES_INVALID"
+)
+excluded_geojson <- read_occurrences(
+  list(dataset = list(format = "geojson")),
+  list(invalid_geojson_path),
+  list(
+    occurrence = list(format = "geojson"),
+    inputValidation = list(
+      coordinatePolicy = "exclude-invalid",
+      coveragePolicy = "require-all",
+      minimumCoveragePercent = 100L
+    )
+  )
+)
+if (
+  nrow(excluded_geojson$coordinates) != 1L ||
+    excluded_geojson$invalidCoordinateOccurrences != 1L
+) {
+  stop("Invalid GeoJSON coordinates were not excluded deterministically.", call. = FALSE)
+}
+
 shapefile_path <- file.path(workspace, "occurrences.shp")
 sf::st_write(points, shapefile_path, quiet = TRUE)
 shapefile_result <- read_occurrences(
@@ -158,6 +192,25 @@ shapefile_result <- read_occurrences(
   list(occurrence = list(format = "shapefile"))
 )
 if (nrow(shapefile_result$coordinates) != 10L) stop("Shapefile occurrence parsing failed.")
+
+gpkg_path <- file.path(workspace, "occurrences.gpkg")
+sf::st_write(points, gpkg_path, layer = "occurrences", quiet = TRUE)
+gpkg_result <- read_occurrences(
+  list(dataset = list(format = "gpkg")),
+  list(gpkg_path),
+  list(occurrence = list(format = "gpkg", layer = "occurrences"))
+)
+if (nrow(gpkg_result$coordinates) != 10L) stop("GeoPackage occurrence parsing failed.")
+
+sf::st_write(points, gpkg_path, layer = "additional_occurrences", quiet = TRUE)
+expect_code(
+  read_occurrences(
+    list(dataset = list(format = "gpkg")),
+    list(gpkg_path),
+    list(occurrence = list(format = "gpkg"))
+  ),
+  "OCCURRENCE_GPKG_LAYER_AMBIGUOUS"
+)
 
 invalid_csv <- file.path(workspace, "invalid.csv")
 utils::write.csv(
@@ -179,6 +232,29 @@ expect_code(
   ),
   "OCCURRENCE_COORDINATES_INVALID"
 )
+
+excluded_coordinates <- read_occurrences(
+  list(dataset = list(format = "csv")),
+  list(invalid_csv),
+  list(
+    occurrence = list(
+      format = "csv",
+      longitudeColumn = "longitude",
+      latitudeColumn = "latitude"
+    ),
+    inputValidation = list(
+      coordinatePolicy = "exclude-invalid",
+      coveragePolicy = "require-all",
+      minimumCoveragePercent = 100L
+    )
+  )
+)
+if (
+  nrow(excluded_coordinates$coordinates) != 0L ||
+    excluded_coordinates$invalidCoordinateOccurrences != 1L
+) {
+  stop("Invalid coordinates were not excluded deterministically.", call. = FALSE)
+}
 
 raster_a <- terra::rast(nrows = 20L, ncols = 20L, xmin = 0, xmax = 20, ymin = 0, ymax = 20)
 terra::values(raster_a) <- seq_len(terra::ncell(raster_a))
@@ -215,6 +291,71 @@ validated <- validate_predictors(
   coordinates
 )
 if (length(validated) != 2L) stop("Predictor validation failed.")
+
+archive_source <- file.path(workspace, "archive-source.tif")
+file.copy(raster_a_path, archive_source)
+archive_path <- file.path(workspace, "continuous.zip")
+previous <- setwd(workspace)
+on.exit(setwd(previous), add = TRUE)
+archive_status <- system2("zip", c("-q", archive_path, basename(archive_source)))
+if (archive_status != 0L) stop("Unable to create GeoTIFF archive fixture.")
+archive_raster <- extract_geotiff_archive(archive_path, workspace, 1L)
+if (!file.exists(archive_raster)) stop("GeoTIFF archive extraction failed.")
+
+coverage_raster <- raster_a
+terra::values(coverage_raster)[[1L]] <- NA
+coverage_path <- file.path(workspace, "coverage.tif")
+terra::writeRaster(coverage_raster, coverage_path)
+coverage_dataset <- list(
+  continuous = list(
+    dataset = list(format = "geotiff"),
+    files = list(list(size = file.info(coverage_path)$size))
+  )
+)
+expect_code(
+  validate_predictors(
+    coverage_dataset,
+    list(continuous = list(coverage_path)),
+    list(predictors = predictor_configuration$predictors[1L]),
+    "EPSG:4326",
+    coordinates
+  ),
+  "PREDICTOR_COVERAGE_INSUFFICIENT"
+)
+excluded_coverage <- validate_predictors(
+  coverage_dataset,
+  list(continuous = list(coverage_path)),
+  list(
+    predictors = predictor_configuration$predictors[1L],
+    inputValidation = list(
+      coordinatePolicy = "reject-all",
+      coveragePolicy = "exclude-uncovered",
+      minimumCoveragePercent = 80L
+    )
+  ),
+  "EPSG:4326",
+  coordinates
+)
+if (attr(excluded_coverage, "coverage_percent") != 75) {
+  stop("Occurrence coverage percentage is incorrect.", call. = FALSE)
+}
+expect_code(
+  validate_predictors(
+    coverage_dataset,
+    list(continuous = list(coverage_path)),
+    list(
+      predictors = predictor_configuration$predictors[1L],
+      inputValidation = list(
+        coordinatePolicy = "reject-all",
+        coveragePolicy = "exclude-uncovered",
+        minimumCoveragePercent = 80L
+      )
+    ),
+    "EPSG:4326",
+    coordinates
+  ),
+  "OCCURRENCE_COVERAGE_THRESHOLD_NOT_MET"
+)
 
 wrong_crs <- raster_a
 terra::crs(wrong_crs) <- "EPSG:3857"
