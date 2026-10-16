@@ -15,6 +15,7 @@ import type { WorkerEnvironment } from '../env';
 import type { HealthResponse } from '@ecosuitability/contracts';
 import { LifecycleService } from './lifecycle.service';
 import { RedisService } from './redis.service';
+import { RValidationClient } from '../analysis/r-validation.client';
 
 @Controller()
 export class OperationsController {
@@ -24,6 +25,7 @@ export class OperationsController {
     private readonly config: ConfigService<WorkerEnvironment, true>,
     private readonly redis: RedisService,
     private readonly lifecycle: LifecycleService,
+    private readonly validation: RValidationClient,
   ) {
     collectDefaultMetrics({
       register: this.registry,
@@ -50,7 +52,11 @@ export class OperationsController {
   public async ready(
     @Req() request: Request & { id?: string },
   ): Promise<HealthResponse> {
-    if (!this.lifecycle.isReady() || !(await this.redis.isReady())) {
+    if (
+      !this.lifecycle.isReady() ||
+      !(await this.redis.isReady()) ||
+      !(await this.validation.isReady())
+    ) {
       throw new ServiceUnavailableException(
         'Required dependencies are unavailable.',
       );

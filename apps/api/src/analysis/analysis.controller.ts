@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Res,
   Req,
   UseGuards,
@@ -16,6 +17,8 @@ import type {
   AnalysisArtifactDownloadResponse,
   AnalysisResultManifestResponse,
   CreateAnalysisRequest,
+  AnalysisConfigurationResponse,
+  UpdateAnalysisConfigurationRequest,
   IdempotencyKey,
 } from '@ecosuitability/contracts';
 import {
@@ -23,6 +26,7 @@ import {
   analysisArtifactIdSchema,
   createAnalysisRequestSchema,
   idempotencyKeySchema,
+  updateAnalysisConfigurationRequestSchema,
 } from '@ecosuitability/contracts';
 import type { Response } from 'express';
 import { AuthenticationGuard } from '../platform/auth/authentication.guard';
@@ -31,6 +35,7 @@ import { AuthenticatedRateLimitGuard } from '../platform/rate-limit/authenticate
 import { ZodValidationPipe } from '../platform/validation/zod-validation.pipe';
 import { AnalysisService } from './analysis.service';
 import { ResultService } from './result.service';
+import { ConfigurationService } from './configuration.service';
 
 const idempotencyKeyPipe = new ZodValidationPipe(idempotencyKeySchema);
 
@@ -40,6 +45,7 @@ export class AnalysisController {
   public constructor(
     private readonly analysisService: AnalysisService,
     private readonly resultService: ResultService,
+    private readonly configurationService: ConfigurationService,
   ) {}
 
   @Post()
@@ -82,6 +88,35 @@ export class AnalysisController {
     return {
       result: await this.resultService.manifest(request.principal!, analysisId),
     };
+  }
+
+  @Get(':analysisId/configuration')
+  public async configuration(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisConfigurationResponse> {
+    return this.configurationService.get(request.principal!, analysisId);
+  }
+
+  @Put(':analysisId/configuration')
+  public async updateConfiguration(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+    @Body(new ZodValidationPipe(updateAnalysisConfigurationRequestSchema))
+    body: UpdateAnalysisConfigurationRequest,
+  ): Promise<AnalysisConfigurationResponse> {
+    const idempotencyKey = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
+    return this.configurationService.update(
+      request.principal!,
+      analysisId,
+      idempotencyKey,
+      body,
+    );
   }
 
   @Post(':analysisId/results/:artifactId/download')

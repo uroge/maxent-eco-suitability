@@ -95,8 +95,14 @@ describe.runIf(integrationEnabled)(
         { warn: vi.fn() } as never,
         lifecycle,
         {
-          resumeVerified: vi.fn().mockResolvedValue('not-verified'),
-          publish: vi.fn(
+          resumeAvailable: vi.fn().mockResolvedValue('not-ready'),
+          provision: vi.fn().mockResolvedValue({
+            candidateCompletedAt: '2026-09-02T12:00:00.000Z',
+            artifacts: [],
+          }),
+          beginUpload: vi.fn(),
+          uploadCapabilities: vi.fn(),
+          verifyAndPublish: vi.fn(
             async (
               job: { id?: string; data: AnalysisJobPayload },
               attempt: number,
@@ -120,6 +126,15 @@ describe.runIf(integrationEnabled)(
               );
             },
           ),
+        } as never,
+        {
+          validate: vi.fn(async (...parameters: unknown[]) => {
+            const onHeartbeat = parameters[5] as () => Promise<void>;
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            await onHeartbeat();
+            return { summary: null, artifacts: [] };
+          }),
+          acknowledge: vi.fn().mockResolvedValue(undefined),
         } as never,
       );
       await queue.setGlobalConcurrency(1);

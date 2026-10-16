@@ -1,189 +1,130 @@
+import { createHash } from 'node:crypto';
+import { analysisArtifactSpecifications } from '@ecosuitability/contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { ResultService } from './result.service';
+import { ResultService, type ProvisionalResult } from './result.service';
 
 const analysisId = 'an_0123456789abcdef0123456789abcdef';
+const job = { id: analysisId, data: { analysisId, ownerId: 'user_123' } };
 
-const createProvisional = () => ({
+const provisional = (
+  publicationState: ProvisionalResult['publicationState'] = 'uploading',
+): ProvisionalResult => ({
   analysisId,
   jobId: analysisId,
   attempt: 1,
-  candidateCompletedAt: null,
-  publicationState: 'provisioned',
-  artifacts: [
-    {
-      id: 'ar_0123456789abcdef0123456789abcdef',
-      kind: 'execution-summary',
-      filename: 'execution-summary.json',
-      storageKey: `analyses/${analysisId}/results/ar_0123456789abcdef0123456789abcdef/execution-summary.json`,
-      contentType: 'application/json',
-      contentDisposition: 'attachment; filename="execution-summary.json"',
-      size: 0,
-      sha256: '0'.repeat(64),
-      sha256Verification: 'worker-generated',
-      createdAt: '',
-    },
-    {
-      id: 'ar_fedcba9876543210fedcba9876543210',
-      kind: 'run-log',
-      filename: 'run.log.txt',
-      storageKey: `analyses/${analysisId}/results/ar_fedcba9876543210fedcba9876543210/run.log.txt`,
-      contentType: 'text/plain; charset=utf-8',
-      contentDisposition: 'attachment; filename="run.log.txt"',
-      size: 0,
-      sha256: '0'.repeat(64),
-      sha256Verification: 'worker-generated',
-      createdAt: '',
-    },
-  ],
+  candidateCompletedAt:
+    publicationState === 'provisioned' ? null : '2026-09-02T12:00:00.000Z',
+  publicationState,
+  artifacts: analysisArtifactSpecifications.map((definition, index) => {
+    const id = `ar_${String(index).padStart(32, '0')}`;
+    return {
+      id,
+      kind: definition.kind,
+      filename: definition.filename,
+      storageKey: `analyses/${analysisId}/results/${id}/${definition.filename}`,
+      contentType: definition.contentType,
+      contentDisposition: `attachment; filename="${definition.filename}"`,
+      size: index + 1,
+      sha256: createHash('sha256').update(definition.kind).digest('hex'),
+      sha256Verification: 'worker-verified' as const,
+      createdAt:
+        publicationState === 'provisioned' ? '' : '2026-09-02T12:00:00.000Z',
+    };
+  }),
 });
 
+const generated = (value: ProvisionalResult) =>
+  value.artifacts.map((artifact) => ({
+    kind: artifact.kind,
+    size: artifact.size,
+    sha256: artifact.sha256,
+  }));
+
+const matchingHead = (value: ProvisionalResult) =>
+  vi.fn(async (key: string) => {
+    const artifact = value.artifacts.find((entry) => entry.storageKey === key)!;
+    return {
+      size: artifact.size,
+      contentType: artifact.contentType,
+      contentDisposition: artifact.contentDisposition,
+      sha256: artifact.sha256,
+    };
+  });
+
 describe('ResultService', () => {
-  it('publishes verified artifacts with stable provisional keys', async () => {
-    const provisional = createProvisional();
-    const completed = {
-      ...provisional,
-      candidateCompletedAt: '2026-09-02T12:00:00.000Z',
-    };
-    const lifecycle = {
-      provisionResult: vi.fn().mockResolvedValue(provisional),
-      completeResult: vi.fn().mockResolvedValue(completed),
-      publishResult: vi.fn().mockResolvedValue('succeeded'),
-    };
-    const objects = new Map<
-      string,
-      {
-        size: number;
-        contentType: string;
-        contentDisposition: string;
-        sha256: string;
-      }
-    >();
+  it('atomically records generated metadata before issuing deterministic PUT capabilities', async () => {
+    const initial = provisional('provisioned');
+    const prepared = provisional();
+    const lifecycle = { completeResult: vi.fn().mockResolvedValue(prepared) };
     const storage = {
-      put: vi.fn(
-        async (
-          key: string,
-          body: Uint8Array,
-          contentType: string,
-          contentDisposition: string,
-          sha256: string,
-        ) => {
-          objects.set(key, {
-            size: body.length,
-            contentType,
-            contentDisposition,
-            sha256,
-          });
-        },
-      ),
-      head: vi.fn(async (key: string) => objects.get(key)),
+      presignPut: vi.fn(async () => 'https://storage.example/upload'),
     };
     const service = new ResultService(lifecycle as never, storage as never);
 
-    await expect(
-      service.publish(
-        { id: analysisId, data: { analysisId, ownerId: 'user_123' } },
-        1,
-      ),
-    ).resolves.toBe('succeeded');
+    const result = await service.beginUpload(
+      job,
+      1,
+      initial,
+      generated(prepared),
+      prepared.candidateCompletedAt!,
+    );
+    await expect(service.uploadCapabilities(result, 900)).resolves.toHaveLength(
+      9,
+    );
 
-    expect(storage.put).toHaveBeenCalledTimes(2);
-    expect(lifecycle.publishResult).toHaveBeenCalledWith(
+    expect(lifecycle.completeResult).toHaveBeenCalledWith(
       analysisId,
       analysisId,
       1,
-      expect.objectContaining({ completedAt: '2026-09-02T12:00:00.000Z' }),
-      expect.arrayContaining([
-        expect.objectContaining({
-          storageKey: provisional.artifacts[0].storageKey,
-        }),
-      ]),
+      prepared.candidateCompletedAt,
+      generated(prepared),
     );
+    expect(storage.presignPut).toHaveBeenCalledTimes(9);
   });
 
-  it('reuses provisional keys and verifies both deterministic artifacts before publishing', async () => {
-    const provisional = createProvisional();
-    const completed = {
-      ...provisional,
-      candidateCompletedAt: '2026-09-02T12:00:00.000Z',
-    };
+  it('verifies every uploaded object, records verified state, and publishes a key-free manifest', async () => {
+    const value = provisional();
+    const verified = { ...value, publicationState: 'verified' as const };
     const lifecycle = {
-      provisionResult: vi.fn().mockResolvedValue(provisional),
-      completeResult: vi.fn().mockResolvedValue(completed),
+      verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),
     };
-    const storage = {
-      put: vi.fn(),
-      head: vi.fn(async (key: string) => {
-        const artifact = completed.artifacts.find(
-          (item) => item.storageKey === key,
-        )!;
-        const size = key.endsWith('.json') ? 62 : 74;
-        return {
-          size,
-          contentType: artifact.contentType,
-          contentDisposition: artifact.contentDisposition,
-          sha256: undefined,
-        };
-      }),
-    };
+    const storage = { head: matchingHead(value) };
     const service = new ResultService(lifecycle as never, storage as never);
 
-    await expect(
-      service.publish(
-        { id: analysisId, data: { analysisId, ownerId: 'user_123' } },
-        1,
-      ),
-    ).rejects.toThrow('Result artifact storage verification failed.');
-
-    expect(lifecycle.provisionResult).toHaveBeenCalledOnce();
-    expect(storage.put).toHaveBeenCalledTimes(1);
+    await expect(service.verifyAndPublish(job, 1, value)).resolves.toBe(
+      'succeeded',
+    );
+    const manifest = lifecycle.publishResult.mock.calls[0]?.[3];
+    expect(JSON.stringify(manifest)).not.toContain('storageKey');
+    expect(manifest.artifacts).toHaveLength(9);
   });
 
-  it('publishes an already verified provisional result without writing artifacts again', async () => {
-    const provisional = {
-      ...createProvisional(),
-      candidateCompletedAt: '2026-09-02T12:00:00.000Z',
-      publicationState: 'verified' as const,
-      artifacts: createProvisional().artifacts.map((artifact) => ({
-        ...artifact,
-        size: 10,
-        sha256: 'a'.repeat(64),
-        createdAt: '2026-09-02T12:00:00.000Z',
-      })),
-    };
+  it('recovers uploaded artifacts without rerunning the model', async () => {
+    const value = provisional();
+    const verified = { ...value, publicationState: 'verified' as const };
     const lifecycle = {
-      provisionResult: vi.fn().mockResolvedValue(provisional),
+      provisionResult: vi.fn().mockResolvedValue(value),
+      verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),
     };
-    const storage = {
-      put: vi.fn(),
-      head: vi.fn(async (key: string) => {
-        const artifact = provisional.artifacts.find(
-          (item) => item.storageKey === key,
-        )!;
-        return {
-          size: artifact.size,
-          contentType: artifact.contentType,
-          contentDisposition: artifact.contentDisposition,
-          sha256: artifact.sha256,
-        };
-      }),
-    };
-    const service = new ResultService(lifecycle as never, storage as never);
-
-    await expect(
-      service.resumeVerified(
-        { id: analysisId, data: { analysisId, ownerId: 'user_123' } },
-        2,
-      ),
-    ).resolves.toBe('succeeded');
-    expect(storage.put).not.toHaveBeenCalled();
-    expect(lifecycle.publishResult).toHaveBeenCalledWith(
-      analysisId,
-      analysisId,
-      2,
-      expect.any(Object),
-      expect.any(Array),
+    const service = new ResultService(
+      lifecycle as never,
+      { head: matchingHead(value) } as never,
     );
+
+    await expect(service.resumeAvailable(job, 2)).resolves.toBe('succeeded');
+    expect(lifecycle.publishResult).toHaveBeenCalledOnce();
+  });
+
+  it('does not mark a partial upload as recoverable', async () => {
+    const value = provisional();
+    const lifecycle = { provisionResult: vi.fn().mockResolvedValue(value) };
+    const service = new ResultService(
+      lifecycle as never,
+      { head: vi.fn().mockResolvedValue(undefined) } as never,
+    );
+
+    await expect(service.resumeAvailable(job, 2)).resolves.toBe('not-ready');
   });
 });

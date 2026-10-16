@@ -165,6 +165,14 @@ export class AnalysisService {
       );
     }
 
+    if (result === 'configuration_required') {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'A valid analysis configuration is required before queueing.',
+      );
+    }
+
     return this.publicAnalysis(result);
   }
 

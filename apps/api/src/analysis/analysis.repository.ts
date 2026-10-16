@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { canonicalizeJson } from '@ecosuitability/runtime-utils';
+import type { AnalysisInputDataset } from '@ecosuitability/contracts';
 import { RedisService } from '../platform/redis/redis.service';
 import {
   CreateAnalysisScript,
@@ -8,6 +11,7 @@ import {
   ClaimOutboxScript,
   DispatchOutboxScript,
   QueueAnalysisScript,
+  UpdateConfigurationScript,
 } from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
@@ -48,6 +52,9 @@ const outboxKeyPrefix = 'ecosuitability:analysis-outbox:';
 const outboxIndexKey = 'ecosuitability:analysis-outbox:pending';
 
 const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
+
+const configurationIdempotencyKeyPrefix =
+  'ecosuitability:analysis-configuration:idempotency:';
 
 @Injectable()
 export class AnalysisRepository {
@@ -128,14 +135,19 @@ export class AnalysisRepository {
     analysisId: string,
     ownerId: string,
     processingExpiresAt: Date,
-  ): Promise<StoredAnalysis | 'missing' | 'invalid'> {
+  ): Promise<
+    StoredAnalysis | 'missing' | 'invalid' | 'configuration_required'
+  > {
     const now = new Date();
+    const inputManifest = await this.inputManifest(analysisId);
+    const inputFingerprint = this.fingerprint(inputManifest);
     const result = (await this.redis.getClient().eval(QueueAnalysisScript, {
       keys: [
         this.analysisKey(analysisId),
         this.outboxKey(analysisId),
         outboxIndexKey,
         `${resultKeyPrefix}${analysisId}`,
+        this.analysisInputsKey(analysisId),
       ],
       arguments: [
         ownerId,
@@ -143,13 +155,51 @@ export class AnalysisRepository {
         now.toISOString(),
         String(now.getTime()),
         processingExpiresAt.toISOString(),
+        JSON.stringify(inputManifest),
+        inputFingerprint,
       ],
     })) as string[];
 
     if (result[0] !== 'queued') {
-      return result[0] as 'missing' | 'invalid';
+      return result[0] as 'missing' | 'invalid' | 'configuration_required';
     }
 
+    return JSON.parse(result[1]) as StoredAnalysis;
+  }
+
+  public async updateConfiguration(
+    analysisId: string,
+    ownerId: string,
+    idempotencyKey: string,
+    expectedRevision: number,
+    configuration: StoredAnalysis['configuration'],
+    fingerprint: string,
+  ): Promise<StoredAnalysis | 'missing' | 'invalid' | 'conflict'> {
+    const result = (await this.redis
+      .getClient()
+      .eval(UpdateConfigurationScript, {
+        keys: [
+          this.analysisKey(analysisId),
+          `${configurationIdempotencyKeyPrefix}${ownerId}:${analysisId}:${idempotencyKey}`,
+        ],
+        arguments: [
+          ownerId,
+          String(expectedRevision),
+          fingerprint,
+          this.fingerprint({
+            expectedRevision,
+            configurationFingerprint: fingerprint,
+          }),
+          JSON.stringify(configuration),
+          new Date().toISOString(),
+        ],
+      })) as string[];
+    if (result[0] === 'idempotency_conflict') {
+      return 'conflict';
+    }
+    if (result[0] !== 'updated' && result[0] !== 'replay') {
+      return result[0] as 'missing' | 'invalid' | 'conflict';
+    }
     return JSON.parse(result[1]) as StoredAnalysis;
   }
 
@@ -392,5 +442,24 @@ export class AnalysisRepository {
 
   private analysisSessionsKey(analysisId: string): string {
     return `${analysisSessionsKeyPrefix}${analysisId}`;
+  }
+
+  public async inputManifest(
+    analysisId: string,
+  ): Promise<{ datasets: AnalysisInputDataset[] }> {
+    const payload = await this.redis
+      .getClient()
+      .get(this.analysisInputsKey(analysisId));
+    return payload
+      ? (JSON.parse(payload) as {
+          datasets: AnalysisInputDataset[];
+        })
+      : { datasets: [] };
+  }
+
+  private fingerprint(value: unknown): string {
+    return `jcs-sha256-v1:${createHash('sha256')
+      .update(canonicalizeJson(value))
+      .digest('hex')}`;
   }
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { analysisArtifactSpecifications } from '@ecosuitability/contracts';
 import { ResultService } from './result.service';
 
 const analysisId = 'an_0123456789abcdef0123456789abcdef';
@@ -17,30 +18,21 @@ const createAnalysis = (resultExpiresAt: string) => ({
     analysisId,
     completedAt: '2026-09-02T12:00:00.000Z',
     resultExpiresAt,
-    artifacts: [
-      {
-        id: artifactId,
-        kind: 'execution-summary',
-        filename: 'execution-summary.json',
-        contentType: 'application/json',
-        size: 20,
+    artifacts: analysisArtifactSpecifications.map((definition, index) => {
+      const id =
+        index === 0 ? artifactId : `ar_${String(index).padStart(32, '0')}`;
+      return {
+        id,
+        kind: definition.kind,
+        filename: definition.filename,
+        contentType: definition.contentType,
+        size: index + 1,
         sha256: 'a'.repeat(64),
-        sha256Verification: 'worker-generated',
+        sha256Verification: 'worker-verified' as const,
         createdAt: '2026-09-02T12:00:00.000Z',
-        storageKey: `analyses/${analysisId}/results/${artifactId}/execution-summary.json`,
-      },
-      {
-        id: 'ar_fedcba9876543210fedcba9876543210',
-        kind: 'run-log',
-        filename: 'run.log.txt',
-        contentType: 'text/plain; charset=utf-8',
-        size: 10,
-        sha256: 'b'.repeat(64),
-        sha256Verification: 'worker-generated',
-        createdAt: '2026-09-02T12:00:00.000Z',
-        storageKey: `analyses/${analysisId}/results/ar_fedcba9876543210fedcba9876543210/run.log.txt`,
-      },
-    ],
+        storageKey: `analyses/${analysisId}/results/${id}/${definition.filename}`,
+      };
+    }),
   },
 });
 

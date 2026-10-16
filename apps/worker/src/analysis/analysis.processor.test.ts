@@ -21,8 +21,21 @@ const createServiceLifecycle = () => ({
 });
 
 const createResultService = () => ({
-  resumeVerified: vi.fn().mockResolvedValue('not-verified'),
-  publish: vi.fn().mockResolvedValue('succeeded'),
+  resumeAvailable: vi.fn().mockResolvedValue('not-ready'),
+  provision: vi.fn().mockResolvedValue({
+    candidateCompletedAt: '2026-09-02T12:00:00.000Z',
+    artifacts: [],
+  }),
+  beginUpload: vi
+    .fn()
+    .mockImplementation(async (_job, _attempt, provisional) => provisional),
+  uploadCapabilities: vi.fn().mockResolvedValue([]),
+  verifyAndPublish: vi.fn().mockResolvedValue('succeeded'),
+});
+
+const createValidationClient = () => ({
+  validate: vi.fn().mockResolvedValue({ summary: null, artifacts: [] }),
+  acknowledge: vi.fn().mockResolvedValue(undefined),
 });
 
 describe('AnalysisProcessor', () => {
@@ -42,6 +55,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
       results as never,
+      createValidationClient() as never,
     );
     const job = createJob();
 
@@ -52,8 +66,12 @@ describe('AnalysisProcessor', () => {
       job.id,
       1,
     );
-    expect(lifecycle.updateProgress).toHaveBeenCalledTimes(4);
-    expect(results.publish).toHaveBeenCalledWith(job, 1);
+    expect(lifecycle.updateProgress).toHaveBeenCalledTimes(2);
+    expect(results.verifyAndPublish).toHaveBeenCalledWith(
+      job,
+      1,
+      expect.any(Object),
+    );
     expect(serviceLifecycle.endJob).toHaveBeenCalledOnce();
   }, 15_000);
 
@@ -72,6 +90,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
       createResultService() as never,
+      createValidationClient() as never,
     );
     const job = createJob();
 
@@ -101,6 +120,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
       createResultService() as never,
+      createValidationClient() as never,
     );
 
     await processor.process(createJob() as never);
@@ -123,6 +143,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       serviceLifecycle as never,
       createResultService() as never,
+      createValidationClient() as never,
     );
 
     await expect(
@@ -148,6 +169,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       createServiceLifecycle() as never,
       createResultService() as never,
+      createValidationClient() as never,
     );
     const finalLifecycle = {
       claim: vi.fn().mockResolvedValue('claimed'),
@@ -163,6 +185,7 @@ describe('AnalysisProcessor', () => {
       { warn: vi.fn() } as never,
       createServiceLifecycle() as never,
       createResultService() as never,
+      createValidationClient() as never,
     );
     const retryJob = createJob();
     const finalJob = { ...createJob(), attemptsMade: 2 };

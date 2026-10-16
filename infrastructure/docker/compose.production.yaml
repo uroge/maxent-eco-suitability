@@ -62,11 +62,28 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set the R2 access key in the production environment}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in the production environment}
       STORAGE_FORCE_PATH_STYLE: 'false'
+      R_RUNTIME_URL: http://analysis-r:8080
+      R_RUNTIME_SHARED_SECRET: ${R_RUNTIME_SHARED_SECRET:?Set R_RUNTIME_SHARED_SECRET in the production environment}
+      R_RUNTIME_HTTP_TIMEOUT_MS: ${R_RUNTIME_HTTP_TIMEOUT_MS:-10000}
+      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-1800000}
+      R_RUNTIME_INPUT_URL_TTL_SECONDS: ${R_RUNTIME_INPUT_URL_TTL_SECONDS:-900}
+      R_RUNTIME_OUTPUT_URL_TTL_SECONDS: ${R_RUNTIME_OUTPUT_URL_TTL_SECONDS:-900}
     ports: !reset []
     read_only: true
     cap_drop: ['ALL']
     security_opt: ['no-new-privileges:true']
     tmpfs: ['/tmp']
+    networks: [backend]
+
+  analysis-r:
+    environment:
+      R_RUNTIME_PORT: 8080
+      R_RUNTIME_SHARED_SECRET: ${R_RUNTIME_SHARED_SECRET:?Set R_RUNTIME_SHARED_SECRET in the production environment}
+      R_RUNTIME_WORKSPACE_ROOT: /workspaces
+      R_RUNTIME_WORKSPACE_QUOTA_BYTES: ${R_RUNTIME_WORKSPACE_QUOTA_BYTES:-6442450944}
+      R_RUNTIME_CHILD_MEMORY_BYTES: ${R_RUNTIME_CHILD_MEMORY_BYTES:-2147483648}
+      R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-1800000}
+    ports: !reset []
     networks: [backend]
 
   redis:
@@ -81,6 +98,7 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+  analysis-r-workspaces:
 
 networks:
   edge:

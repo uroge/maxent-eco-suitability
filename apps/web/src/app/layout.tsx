@@ -1,21 +1,12 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { ClerkProvider } from '@clerk/nextjs';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
 import { appearanceBootstrapScript } from '@/appearance';
 import { getConfiguredBrand } from '@/brand';
 import { AppearanceController } from '@/components/appearance-controller';
 import './globals.css';
-
-const inter = Inter({
-  variable: '--font-inter',
-  subsets: ['latin'],
-});
-
-const jetBrainsMono = JetBrains_Mono({
-  variable: '--font-jetbrains-mono',
-  subsets: ['latin'],
-});
 
 export const metadata: Metadata = {
   title: 'EcoSuitability',
@@ -31,7 +22,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       data-brand={brand}
       data-theme="light"
       data-appearance="system"
-      className={`${inter.variable} ${jetBrainsMono.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <head>

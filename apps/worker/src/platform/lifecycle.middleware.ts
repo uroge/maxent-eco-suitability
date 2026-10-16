@@ -1,4 +1,5 @@
 import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { completeOnResponseEnd } from '@ecosuitability/runtime-utils';
 import type { NextFunction, Request, Response } from 'express';
 import { LifecycleService } from './lifecycle.service';
 
@@ -25,16 +26,7 @@ export class LifecycleMiddleware implements NestMiddleware {
       return;
     }
 
-    let completed = false;
-    const complete = (): void => {
-      if (!completed) {
-        completed = true;
-        this.lifecycle.endRequest();
-      }
-    };
-
-    response.once('finish', complete);
-    response.once('close', complete);
+    completeOnResponseEnd(response, () => this.lifecycle.endRequest());
     next();
   }
 }

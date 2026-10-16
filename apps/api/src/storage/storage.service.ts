@@ -4,7 +4,6 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
-  GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutBucketCorsCommand,
@@ -14,6 +13,7 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { presignS3Get } from '@ecosuitability/runtime-utils';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
@@ -129,11 +129,7 @@ export class StorageService implements OnModuleInit {
   }
 
   public async presignGet(key: string, expiresIn: number): Promise<string> {
-    return getSignedUrl(
-      this.presignClient,
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-      { expiresIn },
-    );
+    return presignS3Get(this.presignClient, this.bucket, key, expiresIn);
   }
 
   public async put(

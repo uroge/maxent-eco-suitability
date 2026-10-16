@@ -16,6 +16,7 @@ jobs:
       TRUST_PROXY_CIDRS: 127.0.0.1/32,::1/128
       METRICS_TOKEN: ci-metrics-token-with-at-least-32-characters
       WORKER_METRICS_TOKEN: ci-worker-metrics-token-with-32-characters
+      R_RUNTIME_SHARED_SECRET: ci-r-runtime-secret-with-at-least-32-characters
       REDIS_URL: redis://redis:6379
       RUN_REDIS_INTEGRATION: 'true'
       RUN_STORAGE_INTEGRATION: 'true'
@@ -31,7 +32,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
-      - run: docker compose -p ecosuitability -f infrastructure/docker/compose.yaml build web api worker
+      - run: docker compose -p ecosuitability -f infrastructure/docker/compose.yaml build web api worker analysis-r
       - run: pnpm container:check
       - name: Scan container configuration and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

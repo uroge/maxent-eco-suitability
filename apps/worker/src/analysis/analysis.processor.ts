@@ -12,16 +12,15 @@ import { Logger } from 'nestjs-pino';
 import type { WorkerEnvironment } from '../env';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 import { LifecycleService } from '../platform/lifecycle.service';
-import { ResultService } from './result.service';
+import { ResultLifecycleError, ResultService } from './result.service';
+import {
+  RValidationClient,
+  RValidationCancelledError,
+  RRuntimeError,
+  ScientificValidationError,
+} from './r-validation.client';
 
-const stages = [
-  ['preparing', 25],
-  ['validating-inputs', 50],
-  ['executing', 75],
-  ['finalizing', 100],
-] as const;
-
-type Stage = (typeof stages)[number][0];
+type Stage = AnalysisProgress['stage'];
 
 class RetryableExecutionError extends Error {}
 
@@ -40,6 +39,7 @@ export class AnalysisProcessor
     private readonly logger: Logger,
     private readonly serviceLifecycle: LifecycleService,
     private readonly results: ResultService,
+    private readonly validation: RValidationClient,
   ) {
     super();
   }
@@ -83,7 +83,7 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
-      const resumed = await this.results.resumeVerified(job, attempt);
+      const resumed = await this.results.resumeAvailable(job, attempt);
       if (resumed === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
         return;
@@ -95,30 +95,137 @@ export class AnalysisProcessor
       ) {
         return;
       }
+      if (resumed === 'dependency_unavailable') {
+        throw new RetryableExecutionError('Lifecycle state is unavailable.');
+      }
+
+      const provisional = await this.results.provision(job, attempt);
+      if (typeof provisional === 'string') {
+        if (provisional === 'cancelled') {
+          await this.lifecycle.finaliseCancellation(job.data.analysisId);
+        }
+        if (provisional === 'dependency_unavailable') {
+          throw new RetryableExecutionError('Lifecycle state is unavailable.');
+        }
+        return;
+      }
 
       const controller = new AbortController();
       timeout = setTimeout(() => {
         controller.abort(new Error('Analysis execution timed out.'));
       }, this.config.getOrThrow('ANALYSIS_EXECUTION_TIMEOUT_MS'));
 
-      for (const [stage, percent] of stages) {
-        await this.assertActive(
-          job,
-          attempt,
-          stage,
-          percent,
-          controller.signal,
-        );
-        await this.delay(controller.signal);
-      }
+      await this.assertActive(
+        job,
+        attempt,
+        'downloading',
+        5,
+        controller.signal,
+      );
+      let uploading = provisional;
+      let heartbeatStage: AnalysisProgress['stage'] = 'downloading';
+      let heartbeatPercent = 5;
+      await this.validation.validate(
+        job.data.analysisId,
+        job.id,
+        attempt,
+        controller.signal,
+        async (event, summary, generation) => {
+          const outcome = await this.lifecycle.updateValidation(
+            job.data.analysisId,
+            job.id!,
+            attempt,
+            event,
+            summary,
+            null,
+            generation,
+          );
+          if (outcome === 'cancelled') {
+            await this.lifecycle.finaliseCancellation(job.data.analysisId);
+            throw new ExecutionCancelledError(
+              'Analysis execution was cancelled.',
+            );
+          }
+          if (outcome === 'dependency_unavailable') {
+            throw new RetryableExecutionError(
+              'Lifecycle state is unavailable.',
+            );
+          }
+          if (outcome === 'stale_attempt' || outcome === 'terminal') {
+            throw new ExecutionCancelledError(
+              'Analysis execution is no longer current.',
+            );
+          }
+          heartbeatStage = this.eventStage(event.stage);
+          heartbeatPercent = event.percent;
+          await job.updateProgress({
+            stage: heartbeatStage,
+            percent: event.percent,
+            attempt,
+          });
+        },
+        async () => {
+          await this.assertActive(
+            job,
+            attempt,
+            heartbeatStage,
+            heartbeatPercent,
+            controller.signal,
+          );
+        },
+        async (artifacts, candidateCompletedAt) => {
+          uploading = await this.results.beginUpload(
+            job,
+            attempt,
+            provisional,
+            artifacts,
+            candidateCompletedAt,
+          );
+          return this.results.uploadCapabilities(
+            uploading,
+            this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS'),
+          );
+        },
+      );
+      await this.assertActive(
+        job,
+        attempt,
+        'finalizing',
+        98,
+        controller.signal,
+      );
 
-      const outcome = await this.results.publish(job, attempt);
+      const outcome = await this.results.verifyAndPublish(
+        job,
+        attempt,
+        uploading,
+      );
       if (outcome === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
+        await this.validation
+          .acknowledge(job.data.analysisId)
+          .catch(() => undefined);
+      } else if (outcome === 'succeeded') {
+        await this.validation
+          .acknowledge(job.data.analysisId)
+          .catch(() => undefined);
       }
     } catch (error) {
-      if (error instanceof ExecutionCancelledError) {
+      if (
+        error instanceof ExecutionCancelledError ||
+        error instanceof RValidationCancelledError
+      ) {
         return;
+      }
+
+      if (error instanceof ResultLifecycleError) {
+        if (error.message === 'cancelled') {
+          await this.lifecycle.finaliseCancellation(job.data.analysisId);
+          return;
+        }
+        if (error.message === 'stale_attempt' || error.message === 'terminal') {
+          return;
+        }
       }
 
       await this.handleFailure(job, attempt, error);
@@ -162,6 +269,25 @@ export class AnalysisProcessor
     await job.updateProgress({ stage, percent, attempt });
   }
 
+  private eventStage(stage: string): AnalysisProgress['stage'] {
+    const supported: AnalysisProgress['stage'][] = [
+      'validating-inputs',
+      'downloading',
+      'parsing',
+      'validating',
+      'sampling-background',
+      'training',
+      'evaluating',
+      'projecting',
+      'writing-artifacts',
+      'uploading-artifacts',
+      'completed',
+    ];
+    return supported.includes(stage as AnalysisProgress['stage'])
+      ? (stage as AnalysisProgress['stage'])
+      : 'validating-inputs';
+  }
+
   private async handleFailure(
     job: Job<AnalysisJobPayload>,
     attempt: number,
@@ -170,7 +296,9 @@ export class AnalysisProcessor
     const message =
       error instanceof Error ? error.message : 'Execution failed.';
     const totalAttempts = job.opts.attempts ?? 1;
-    const isFinalAttempt = job.attemptsMade + 1 >= totalAttempts;
+    const isFinalAttempt =
+      error instanceof ScientificValidationError ||
+      job.attemptsMade + 1 >= totalAttempts;
     const status = isFinalAttempt ? 'failed' : 'queued';
     const progress = this.progress(
       isFinalAttempt ? 'failed' : 'retrying',
@@ -183,7 +311,14 @@ export class AnalysisProcessor
       attempt,
       status,
       isFinalAttempt
-        ? { code: 'EXECUTION_FAILED', message: 'Analysis execution failed.' }
+        ? {
+            code:
+              error instanceof ScientificValidationError ||
+              error instanceof RRuntimeError
+                ? error.message
+                : 'EXECUTION_FAILED',
+            message: 'Analysis execution failed.',
+          }
         : null,
       progress,
     );
@@ -207,6 +342,9 @@ export class AnalysisProcessor
     }
 
     await this.lifecycle.cleanupProvisional(job.data.analysisId);
+    await this.validation
+      .acknowledge(job.data.analysisId)
+      .catch(() => undefined);
   }
 
   private progress(
@@ -220,19 +358,5 @@ export class AnalysisProcessor
       attempt,
       updatedAt: new Date().toISOString(),
     };
-  }
-
-  private async delay(signal: AbortSignal): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(resolve, 1_000);
-      signal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timeout);
-          reject(signal.reason);
-        },
-        { once: true },
-      );
-    });
   }
 }

@@ -11,3 +11,4 @@ test-results/
 .env.*
 !.env.example
 minio-data/
+services/analysis-r/renv/library/

@@ -19,6 +19,7 @@ import { UploadController } from './upload.controller';
 import { UploadExpiryService } from './upload-expiry.service';
 import { UploadService } from './upload.service';
 import { ResultService } from './result.service';
+import { ConfigurationService } from './configuration.service';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ResultService } from './result.service';
     UploadService,
     UploadExpiryService,
     ResultService,
+    ConfigurationService,
   ],
   exports: [AnalysisService],
 })

@@ -7,6 +7,8 @@ import type {
   AnalysisStatus,
   IdempotencyKey,
   AnalysisResultManifest,
+  AnalysisConfiguration,
+  AnalysisInputDataset,
 } from '@ecosuitability/contracts';
 
 export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
@@ -20,6 +22,21 @@ export type StoredAnalysis = Analysis & {
   progress: AnalysisProgress | null;
   execution: AnalysisExecution | null;
   resultManifest?: StoredResultManifest;
+  configuration?: AnalysisConfiguration;
+  configurationRevision?: number;
+  configurationFingerprint?: string;
+  executionSnapshot?: {
+    configuration: AnalysisConfiguration;
+    revision: number;
+    fingerprint: string;
+    inputManifest: {
+      datasets: AnalysisInputDataset[];
+    };
+    inputFingerprint: string;
+    queuedAt: string;
+    processingExpiresAt: string;
+    seed: number;
+  };
 };
 
 export type AnalysisOutbox = {

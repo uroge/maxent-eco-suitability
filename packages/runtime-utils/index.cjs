@@ -3,6 +3,9 @@
 const { randomUUID, timingSafeEqual } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { createClient } = require('redis');
 
 const requestIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -37,9 +40,99 @@ const constantTimeBearerTokenEquals = (authorization, expected) => {
 
 const loadLuaScript = (directory, filename) => readFileSync(join(directory, filename), 'utf8');
 
+const createRedisClient = (url, onError) => {
+  const client = createClient({
+    url,
+    socket: {
+      connectTimeout: 5000,
+      reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
+    },
+    disableOfflineQueue: true,
+  });
+
+  client.on('error', onError);
+  return client;
+};
+
+const closeRedisClient = async (client, timeoutMs, message) => {
+  if (!client.isOpen) {
+    return;
+  }
+
+  try {
+    await withTimeout(client.close(), timeoutMs, message);
+  } catch {
+    if (client.isOpen) {
+      client.destroy();
+    }
+  }
+};
+
+const presignS3Get = (client, bucket, key, expiresIn) =>
+  getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
+
+const presignS3Put = (client, bucket, key, expiresIn, contentType, contentDisposition, sha256) =>
+  getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      ContentDisposition: contentDisposition,
+      Metadata: { sha256 },
+    }),
+    { expiresIn }
+  );
+
+const completeOnResponseEnd = (response, complete) => {
+  let completed = false;
+  const finish = () => {
+    if (!completed) {
+      completed = true;
+      complete();
+    }
+  };
+
+  response.once('finish', finish);
+  response.once('close', finish);
+};
+
+const canonicalizeJson = (value) => {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError('Canonical JSON does not support non-finite numbers.');
+    }
+
+    return JSON.stringify(Object.is(value, -0) ? 0 : value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalizeJson(entry)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeJson(value[key])}`)
+      .join(',')}}`;
+  }
+
+  throw new TypeError('Canonical JSON supports only JSON values.');
+};
+
 module.exports = {
+  closeRedisClient,
+  completeOnResponseEnd,
   constantTimeBearerTokenEquals,
+  canonicalizeJson,
+  createRedisClient,
   loadLuaScript,
+  presignS3Get,
+  presignS3Put,
   resolveRequestId,
   withTimeout,
 };

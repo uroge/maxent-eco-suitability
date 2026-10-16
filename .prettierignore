@@ -5,3 +5,4 @@ dist
 coverage
 pnpm-lock.yaml
 apps/web/next-env.d.ts
+services/analysis-r/renv/library/
