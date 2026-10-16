@@ -1,8 +1,13 @@
 @import 'tailwindcss';
 @import '@ecosuitability/ui/styles.css';
+@source '../../../../packages/ui/src';
 
 html {
   --font-inter: 'Inter Variable';
   --font-jetbrains-mono: 'JetBrains Mono Variable';
   background: var(--background);
+}
+
+body {
+  overflow-x: hidden;
 }

@@ -12,3 +12,4 @@ test-results/
 !.env.example
 minio-data/
 services/analysis-r/renv/library/
+EcoSuitability GIS App Design
