@@ -480,6 +480,7 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
       configurationFingerprint = validated$configurationFingerprint,
       inputFingerprint = validated$inputFingerprint,
       validation = validated$summary,
+      inputValidation = input_validation_policy(configuration),
       evaluationMethod = configuration$validation$method,
       threshold = evaluation$threshold$threshold,
       runtime = runtime_versions,

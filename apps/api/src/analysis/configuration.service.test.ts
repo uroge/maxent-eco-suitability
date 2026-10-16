@@ -87,7 +87,81 @@ describe('ConfigurationService', () => {
       'product',
       'hinge',
     ]);
+    expect(result.configuration?.inputValidation).toEqual({
+      coordinatePolicy: 'reject-all',
+      coveragePolicy: 'require-all',
+      minimumCoveragePercent: 100,
+    });
     expect(result.fingerprint).toMatch(/^jcs-sha256-v1:[a-f0-9]{64}$/);
+  });
+
+  it('accepts a GeoTIFF archive and preserves the selected k-fold configuration', async () => {
+    const repository = {
+      findOwned: vi.fn(async () => ({ status: 'ready' })),
+      inputManifest: vi.fn(async () => ({
+        datasets: [
+          {
+            dataset: {
+              id: 'ds_occurrence',
+              kind: 'occurrence',
+              format: 'gpkg',
+            },
+          },
+          {
+            dataset: {
+              id: 'ds_0123456789abcdef0123456789abcdef',
+              kind: 'predictor',
+              format: 'geotiff-zip',
+            },
+          },
+        ],
+      })),
+      updateConfiguration: vi.fn(
+        async (
+          _analysisId,
+          _ownerId,
+          _key,
+          _revision,
+          configuration,
+          fingerprint,
+        ) => ({
+          id: 'an_0123456789abcdef0123456789abcdef',
+          ownerId: principal.userId,
+          configuration,
+          configurationRevision: 1,
+          configurationFingerprint: fingerprint,
+        }),
+      ),
+    };
+    const service = new ConfigurationService(repository as never);
+    const result = await service.update(
+      principal,
+      'an_0123456789abcdef0123456789abcdef',
+      'configuration-key-gpkg',
+      {
+        expectedRevision: 0,
+        configuration: {
+          ...request.configuration,
+          occurrence: { format: 'gpkg', layer: 'observations' },
+          validation: { method: 'k-fold', folds: 5 },
+          inputValidation: {
+            coordinatePolicy: 'exclude-invalid',
+            coveragePolicy: 'exclude-uncovered',
+            minimumCoveragePercent: 80,
+          },
+        },
+      },
+    );
+
+    expect(result.configuration?.validation).toEqual({
+      method: 'k-fold',
+      folds: 5,
+    });
+    expect(result.configuration?.inputValidation).toEqual({
+      coordinatePolicy: 'exclude-invalid',
+      coveragePolicy: 'exclude-uncovered',
+      minimumCoveragePercent: 80,
+    });
   });
 
   it('returns frozen snapshots without exposing internal manifest fields', async () => {

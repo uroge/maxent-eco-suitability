@@ -25,6 +25,12 @@ const dataset = {
   completionClaimExpiresAt: undefined,
 };
 
+const geoTiffZipDataset = {
+  ...dataset,
+  kind: 'predictor' as const,
+  format: 'geotiff-zip' as const,
+};
+
 const createService = () => {
   const analysis = { find: vi.fn(async () => ({ status: 'draft' })) };
   const repository = {
@@ -91,6 +97,23 @@ describe('UploadService', () => {
     ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
   });
 
+  it('accepts GeoPackage occurrences and GeoTIFF ZIP predictor datasets', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.createDataset(principal, dataset.analysisId, 'dataset-key-gpkg', {
+        kind: 'occurrence',
+        format: 'gpkg',
+      }),
+    ).resolves.toMatchObject({ dataset: { format: 'gpkg' } });
+    await expect(
+      service.createDataset(principal, dataset.analysisId, 'dataset-key-zip', {
+        kind: 'predictor',
+        format: 'geotiff-zip',
+      }),
+    ).resolves.toMatchObject({ dataset: { format: 'geotiff-zip' } });
+  });
+
   it('requires a declared Shapefile component matching the file extension', async () => {
     const { service } = createService();
 
@@ -118,6 +141,34 @@ describe('UploadService', () => {
       multipart: false,
       uploadUrl: 'https://storage.test/upload',
     });
+  });
+
+  it('enforces GeoTIFF archive extension, content type, and compressed-size limits', async () => {
+    const { repository, service } = createService();
+    repository.findOwned.mockResolvedValue(geoTiffZipDataset as never);
+
+    await expect(
+      service.addFile(principal, dataset.analysisId, dataset.id, {
+        originalName: 'predictor.zip',
+        size: 1024,
+        sha256: 'a'.repeat(64),
+        contentType: 'application/zip',
+      }),
+    ).resolves.toMatchObject({ multipart: false });
+    await expect(
+      service.addFile(principal, dataset.analysisId, dataset.id, {
+        originalName: 'predictor.tif',
+        size: 1024,
+        sha256: 'a'.repeat(64),
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
+    await expect(
+      service.addFile(principal, dataset.analysisId, dataset.id, {
+        originalName: 'predictor.zip',
+        size: 501 * 1024 * 1024,
+        sha256: 'a'.repeat(64),
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
   });
 
   it('rejects an atomically detected mismatched Shapefile basename', async () => {

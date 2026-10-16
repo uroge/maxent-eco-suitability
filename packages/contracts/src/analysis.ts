@@ -148,7 +148,15 @@ export const uploadDatasetKindSchema = z.enum(['occurrence', 'predictor']);
 
 export type UploadDatasetKind = z.infer<typeof uploadDatasetKindSchema>;
 
-export const uploadDatasetFormatSchema = z.enum(['csv', 'xlsx', 'geojson', 'shapefile', 'geotiff']);
+export const uploadDatasetFormatSchema = z.enum([
+  'csv',
+  'xlsx',
+  'geojson',
+  'gpkg',
+  'shapefile',
+  'geotiff',
+  'geotiff-zip',
+]);
 
 export type UploadDatasetFormat = z.infer<typeof uploadDatasetFormatSchema>;
 
@@ -408,6 +416,12 @@ export const analysisConfigurationSchema = z
         })
         .strict(),
       z.object({ format: z.literal('geojson') }).strict(),
+      z
+        .object({
+          format: z.literal('gpkg'),
+          layer: identifierSchema.optional(),
+        })
+        .strict(),
       z.object({ format: z.literal('shapefile') }).strict(),
     ]),
     predictors: z
@@ -428,6 +442,14 @@ export const analysisConfigurationSchema = z
       .object({ strategy: z.literal('predictor-intersection') })
       .strict()
       .default({ strategy: 'predictor-intersection' }),
+    inputValidation: z
+      .object({
+        coordinatePolicy: z.enum(['reject-all', 'exclude-invalid']),
+        coveragePolicy: z.enum(['require-all', 'exclude-uncovered']),
+        minimumCoveragePercent: z.number().int().min(80).max(100),
+      })
+      .strict()
+      .optional(),
     background: z
       .object({
         strategy: z.literal('random').default('random'),
@@ -518,7 +540,12 @@ export const scientificValidationFailureCodeSchema = z.enum([
   'OCCURRENCE_GEOMETRY_INVALID',
   'OCCURRENCE_CRS_MISSING',
   'OCCURRENCE_CRS_INCOMPATIBLE',
+  'OCCURRENCE_GPKG_LAYER_INVALID',
+  'OCCURRENCE_GPKG_LAYER_AMBIGUOUS',
+  'OCCURRENCE_COVERAGE_THRESHOLD_NOT_MET',
   'PREDICTOR_FILE_UNREADABLE',
+  'PREDICTOR_ARCHIVE_INVALID',
+  'PREDICTOR_ARCHIVE_LIMIT_EXCEEDED',
   'PREDICTOR_GEOTIFF_INVALID',
   'PREDICTOR_LAYER_COUNT_INVALID',
   'PREDICTOR_CRS_INCOMPATIBLE',
@@ -574,6 +601,9 @@ export const rValidationEventsResponseSchema = z.object({
     .object({
       acceptedOccurrences: z.number().int().nonnegative(),
       deduplicatedOccurrences: z.number().int().nonnegative(),
+      invalidCoordinateOccurrences: z.number().int().nonnegative().default(0),
+      uncoveredOccurrences: z.number().int().nonnegative().default(0),
+      coveragePercent: z.number().finite().min(0).max(100).default(100),
       selectedPredictors: z.number().int().positive(),
       validatedAt: z.string().datetime(),
     })
@@ -640,6 +670,9 @@ export const rValidationSummarySchema = z
   .object({
     acceptedOccurrences: z.number().int().nonnegative(),
     deduplicatedOccurrences: z.number().int().nonnegative(),
+    invalidCoordinateOccurrences: z.number().int().nonnegative().default(0),
+    uncoveredOccurrences: z.number().int().nonnegative().default(0),
+    coveragePercent: z.number().finite().min(0).max(100).default(100),
     selectedPredictors: z.number().int().positive(),
     validatedAt: z.string().datetime(),
   })
@@ -711,6 +744,13 @@ export const analysisExecutionSummaryArtifactSchema = z
     configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
     inputFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
     validation: rValidationSummarySchema,
+    inputValidation: z
+      .object({
+        coordinatePolicy: z.enum(['reject-all', 'exclude-invalid']),
+        coveragePolicy: z.enum(['require-all', 'exclude-uncovered']),
+        minimumCoveragePercent: z.number().int().min(80).max(100),
+      })
+      .strict(),
     evaluationMethod: z.enum(['train-test-split', 'k-fold']),
     threshold: z.number().finite().min(0).max(1),
     runtime: z

@@ -90,6 +90,65 @@ describe('analysis contracts', () => {
     ).toBe(false);
   });
 
+  it('supports GeoPackage occurrences and explicit input validation policy', () => {
+    const result = analysisConfigurationSchema.parse({
+      schemaVersion: 1,
+      speciesName: 'Lynx lynx',
+      occurrence: { format: 'gpkg', layer: 'observations' },
+      predictors: [
+        {
+          datasetId: 'ds_0123456789abcdef0123456789abcdef',
+          variableName: 'land_cover',
+          type: 'categorical',
+        },
+      ],
+      inputValidation: {
+        coordinatePolicy: 'exclude-invalid',
+        coveragePolicy: 'exclude-uncovered',
+        minimumCoveragePercent: 80,
+      },
+      model: { featureClasses: ['linear', 'threshold'], regularizationMultiplier: 1 },
+      validation: { method: 'k-fold', folds: 5 },
+      seed: 42,
+    });
+
+    expect(result.occurrence).toEqual({ format: 'gpkg', layer: 'observations' });
+    expect(result.inputValidation?.coveragePolicy).toBe('exclude-uncovered');
+    expect(result.validation).toEqual({ method: 'k-fold', folds: 5 });
+  });
+
+  it('rejects invalid validation combinations and duplicate feature classes', () => {
+    const base = {
+      schemaVersion: 1,
+      speciesName: 'Lynx lynx',
+      occurrence: { format: 'geojson' },
+      predictors: [
+        {
+          datasetId: 'ds_0123456789abcdef0123456789abcdef',
+          variableName: 'temperature',
+          type: 'continuous',
+        },
+      ],
+      seed: 42,
+    };
+
+    expect(
+      analysisConfigurationSchema.safeParse({
+        ...base,
+        validation: { method: 'k-fold', folds: 5, testFraction: 0.2 },
+      }).success
+    ).toBe(false);
+    expect(
+      analysisConfigurationSchema.safeParse({
+        ...base,
+        model: {
+          featureClasses: ['linear', 'linear'],
+          regularizationMultiplier: 1,
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it('requires exactly one of every scientific result artifact', () => {
     const artifacts = analysisArtifactSpecifications.map((definition, index) => ({
       id: `ar_${String(index).padStart(32, '0')}`,
