@@ -7,6 +7,7 @@ import type {
   CreateAnalysisRequest,
   IdempotencyKey,
   Principal,
+  QueueAnalysisRequest,
 } from '@ecosuitability/contracts';
 import { ApiException } from '../platform/errors/api.exception';
 import { AnalysisRepository } from './analysis.repository';
@@ -56,10 +57,16 @@ export class AnalysisService {
       idempotencyKey,
       status: 'draft',
       displayName: request.displayName ?? null,
+      inputRevision: 0,
+      configurationRevision: 0,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + retentionMs).toISOString(),
       expiredAt: null,
+      queuedAt: null,
+      startedAt: null,
+      completedAt: null,
+      cancelledAt: null,
       failure: null,
       occurrenceDatasetId: undefined,
       progress: null,
@@ -145,13 +152,22 @@ export class AnalysisService {
   public async queueAnalysis(
     principal: Principal,
     analysisId: string,
+    expected?: QueueAnalysisRequest,
   ): Promise<Analysis> {
     const now = new Date();
-    const result = await this.repository.queue(
-      analysisId,
-      principal.userId,
-      new Date(now.getTime() + processingRetentionMs),
-    );
+    const processingExpiresAt = new Date(now.getTime() + processingRetentionMs);
+    const result = expected
+      ? await this.repository.queue(
+          analysisId,
+          principal.userId,
+          processingExpiresAt,
+          expected,
+        )
+      : await this.repository.queue(
+          analysisId,
+          principal.userId,
+          processingExpiresAt,
+        );
 
     if (result === 'missing') {
       throw this.notFound();
@@ -170,6 +186,22 @@ export class AnalysisService {
         409,
         'CONFLICT',
         'A valid analysis configuration is required before queueing.',
+      );
+    }
+
+    if (result === 'preflight_required') {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'A successful preflight for the current revisions is required before queueing.',
+      );
+    }
+
+    if (result === 'stale') {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'The inputs or configuration changed. Reload the review before queueing.',
       );
     }
 
@@ -236,10 +268,16 @@ export class AnalysisService {
       id: analysis.id,
       status: analysis.status,
       displayName: analysis.displayName,
+      inputRevision: analysis.inputRevision,
+      configurationRevision: analysis.configurationRevision,
       createdAt: analysis.createdAt,
       updatedAt: analysis.updatedAt,
       expiresAt: analysis.expiresAt,
       expiredAt: analysis.expiredAt,
+      queuedAt: analysis.queuedAt,
+      startedAt: analysis.startedAt,
+      completedAt: analysis.completedAt,
+      cancelledAt: analysis.cancelledAt,
       failure: analysis.failure,
       progress: analysis.progress,
       execution: analysis.execution,

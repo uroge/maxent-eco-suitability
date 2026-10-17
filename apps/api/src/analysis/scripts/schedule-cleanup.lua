@@ -37,6 +37,11 @@ if type(analysis.resultManifest) == 'table' then
     objectKeys[#objectKeys + 1] = artifact.storageKey
   end
 end
+if type(analysis.mapAssets) == 'table' then
+  for _, asset in ipairs(analysis.mapAssets) do
+    objectKeys[#objectKeys + 1] = asset.storageKey
+  end
+end
 for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
   local datasetPayload = redis.call('GET', KEYS[8] .. datasetId)
   if datasetPayload then

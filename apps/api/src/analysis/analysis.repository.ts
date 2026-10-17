@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { canonicalizeJson } from '@ecosuitability/runtime-utils';
-import type { AnalysisInputDataset } from '@ecosuitability/contracts';
+import type {
+  AnalysisInputDataset,
+  AnalysisInputProfile,
+  AnalysisPreflight,
+  QueueAnalysisRequest,
+} from '@ecosuitability/contracts';
 import { RedisService } from '../platform/redis/redis.service';
 import {
   CreateAnalysisScript,
@@ -12,6 +17,7 @@ import {
   DispatchOutboxScript,
   QueueAnalysisScript,
   UpdateConfigurationScript,
+  UpdateValidationStateScript,
 } from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
@@ -135,8 +141,14 @@ export class AnalysisRepository {
     analysisId: string,
     ownerId: string,
     processingExpiresAt: Date,
+    expected?: QueueAnalysisRequest,
   ): Promise<
-    StoredAnalysis | 'missing' | 'invalid' | 'configuration_required'
+    | StoredAnalysis
+    | 'missing'
+    | 'invalid'
+    | 'configuration_required'
+    | 'preflight_required'
+    | 'stale'
   > {
     const now = new Date();
     const inputManifest = await this.inputManifest(analysisId);
@@ -157,11 +169,19 @@ export class AnalysisRepository {
         processingExpiresAt.toISOString(),
         JSON.stringify(inputManifest),
         inputFingerprint,
+        expected ? String(expected.expectedInputRevision) : '',
+        expected ? String(expected.expectedConfigurationRevision) : '',
+        expected?.configurationFingerprint ?? '',
       ],
     })) as string[];
 
     if (result[0] !== 'queued') {
-      return result[0] as 'missing' | 'invalid' | 'configuration_required';
+      return result[0] as
+        | 'missing'
+        | 'invalid'
+        | 'configuration_required'
+        | 'preflight_required'
+        | 'stale';
     }
 
     return JSON.parse(result[1]) as StoredAnalysis;
@@ -199,6 +219,35 @@ export class AnalysisRepository {
     }
     if (result[0] !== 'updated' && result[0] !== 'replay') {
       return result[0] as 'missing' | 'invalid' | 'conflict';
+    }
+    return JSON.parse(result[1]) as StoredAnalysis;
+  }
+
+  public async updateValidationState(
+    analysisId: string,
+    ownerId: string,
+    kind: 'inputProfile' | 'preflight',
+    state: AnalysisInputProfile | AnalysisPreflight,
+  ): Promise<StoredAnalysis | 'missing' | 'stale'> {
+    const result = (await this.redis
+      .getClient()
+      .eval(UpdateValidationStateScript, {
+        keys: [this.analysisKey(analysisId)],
+        arguments: [
+          ownerId,
+          kind,
+          String(state.inputRevision),
+          String(
+            kind === 'preflight'
+              ? (state as AnalysisPreflight).configurationRevision
+              : 0,
+          ),
+          JSON.stringify(state),
+          new Date().toISOString(),
+        ],
+      })) as string[];
+    if (result[0] !== 'updated') {
+      return result[0] as 'missing' | 'stale';
     }
     return JSON.parse(result[1]) as StoredAnalysis;
   }

@@ -156,6 +156,7 @@ export function AnalysisWorkflow() {
         regularizationMultiplier: 1,
       },
       validation: { method: 'train-test-split', testFraction: 0.2 },
+      visualization: { terrain: null },
       seed: crypto.getRandomValues(new Uint32Array(1))[0],
     };
     setBusy(true);

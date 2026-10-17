@@ -61,7 +61,7 @@ export const uploadDataset = async (
   api: ApiClient,
   analysisId: string,
   kind: 'occurrence' | 'predictor',
-  format: 'csv' | 'xlsx' | 'geojson' | 'shapefile' | 'geotiff',
+  format: 'csv' | 'xlsx' | 'geojson' | 'gpkg' | 'shapefile' | 'geotiff' | 'geotiff-zip',
   files: DirectUploadFile[],
   options: UploadDatasetOptions
 ): Promise<string> => {

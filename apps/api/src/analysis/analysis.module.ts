@@ -20,6 +20,11 @@ import { UploadExpiryService } from './upload-expiry.service';
 import { UploadService } from './upload.service';
 import { ResultService } from './result.service';
 import { ConfigurationService } from './configuration.service';
+import { InputsController } from './inputs.controller';
+import { ValidationController } from './validation.controller';
+import { ValidationService } from './validation.service';
+import { MapController } from './map.controller';
+import { MapService } from './map.service';
 
 @Module({
   imports: [
@@ -44,7 +49,13 @@ import { ConfigurationService } from './configuration.service';
     }),
     BullModule.registerQueue({ name: analysisQueueName }),
   ],
-  controllers: [AnalysisController, UploadController],
+  controllers: [
+    AnalysisController,
+    InputsController,
+    MapController,
+    UploadController,
+    ValidationController,
+  ],
   providers: [
     AnalysisRepository,
     AnalysisService,
@@ -56,6 +67,8 @@ import { ConfigurationService } from './configuration.service';
     UploadExpiryService,
     ResultService,
     ConfigurationService,
+    ValidationService,
+    MapService,
   ],
   exports: [AnalysisService],
 })

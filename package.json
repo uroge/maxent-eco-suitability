@@ -16,7 +16,7 @@
     "test": "turbo test",
     "test:watch": "turbo test:watch",
     "test:e2e": "playwright test --config apps/web/playwright.config.ts",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm tiles:lint && pnpm tiles:test",
     "clean": "turbo clean && rimraf node_modules",
     "docker:build": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml build",
     "docker:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up --build",
@@ -29,6 +29,10 @@
     "docker:r:health": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml exec -T analysis-r Rscript scripts/healthcheck.R",
     "docker:r:test": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml run --rm --no-deps analysis-r Rscript tests/test-model.R",
     "docker:r:logs": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml logs --follow analysis-r",
+    "tiles:lint": "cd services/tiles && uv run --frozen ruff check .",
+    "tiles:test": "cd services/tiles && uv run --frozen pytest",
+    "docker:tiles:build": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml build tiles",
+    "docker:tiles:up": "docker compose --env-file infrastructure/docker/.env.local -f infrastructure/docker/compose.yaml up -d tiles",
     "container:check": "node scripts/check-containers.mjs"
   },
   "devDependencies": {

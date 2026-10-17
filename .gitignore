@@ -12,4 +12,8 @@ test-results/
 !.env.example
 minio-data/
 services/analysis-r/renv/library/
+services/tiles/.venv/
+services/tiles/.pytest_cache/
+services/tiles/.ruff_cache/
+services/tiles/**/__pycache__/
 EcoSuitability GIS App Design

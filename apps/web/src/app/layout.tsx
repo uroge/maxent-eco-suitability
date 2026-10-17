@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ClerkProvider } from '@clerk/nextjs';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { appearanceBootstrapScript } from '@/appearance';
 import { getConfiguredBrand } from '@/brand';
 import { AppearanceController } from '@/components/AppearanceController';

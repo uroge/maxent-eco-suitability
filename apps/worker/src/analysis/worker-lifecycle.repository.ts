@@ -15,6 +15,8 @@ import {
   UpdateWorkerScript,
   UpdateValidationScript,
   VerifyResultScript,
+  AppendBundleScript,
+  PublishMapAssetsScript,
 } from './worker-scripts';
 import type { AnalysisResultManifest } from '@ecosuitability/contracts';
 import type {
@@ -212,6 +214,39 @@ export class WorkerLifecycleRepository {
       ? (JSON.parse(result[1]) as ProvisionalResult)
       : (result[0] as
           'cancelled' | 'dependency_unavailable' | 'invalid' | 'stale_attempt');
+  }
+
+  public async appendBundle(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+    artifact: ProvisionalArtifact,
+  ): Promise<ProvisionalResult | 'dependency_unavailable' | 'stale_attempt'> {
+    const result = (await this.redis.getClient().eval(AppendBundleScript, {
+      keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
+      arguments: [jobId, String(attempt), JSON.stringify(artifact)],
+    })) as string[];
+    return result[0] === 'updated'
+      ? (JSON.parse(result[1]) as ProvisionalResult)
+      : (result[0] as 'dependency_unavailable' | 'stale_attempt');
+  }
+
+  public async publishMapAssets(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+    assets: unknown[],
+  ): Promise<'updated' | 'dependency_unavailable' | 'stale_attempt'> {
+    const result = (await this.redis.getClient().eval(PublishMapAssetsScript, {
+      keys: [this.analysisKey(analysisId)],
+      arguments: [
+        jobId,
+        String(attempt),
+        JSON.stringify(assets),
+        new Date().toISOString(),
+      ],
+    })) as string[];
+    return result[0] as 'updated' | 'dependency_unavailable' | 'stale_attempt';
   }
 
   public async verifyResult(

@@ -24,6 +24,16 @@ const commaSeparatedValues = z.string().transform((value, context) => {
   return values;
 });
 
+const optionalUrl = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.url().optional(),
+);
+
+const optionalAttribution = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).max(512).optional(),
+);
+
 const schema = z
   .object({
     APP_ENV: environmentSchema.default('development'),
@@ -90,6 +100,26 @@ const schema = z
       .min(1000)
       .max(24 * 60 * 60 * 1000)
       .default(30 * 60 * 1000),
+    TILE_SERVICE_URL: z.url().default('http://tiles:8081'),
+    TILE_INTERNAL_SHARED_SECRET: z.string().min(32),
+    TILE_REQUEST_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(500)
+      .max(30000)
+      .default(5000),
+    TILE_RESPONSE_MAX_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .max(10 * 1024 * 1024)
+      .default(2 * 1024 * 1024),
+    MAP_LIGHT_STYLE_URL: optionalUrl,
+    MAP_LIGHT_ATTRIBUTION: optionalAttribution,
+    MAP_SATELLITE_STYLE_URL: optionalUrl,
+    MAP_SATELLITE_ATTRIBUTION: optionalAttribution,
+    MAP_TERRAIN_STYLE_URL: optionalUrl,
+    MAP_TERRAIN_ATTRIBUTION: optionalAttribution,
   })
   .superRefine((environment, context) => {
     if (environment.APP_ENV !== 'production') {

@@ -50,6 +50,19 @@ threshold_metrics <- function(presence, background) {
   )
 }
 
+roc_points <- function(presence, background) {
+  values <- sort(unique(c(presence, background)), decreasing = TRUE)
+  upper <- max(values) + max(.Machine$double.eps, abs(max(values)) * .Machine$double.eps)
+  thresholds <- c(upper, values)
+  lapply(thresholds, function(threshold) {
+    list(
+      falsePositiveRate = mean(background >= threshold),
+      truePositiveRate = mean(presence >= threshold),
+      threshold = threshold
+    )
+  })
+}
+
 partition_indices <- function(count, validation, seed) {
   set.seed(seed)
   shuffled <- sample.int(count)
@@ -227,14 +240,27 @@ evaluate_partitions <- function(presence, background, configuration, study_area)
     )
   })
   auc_values <- vapply(evaluations, function(evaluation) evaluation$auc, numeric(1))
+  pooled_presence <- unlist(lapply(evaluations, function(evaluation) evaluation$presencePredictions))
+  pooled_background <- unlist(lapply(evaluations, function(evaluation) evaluation$backgroundPredictions))
   list(
     evaluations = evaluations,
-    auc = mean(auc_values),
-    aucStandardDeviation = if (length(auc_values) > 1L) stats::sd(auc_values) else 0,
-    threshold = threshold_metrics(
-      unlist(lapply(evaluations, function(evaluation) evaluation$presencePredictions)),
-      unlist(lapply(evaluations, function(evaluation) evaluation$backgroundPredictions))
-    )
+    auc = list(
+      mean = mean(auc_values),
+      standardDeviation = if (length(auc_values) > 1L) stats::sd(auc_values) else 0,
+      minimum = min(auc_values),
+      maximum = max(auc_values)
+    ),
+    pooledRoc = roc_points(pooled_presence, pooled_background),
+    evaluationRuns = lapply(seq_along(evaluations), function(index) {
+      item <- evaluations[[index]]
+      list(
+        run = index,
+        auc = item$auc,
+        presenceCount = length(item$presencePredictions),
+        backgroundCount = length(item$backgroundPredictions)
+      )
+    }),
+    threshold = threshold_metrics(pooled_presence, pooled_background)
   )
 }
 
@@ -375,11 +401,12 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
     )
   })
   metrics <- list(
-    schemaVersion = 1L,
+    schemaVersion = 2L,
     method = configuration$validation$method,
     folds = length(evaluation$evaluations),
     auc = evaluation$auc,
-    aucStandardDeviation = evaluation$aucStandardDeviation,
+    pooledRoc = evaluation$pooledRoc,
+    evaluationRuns = evaluation$evaluationRuns,
     threshold = evaluation$threshold
   )
 
@@ -395,7 +422,11 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
       study_area = study_area,
       filename = suitability_path,
       overwrite = TRUE,
-      wopt = list(datatype = "FLT4S", gdal = c("COMPRESS=DEFLATE"))
+      wopt = list(
+        datatype = "FLT4S",
+        filetype = "COG",
+        gdal = c("COMPRESS=DEFLATE", "OVERVIEWS=IGNORE_EXISTING")
+      )
     ),
     error = function(error) NULL
   )
@@ -410,7 +441,11 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
       0L,
       filename = threshold_path,
       overwrite = TRUE,
-      wopt = list(datatype = "INT1U", gdal = c("COMPRESS=DEFLATE"))
+      wopt = list(
+        datatype = "INT1U",
+        filetype = "COG",
+        gdal = c("COMPRESS=DEFLATE", "OVERVIEWS=IGNORE_EXISTING")
+      )
     ),
     error = function(error) NULL
   )

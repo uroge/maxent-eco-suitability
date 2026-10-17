@@ -7,6 +7,7 @@ import {
 import { AuthenticatedRateLimitGuard } from './authenticated-rate-limit.guard';
 import { AnonymousRateLimitGuard } from './anonymous-rate-limit.guard';
 import { GlobalRateLimitMiddleware } from './global-rate-limit.middleware';
+import { MapRateLimitGuard } from './map-rate-limit.guard';
 import { RateLimitService } from './rate-limit.service';
 
 @Global()
@@ -16,11 +17,13 @@ import { RateLimitService } from './rate-limit.service';
     GlobalRateLimitMiddleware,
     AuthenticatedRateLimitGuard,
     AnonymousRateLimitGuard,
+    MapRateLimitGuard,
   ],
   exports: [
     RateLimitService,
     AuthenticatedRateLimitGuard,
     AnonymousRateLimitGuard,
+    MapRateLimitGuard,
   ],
 })
 export class RateLimitModule implements NestModule {

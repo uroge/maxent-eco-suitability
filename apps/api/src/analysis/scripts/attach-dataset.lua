@@ -37,6 +37,14 @@ end
 local attached = cjson.decode(ARGV[4])
 manifest.datasets[#manifest.datasets + 1] = attached
 redis.call('SET', KEYS[3], cjson.encode(manifest))
+analysis.inputRevision = (analysis.inputRevision or 0) + 1
+analysis.configuration = nil
+analysis.configurationRevision = 0
+analysis.configurationFingerprint = nil
+analysis.inputProfile = nil
+analysis.preflight = nil
+analysis.updatedAt = attached.attachedAt
+redis.call('SET', KEYS[2], cjson.encode(analysis), 'KEEPTTL')
 for _, uploadId in ipairs(dataset.uploadIds) do
   redis.call('DEL', KEYS[6] .. uploadId)
 end

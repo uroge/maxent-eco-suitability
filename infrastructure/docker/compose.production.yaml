@@ -48,6 +48,14 @@ services:
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in the production environment}
       STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:?Set the R2 CORS origins in the production environment}
       STORAGE_FORCE_PATH_STYLE: 'false'
+      TILE_SERVICE_URL: http://tiles:8081
+      TILE_INTERNAL_SHARED_SECRET: ${TILE_INTERNAL_SHARED_SECRET:?Set TILE_INTERNAL_SHARED_SECRET in production}
+      MAP_LIGHT_STYLE_URL: ${MAP_LIGHT_STYLE_URL:-}
+      MAP_LIGHT_ATTRIBUTION: ${MAP_LIGHT_ATTRIBUTION:-}
+      MAP_SATELLITE_STYLE_URL: ${MAP_SATELLITE_STYLE_URL:-}
+      MAP_SATELLITE_ATTRIBUTION: ${MAP_SATELLITE_ATTRIBUTION:-}
+      MAP_TERRAIN_STYLE_URL: ${MAP_TERRAIN_STYLE_URL:-}
+      MAP_TERRAIN_ATTRIBUTION: ${MAP_TERRAIN_ATTRIBUTION:-}
     networks:
       edge:
         ipv4_address: 172.30.0.3
@@ -83,6 +91,19 @@ services:
       R_RUNTIME_WORKSPACE_QUOTA_BYTES: ${R_RUNTIME_WORKSPACE_QUOTA_BYTES:-6442450944}
       R_RUNTIME_CHILD_MEMORY_BYTES: ${R_RUNTIME_CHILD_MEMORY_BYTES:-2147483648}
       R_RUNTIME_RUN_TIMEOUT_MS: ${R_RUNTIME_RUN_TIMEOUT_MS:-1800000}
+    ports: !reset []
+    networks: [backend]
+
+  tiles:
+    depends_on: !reset []
+    environment:
+      TILE_INTERNAL_SHARED_SECRET: ${TILE_INTERNAL_SHARED_SECRET:?Set TILE_INTERNAL_SHARED_SECRET in production}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set the R2 bucket in production}
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set the R2 access key in production}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set the R2 secret in production}
+      AWS_REGION: auto
+      AWS_ENDPOINT_URL: ${STORAGE_INTERNAL_ENDPOINT:?Set the R2 endpoint in production}
+      AWS_VIRTUAL_HOSTING: 'TRUE'
     ports: !reset []
     networks: [backend]
 

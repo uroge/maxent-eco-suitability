@@ -9,6 +9,8 @@ import type {
   AnalysisResultManifest,
   AnalysisConfiguration,
   AnalysisInputDataset,
+  AnalysisInputProfile,
+  AnalysisPreflight,
 } from '@ecosuitability/contracts';
 
 export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
@@ -23,11 +25,21 @@ export type StoredAnalysis = Analysis & {
   execution: AnalysisExecution | null;
   resultManifest?: StoredResultManifest;
   configuration?: AnalysisConfiguration;
-  configurationRevision?: number;
   configurationFingerprint?: string;
+  inputProfile?: AnalysisInputProfile;
+  preflight?: AnalysisPreflight;
+  mapAssets?: Array<{
+    id: string;
+    datasetId: string;
+    label: string;
+    storageKey: string;
+    terrainEligible: boolean;
+  }>;
   executionSnapshot?: {
     configuration: AnalysisConfiguration;
-    revision: number;
+    inputRevision: number;
+    configurationRevision: number;
+    revision?: number;
     fingerprint: string;
     inputManifest: {
       datasets: AnalysisInputDataset[];

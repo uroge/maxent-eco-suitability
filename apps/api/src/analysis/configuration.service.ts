@@ -31,7 +31,10 @@ export class ConfigurationService {
     return {
       mode: frozen ? 'frozen' : 'editable',
       configuration: frozen?.configuration ?? analysis.configuration ?? null,
-      revision: frozen?.revision ?? analysis.configurationRevision ?? 0,
+      revision:
+        frozen?.configurationRevision ??
+        frozen?.revision ??
+        analysis.configurationRevision,
       fingerprint: frozen?.fingerprint ?? analysis.configurationFingerprint,
     };
   }

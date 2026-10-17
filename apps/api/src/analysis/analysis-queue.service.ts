@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import {
   analysisJobName,
+  analysisInputProfileJobName,
+  analysisPreflightJobName,
   analysisQueueName,
   type AnalysisJobPayload,
+  type AnalysisValidationJobPayload,
 } from '@ecosuitability/contracts';
 import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
@@ -70,6 +73,30 @@ export class AnalysisQueueService
     if (job) {
       await job.remove();
     }
+  }
+
+  public async enqueueInputProfile(
+    payload: AnalysisValidationJobPayload,
+  ): Promise<void> {
+    await this.queue.add(analysisInputProfileJobName, payload, {
+      jobId: `${payload.analysisId}-profile-${payload.inputRevision}`,
+      attempts: queueAttempts,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: { age: 24 * 60 * 60, count: 100 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 500 },
+    });
+  }
+
+  public async enqueuePreflight(
+    payload: AnalysisValidationJobPayload,
+  ): Promise<void> {
+    await this.queue.add(analysisPreflightJobName, payload, {
+      jobId: `${payload.analysisId}-preflight-${payload.inputRevision}-${payload.configurationRevision}`,
+      attempts: queueAttempts,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: { age: 24 * 60 * 60, count: 100 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 500 },
+    });
   }
 
   private async dispatch(outbox: AnalysisOutbox): Promise<void> {

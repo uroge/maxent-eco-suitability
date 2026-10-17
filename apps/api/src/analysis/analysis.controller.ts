@@ -20,6 +20,9 @@ import type {
   AnalysisConfigurationResponse,
   UpdateAnalysisConfigurationRequest,
   IdempotencyKey,
+  QueueAnalysisRequest,
+  AnalysisDiagnosticsResponse,
+  AnalysisResultOverviewResponse,
 } from '@ecosuitability/contracts';
 import {
   analysisIdSchema,
@@ -27,6 +30,7 @@ import {
   createAnalysisRequestSchema,
   idempotencyKeySchema,
   updateAnalysisConfigurationRequestSchema,
+  queueAnalysisRequestSchema,
 } from '@ecosuitability/contracts';
 import type { Response } from 'express';
 import { AuthenticationGuard } from '../platform/auth/authentication.guard';
@@ -87,6 +91,34 @@ export class AnalysisController {
   ): Promise<AnalysisResultManifestResponse> {
     return {
       result: await this.resultService.manifest(request.principal!, analysisId),
+    };
+  }
+
+  @Get(':analysisId/results/overview')
+  public async overview(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisResultOverviewResponse> {
+    return {
+      overview: await this.resultService.overview(
+        request.principal!,
+        analysisId,
+      ),
+    };
+  }
+
+  @Get(':analysisId/results/diagnostics')
+  public async diagnostics(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<AnalysisDiagnosticsResponse> {
+    return {
+      diagnostics: await this.resultService.diagnostics(
+        request.principal!,
+        analysisId,
+      ),
     };
   }
 
@@ -158,11 +190,14 @@ export class AnalysisController {
     @Req() request: AuthenticatedRequest,
     @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
     analysisId: string,
+    @Body(new ZodValidationPipe(queueAnalysisRequestSchema))
+    body: QueueAnalysisRequest,
   ): Promise<AnalysisResponse> {
     return {
       analysis: await this.analysisService.queueAnalysis(
         request.principal!,
         analysisId,
+        body,
       ),
     };
   }

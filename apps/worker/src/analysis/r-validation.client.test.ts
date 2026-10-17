@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RValidationClient } from './r-validation.client';
-import { analysisArtifactSpecifications } from '@ecosuitability/contracts';
+import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
 
 const secret = 'r-runtime-shared-secret-with-at-least-32-bytes';
 
@@ -63,7 +63,7 @@ describe('RValidationClient', () => {
 
   it('executes the stable run protocol and issues output capabilities at artifacts-ready', async () => {
     const analysisId = 'an_0123456789abcdef0123456789abcdef';
-    const artifacts = analysisArtifactSpecifications.map(
+    const artifacts = scientificArtifactSpecifications.map(
       (definition, index) => ({
         kind: definition.kind,
         size: index + 1,
@@ -193,7 +193,7 @@ describe('RValidationClient', () => {
 
   it('resets event polling when the R runtime restores a newer generation', async () => {
     const analysisId = 'an_1123456789abcdef0123456789abcdef';
-    const artifacts = analysisArtifactSpecifications.map(
+    const artifacts = scientificArtifactSpecifications.map(
       (definition, index) => ({
         kind: definition.kind,
         size: index + 1,

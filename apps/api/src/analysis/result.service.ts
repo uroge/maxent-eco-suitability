@@ -2,9 +2,18 @@ import { Injectable } from '@nestjs/common';
 import type {
   AnalysisArtifactDownloadResponse,
   AnalysisResultManifest,
+  AnalysisConfiguration,
+  AnalysisDiagnosticsResponse,
+  AnalysisResultOverviewResponse,
   Principal,
 } from '@ecosuitability/contracts';
-import { analysisResultManifestSchema } from '@ecosuitability/contracts';
+import {
+  analysisExecutionSummaryArtifactSchema,
+  analysisMetricsArtifactSchema,
+  analysisResultManifestSchema,
+  analysisResponseCurvesArtifactSchema,
+  analysisVariableImportanceArtifactSchema,
+} from '@ecosuitability/contracts';
 import { ApiException } from '../platform/errors/api.exception';
 import { StorageService } from '../storage/storage.service';
 import { AnalysisRepository } from './analysis.repository';
@@ -59,6 +68,67 @@ export class ResultService {
       ),
       expiresAt: new Date(Date.now() + expiresIn * 1_000).toISOString(),
     };
+  }
+
+  public async overview(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<AnalysisResultOverviewResponse['overview']> {
+    const analysis = await this.analysis(principal, analysisId);
+    const manifest = analysisResultManifestSchema.parse(
+      analysis.resultManifest,
+    );
+    const [metricsValue, summaryValue] = await Promise.all([
+      this.readArtifact(analysis, 'metrics'),
+      this.readArtifact(analysis, 'execution-summary'),
+    ]);
+    const metrics = analysisMetricsArtifactSchema.parse(metricsValue);
+    const summary = analysisExecutionSummaryArtifactSchema.parse(summaryValue);
+    const configuration =
+      analysis.executionSnapshot?.configuration ?? analysis.configuration;
+    if (!configuration) {
+      throw this.notFound();
+    }
+    return {
+      analysisId: analysis.id,
+      displayName: analysis.displayName,
+      completedAt: manifest.completedAt,
+      resultExpiresAt: manifest.resultExpiresAt,
+      metrics,
+      validation: summary.validation,
+      configuration: configuration as AnalysisConfiguration,
+    };
+  }
+
+  public async diagnostics(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<AnalysisDiagnosticsResponse['diagnostics']> {
+    const analysis = await this.analysis(principal, analysisId);
+    const [metrics, importance, responseCurves] = await Promise.all([
+      this.readArtifact(analysis, 'metrics'),
+      this.readArtifact(analysis, 'variable-importance'),
+      this.readArtifact(analysis, 'response-curves'),
+    ]);
+    return {
+      metrics: analysisMetricsArtifactSchema.parse(metrics),
+      importance: analysisVariableImportanceArtifactSchema.parse(importance),
+      responseCurves:
+        analysisResponseCurvesArtifactSchema.parse(responseCurves),
+    };
+  }
+
+  private async readArtifact(
+    analysis: Awaited<ReturnType<ResultService['analysis']>>,
+    kind: AnalysisResultManifest['artifacts'][number]['kind'],
+  ): Promise<unknown> {
+    const artifact = analysis.resultManifest?.artifacts.find(
+      (item) => item.kind === kind,
+    );
+    if (!artifact) {
+      throw this.notFound();
+    }
+    return this.storage.getJson(artifact.storageKey);
   }
 
   private async analysis(principal: Principal, analysisId: string) {

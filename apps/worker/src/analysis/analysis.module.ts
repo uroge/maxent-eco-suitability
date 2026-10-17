@@ -11,6 +11,7 @@ import { AnalysisProcessor } from './analysis.processor';
 import { RValidationClient } from './r-validation.client';
 import { ResultService } from './result.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
+import { ValidationJobService } from './validation-job.service';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
     ResultService,
     RValidationClient,
     AnalysisProcessor,
+    ValidationJobService,
   ],
   exports: [RValidationClient],
 })

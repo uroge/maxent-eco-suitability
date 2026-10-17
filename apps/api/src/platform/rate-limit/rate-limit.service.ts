@@ -7,6 +7,8 @@ export type RateLimitScope =
   | 'authentication-failure'
   | 'authenticated-user'
   | 'authenticated-ip'
+  | 'map-user'
+  | 'map-ip'
   | 'health'
   | 'metrics';
 
@@ -18,6 +20,8 @@ const rateLimitDefinitions: Record<
   'authentication-failure': { points: 30, duration: 60 },
   'authenticated-user': { points: 120, duration: 60 },
   'authenticated-ip': { points: 240, duration: 60 },
+  'map-user': { points: 600, duration: 60 },
+  'map-ip': { points: 1200, duration: 60 },
   health: { points: 30, duration: 60 },
   metrics: { points: 10, duration: 60 },
 };

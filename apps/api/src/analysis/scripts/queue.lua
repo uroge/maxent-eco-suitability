@@ -18,6 +18,19 @@ end
 if type(analysis.configuration) ~= 'table' or type(analysis.configurationRevision) ~= 'number' or type(analysis.configurationFingerprint) ~= 'string' then
   return { 'configuration_required' }
 end
+if ARGV[8] ~= '' and (
+  (analysis.inputRevision or 0) ~= tonumber(ARGV[8]) or
+  analysis.configurationRevision ~= tonumber(ARGV[9]) or
+  analysis.configurationFingerprint ~= ARGV[10]
+) then
+  return { 'stale' }
+end
+if type(analysis.preflight) ~= 'table' or analysis.preflight.status ~= 'passed' or
+  analysis.preflight.inputRevision ~= (analysis.inputRevision or 0) or
+  analysis.preflight.configurationRevision ~= analysis.configurationRevision or
+  analysis.preflight.configurationFingerprint ~= analysis.configurationFingerprint then
+  return { 'preflight_required' }
+end
 
 local inputManifest = cjson.decode(ARGV[6])
 if type(inputManifest.datasets) ~= 'table' then
@@ -30,9 +43,10 @@ analysis.status = 'queued'
 analysis.updatedAt = now
 analysis.expiresAt = processingExpiresAt
 analysis.processingExpiresAt = processingExpiresAt
-analysis.executionSnapshot = { configuration = analysis.configuration, revision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, inputManifest = inputManifest, inputFingerprint = ARGV[7], queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
+analysis.executionSnapshot = { configuration = analysis.configuration, inputRevision = analysis.inputRevision, configurationRevision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, inputManifest = inputManifest, inputFingerprint = ARGV[7], queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
+analysis.queuedAt = now
 analysis.failure = cjson.null
-analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, updatedAt = now }
+analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, message = 'Waiting for the analysis worker.', updatedAt = now }
 analysis.execution = { jobId = ARGV[2], attempt = cjson.null, outboxDispatchedAt = cjson.null }
 
 local outbox = {

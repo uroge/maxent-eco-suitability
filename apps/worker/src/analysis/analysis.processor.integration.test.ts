@@ -102,6 +102,10 @@ describe.runIf(integrationEnabled)(
           }),
           beginUpload: vi.fn(),
           uploadCapabilities: vi.fn(),
+          createBundle: vi.fn(
+            async (_job, _attempt, provisional) => provisional,
+          ),
+          publishMapAssets: vi.fn().mockResolvedValue(undefined),
           verifyAndPublish: vi.fn(
             async (
               job: { id?: string; data: AnalysisJobPayload },

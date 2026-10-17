@@ -236,14 +236,20 @@ Depending on the supplied inputs and analysis configuration, a completed analysi
 
 ### Downloadable artifacts
 
-- `result.json`
-- occurrence `GeoJSON`
-- suitability `GeoTIFF`
-- response-curve data
-- model/evaluation data
-- Excel analysis report
+- `execution-summary.json`
+- `metrics.json`
+- `variable-importance.json`
+- `response-curves.json`
+- `occurrences.geojson`
+- `background-points.geojson`
+- `suitability.tif`
+- `suitable-habitat.tif`
+- `run.log.txt`
+- `result-bundle.zip`, containing the nine scientific files plus `bundle-manifest.json`
 
 GIS artifacts that depend on spatial raster prediction are generated only when the required spatial predictor data is available.
+
+The application also publishes private COG copies used only for interactive maps. Those copies are not additional scientific downloads. The API authorizes every tile, point, vector, and terrain request before proxying it to the internal `services/tiles` service; browsers cannot submit storage keys or arbitrary source URLs.
 
 ---
 
@@ -540,7 +546,7 @@ cancelled
 
 ## Result Manifest
 
-Every successful analysis produces a machine-readable `result.json`.
+Every successful analysis stores a validated manifest in Redis that points to the ten published artifacts. Scientific values are split between `execution-summary.json`, `metrics.json`, `variable-importance.json`, and `response-curves.json` rather than a synthetic aggregate result file.
 
 Example:
 
@@ -567,12 +573,12 @@ Example:
     }
   ],
 
-  "artifacts": {
-    "occurrences": "occurrences.geojson",
-    "suitability": "suitability.tif",
-    "responseCurves": "response-curves.json",
-    "report": "analysis-report.xlsx"
-  }
+  "completedAt": "2026-10-17T12:00:00.000Z",
+  "artifacts": [
+    { "kind": "execution-summary", "filename": "execution-summary.json" },
+    { "kind": "metrics", "filename": "metrics.json" },
+    { "kind": "result-bundle", "filename": "ecosuitability-results.zip" }
+  ]
 }
 ```
 
@@ -657,13 +663,17 @@ analyses/an_abc123/
   config/
     analysis.json
 
-  output/
-    result.json
+  results/
+    execution-summary.json
+    metrics.json
     suitability.tif
+    suitable-habitat.tif
     occurrences.geojson
+    background-points.geojson
     variable-importance.json
     response-curves.json
-    analysis-report.xlsx
+    run.log.txt
+    ecosuitability-results.zip
 ```
 
 Typical lifecycle:

@@ -22,6 +22,8 @@ export const AbortDatasetScript = readScript('abort-dataset.lua');
 
 export const AttachDatasetScript = readScript('attach-dataset.lua');
 
+export const DetachDatasetScript = readScript('detach-dataset.lua');
+
 export const MarkReadyScript = readScript('mark-ready.lua');
 
 export const ScheduleCleanupScript = readScript('schedule-cleanup.lua');
@@ -35,3 +37,7 @@ export const ClaimOutboxScript = readScript('claim-outbox.lua');
 export const DispatchOutboxScript = readScript('dispatch-outbox.lua');
 
 export const UpdateConfigurationScript = readScript('update-configuration.lua');
+
+export const UpdateValidationStateScript = readScript(
+  'update-validation-state.lua',
+);

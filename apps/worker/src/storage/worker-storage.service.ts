@@ -1,14 +1,18 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { presignS3Get, presignS3Put } from '@ecosuitability/runtime-utils';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { WorkerEnvironment } from '../env';
+import type { Readable } from 'node:stream';
 
 @Injectable()
 export class WorkerStorageService {
@@ -48,6 +52,36 @@ export class WorkerStorageService {
     );
   }
 
+  public async getStream(key: string): Promise<Readable> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!response.Body) {
+      throw new Error('Stored result artifact has no body.');
+    }
+    return response.Body as Readable;
+  }
+
+  public async putStream(
+    key: string,
+    body: Readable,
+    contentType: string,
+    contentDisposition: string,
+    sha256: string,
+  ): Promise<void> {
+    await new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentDisposition: contentDisposition,
+        Metadata: { sha256 },
+      },
+    }).done();
+  }
+
   public async head(key: string): Promise<
     | {
         size: number;
@@ -81,6 +115,16 @@ export class WorkerStorageService {
   public async delete(key: string): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+  }
+
+  public async copy(sourceKey: string, targetKey: string): Promise<void> {
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        CopySource: `${this.bucket}/${encodeURIComponent(sourceKey).replaceAll('%2F', '/')}`,
+        Key: targetKey,
+      }),
     );
   }
 

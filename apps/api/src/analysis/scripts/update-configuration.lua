@@ -14,6 +14,7 @@ if revision ~= tonumber(ARGV[2]) then return { 'conflict' } end
 analysis.configuration = cjson.decode(ARGV[5])
 analysis.configurationRevision = revision + 1
 analysis.configurationFingerprint = ARGV[3]
+analysis.preflight = nil
 analysis.updatedAt = ARGV[6]
 redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 local response = cjson.encode(analysis)

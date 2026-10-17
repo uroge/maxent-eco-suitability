@@ -80,10 +80,16 @@ const createAnalysis = (
   idempotencyKey,
   status: 'draft',
   displayName: 'Wildcat',
+  inputRevision: 0,
+  configurationRevision: 1,
   createdAt: '2026-08-31T12:00:00.000Z',
   updatedAt: '2026-08-31T12:00:00.000Z',
   expiresAt: '2026-09-02T12:00:00.000Z',
   expiredAt: null,
+  queuedAt: null,
+  startedAt: null,
+  completedAt: null,
+  cancelledAt: null,
   failure: null,
   progress: null,
   execution: null,
@@ -109,9 +115,9 @@ const createAnalysis = (
       regularizationMultiplier: 1,
     },
     validation: { method: 'train-test-split', testFraction: 0.2 },
+    visualization: { terrain: null },
     seed: 42,
   },
-  configurationRevision: 1,
   configurationFingerprint: 'jcs-sha256-v1:test',
 });
 
@@ -275,7 +281,7 @@ describe.runIf(integrationEnabled)(
         ),
         status: 'ready' as const,
         configuration: undefined,
-        configurationRevision: undefined,
+        configurationRevision: 0,
         configurationFingerprint: undefined,
       };
       await repository.create({ analysis, fingerprint: 'fingerprint-9' }, 3600);

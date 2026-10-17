@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import archiver from 'archiver';
 import {
   analysisArtifactSpecifications,
+  scientificArtifactSpecifications,
   type AnalysisArtifact,
   type AnalysisJobPayload,
   type AnalysisResultManifest,
@@ -145,6 +152,160 @@ export class ResultService {
     );
   }
 
+  public async createBundle(
+    job: { id?: string; data: AnalysisJobPayload },
+    attempt: number,
+    provisional: ProvisionalResult,
+  ): Promise<ProvisionalResult> {
+    if (!job.id || !provisional.candidateCompletedAt) {
+      throw new ResultLifecycleError('stale_attempt');
+    }
+    const existing = provisional.artifacts.find(
+      (artifact) => artifact.kind === 'result-bundle',
+    );
+    if (existing) {
+      return provisional;
+    }
+    const definition = analysisArtifactSpecifications.find(
+      (artifact) => artifact.kind === 'result-bundle',
+    );
+    if (!definition) {
+      throw new Error('Result bundle definition is missing.');
+    }
+    const artifact = this.artifact(job.data.analysisId, definition);
+    const directory = await mkdtemp(join(tmpdir(), 'ecosuitability-bundle-'));
+    const archivePath = join(directory, definition.filename);
+    try {
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      const output = createWriteStream(archivePath, { mode: 0o600 });
+      const completion = pipeline(archive, output);
+      for (const source of provisional.artifacts) {
+        archive.append(await this.storage.getStream(source.storageKey), {
+          name: source.filename,
+        });
+      }
+      archive.append(
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            analysisId: job.data.analysisId,
+            completedAt: provisional.candidateCompletedAt,
+            artifacts: provisional.artifacts.map((item) => ({
+              id: item.id,
+              kind: item.kind,
+              filename: item.filename,
+              contentType: item.contentType,
+              size: item.size,
+              sha256: item.sha256,
+              sha256Verification: item.sha256Verification,
+              createdAt: item.createdAt,
+            })),
+          },
+          null,
+          2,
+        ),
+        { name: 'bundle-manifest.json' },
+      );
+      await archive.finalize();
+      await completion;
+      const metadata = await stat(archivePath);
+      const sha256 = await this.hashFile(archivePath);
+      const completedArtifact: ProvisionalArtifact = {
+        ...artifact,
+        size: metadata.size,
+        sha256,
+        createdAt: provisional.candidateCompletedAt,
+      };
+      await this.storage.putStream(
+        completedArtifact.storageKey,
+        createReadStream(archivePath),
+        completedArtifact.contentType,
+        completedArtifact.contentDisposition,
+        completedArtifact.sha256,
+      );
+      const updated = await this.lifecycle.appendBundle(
+        job.data.analysisId,
+        job.id,
+        attempt,
+        completedArtifact,
+      );
+      if (typeof updated === 'string') {
+        throw new ResultLifecycleError(updated);
+      }
+      return updated;
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  public async publishMapAssets(
+    job: { id?: string; data: AnalysisJobPayload },
+    attempt: number,
+  ): Promise<void> {
+    if (!job.id) {
+      throw new ResultLifecycleError('stale_attempt');
+    }
+    const snapshot = (await this.lifecycle.executionSnapshot(
+      job.data.analysisId,
+    )) as
+      | {
+          configuration?: {
+            predictors?: Array<{
+              datasetId: string;
+              variableName: string;
+              type: string;
+            }>;
+            visualization?: { terrain?: { datasetId: string } | null };
+          };
+          inputManifest?: {
+            datasets?: Array<{
+              dataset: { id: string; format: string };
+              files: Array<{ storageKey: string }>;
+            }>;
+          };
+        }
+      | undefined;
+    const assets: Array<{
+      id: string;
+      datasetId: string;
+      label: string;
+      storageKey: string;
+      terrainEligible: boolean;
+    }> = [];
+    for (const predictor of snapshot?.configuration?.predictors ?? []) {
+      const source = snapshot?.inputManifest?.datasets?.find(
+        (entry) =>
+          entry.dataset.id === predictor.datasetId &&
+          entry.dataset.format === 'geotiff',
+      )?.files[0];
+      if (!source) {
+        continue;
+      }
+      const id = `ml_${createHash('sha256').update(`${job.data.analysisId}:${predictor.datasetId}`).digest('hex').slice(0, 32)}`;
+      const storageKey = `analyses/${job.data.analysisId}/map-assets/${id}.tif`;
+      await this.storage.copy(source.storageKey, storageKey);
+      assets.push({
+        id,
+        datasetId: predictor.datasetId,
+        label: predictor.variableName,
+        storageKey,
+        terrainEligible:
+          predictor.type === 'continuous' &&
+          snapshot?.configuration?.visualization?.terrain?.datasetId ===
+            predictor.datasetId,
+      });
+    }
+    const outcome = await this.lifecycle.publishMapAssets(
+      job.data.analysisId,
+      job.id,
+      attempt,
+      assets,
+    );
+    if (outcome !== 'updated') {
+      throw new ResultLifecycleError(outcome);
+    }
+  }
+
   public async resumeAvailable(
     job: { id?: string; data: AnalysisJobPayload },
     attempt: number,
@@ -194,12 +355,14 @@ export class ResultService {
     provisional: ProvisionalResult,
     generated: RGeneratedArtifact[],
   ): void {
-    const expected = new Set(
+    const expected = new Set<string>(
       provisional.artifacts.map((artifact) => artifact.kind),
     );
-    const received = new Set(generated.map((artifact) => artifact.kind));
+    const received = new Set<string>(
+      generated.map((artifact) => artifact.kind),
+    );
     if (
-      generated.length !== analysisArtifactSpecifications.length ||
+      generated.length !== scientificArtifactSpecifications.length ||
       expected.size !== received.size ||
       [...expected].some((kind) => !received.has(kind)) ||
       generated.some(
@@ -251,7 +414,7 @@ export class ResultService {
       attempt,
       candidateCompletedAt: null,
       publicationState: 'provisioned',
-      artifacts: analysisArtifactSpecifications.map((definition) =>
+      artifacts: scientificArtifactSpecifications.map((definition) =>
         this.artifact(analysisId, definition),
       ),
     };
@@ -277,5 +440,13 @@ export class ResultService {
       sha256Verification: 'worker-verified',
       createdAt: '',
     };
+  }
+
+  private async hashFile(path: string): Promise<string> {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) {
+      hash.update(chunk);
+    }
+    return hash.digest('hex');
   }
 }

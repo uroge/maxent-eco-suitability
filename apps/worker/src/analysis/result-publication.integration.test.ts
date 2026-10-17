@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createClient, type RedisClientType } from 'redis';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
-import { analysisArtifactSpecifications } from '@ecosuitability/contracts';
+import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 import { ResultService } from './result.service';
 
@@ -62,7 +62,7 @@ describe.runIf(integrationEnabled)(
       const first = new ResultService(repository, storage as never);
       const provisional = await first.provision(job, 1);
       if (typeof provisional === 'string') throw new Error(provisional);
-      const generated = analysisArtifactSpecifications.map(
+      const generated = scientificArtifactSpecifications.map(
         (definition, index) => ({
           kind: definition.kind,
           size: index + 1,

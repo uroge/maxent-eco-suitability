@@ -31,6 +31,10 @@ const createResultService = () => ({
     .mockImplementation(async (_job, _attempt, provisional) => provisional),
   uploadCapabilities: vi.fn().mockResolvedValue([]),
   verifyAndPublish: vi.fn().mockResolvedValue('succeeded'),
+  createBundle: vi
+    .fn()
+    .mockImplementation(async (_job, _attempt, provisional) => provisional),
+  publishMapAssets: vi.fn().mockResolvedValue(undefined),
 });
 
 const createValidationClient = () => ({

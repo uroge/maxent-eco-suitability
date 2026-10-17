@@ -7,6 +7,8 @@ import {
   analysisConfigurationSchema,
   analysisArtifactSpecifications,
   analysisResultManifestSchema,
+  analysisMetricsArtifactSchema,
+  mapCapabilitiesSchema,
 } from './analysis';
 
 describe('analysis contracts', () => {
@@ -175,6 +177,59 @@ describe('analysis contracts', () => {
           ...artifact,
           kind: 'execution-summary' as const,
         })),
+      }).success
+    ).toBe(false);
+  });
+
+  it('validates metrics v2 with pooled ROC and per-run sample counts', () => {
+    expect(
+      analysisMetricsArtifactSchema.safeParse({
+        schemaVersion: 2,
+        method: 'k-fold',
+        folds: 2,
+        pooledRoc: [
+          { falsePositiveRate: 0, truePositiveRate: 0, threshold: 1 },
+          { falsePositiveRate: 1, truePositiveRate: 1, threshold: 0 },
+        ],
+        evaluationRuns: [
+          { run: 1, auc: 0.8, presenceCount: 12, backgroundCount: 40 },
+          { run: 2, auc: 0.9, presenceCount: 11, backgroundCount: 40 },
+        ],
+        auc: { mean: 0.85, standardDeviation: 0.05, minimum: 0.8, maximum: 0.9 },
+        threshold: {
+          threshold: 0.4,
+          sensitivity: 0.8,
+          specificity: 0.75,
+          truePositive: 18,
+          falseNegative: 5,
+          trueNegative: 60,
+          falsePositive: 20,
+        },
+      }).success
+    ).toBe(true);
+  });
+
+  it('requires an honest terrain capability state', () => {
+    const base = {
+      analysisId: 'an_0123456789abcdef0123456789abcdef',
+      basemaps: [],
+      layers: [],
+      bounds: [-10, -5, 10, 5],
+    };
+    expect(
+      mapCapabilitiesSchema.safeParse({
+        ...base,
+        terrain: {
+          available: false,
+          layerId: null,
+          unavailableReason: 'No confirmed elevation predictor.',
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      mapCapabilitiesSchema.safeParse({
+        ...base,
+        terrain: { available: true, layerId: 42, unavailableReason: null },
       }).success
     ).toBe(false);
   });

@@ -136,10 +136,15 @@ metrics <- jsonlite::read_json(
   file.path(result_a$outputDirectory, "metrics.json"),
   simplifyVector = TRUE
 )
-if (!is.finite(metrics$auc) || metrics$auc < 0 || metrics$auc > 1) {
+if (!is.finite(metrics$auc$mean) || metrics$auc$mean < 0 || metrics$auc$mean > 1) {
   stop("Model AUC is invalid.", call. = FALSE)
 }
-if (metrics$aucStandardDeviation < 0 || metrics$folds != 5L) {
+if (
+  metrics$auc$standardDeviation < 0 ||
+    metrics$folds != 5L ||
+    length(metrics$evaluationRuns) != 5L ||
+    length(metrics$pooledRoc) < 2L
+) {
   stop("K-fold aggregate metrics are invalid.", call. = FALSE)
 }
 summary <- jsonlite::read_json(

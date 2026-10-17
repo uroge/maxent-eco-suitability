@@ -35,6 +35,7 @@ const request: UpdateAnalysisConfigurationRequest = {
       regularizationMultiplier: 1,
     },
     validation: { method: 'train-test-split', testFraction: 0.2 },
+    visualization: { terrain: null },
     seed: 42,
   },
 };

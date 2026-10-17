@@ -4,6 +4,7 @@ import type { CompletedPart } from '@aws-sdk/client-s3';
 import type {
   Analysis,
   AnalysisInputDataset,
+  AnalysisInputManifest,
   CompleteUploadRequest,
   CreateUploadDatasetRequest,
   CreateUploadFileRequest,
@@ -428,6 +429,54 @@ export class UploadService {
     }
 
     return JSON.parse(result.analysis) as Analysis;
+  }
+
+  public async inputs(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<AnalysisInputManifest> {
+    const analysis = await this.analysisService.find(principal, analysisId);
+    const manifest = await this.repository.manifest(analysisId);
+    return {
+      analysisId,
+      inputRevision: analysis.inputRevision,
+      datasets: manifest.datasets.map((entry) => ({
+        dataset: entry.dataset,
+        attachedAt: entry.attachedAt,
+        files: entry.files.map((file) => ({
+          uploadId: file.uploadId,
+          originalName: file.originalName,
+          size: file.size,
+          declaredSha256: file.declaredSha256,
+          sha256Verification: file.sha256Verification,
+          contentType: file.contentType,
+          component: file.component,
+        })),
+      })),
+    };
+  }
+
+  public async removeInput(
+    principal: Principal,
+    analysisId: string,
+    datasetId: string,
+  ): Promise<void> {
+    const removed = await this.repository.detach(
+      analysisId,
+      datasetId,
+      principal.userId,
+    );
+    if (removed === 'missing') {
+      throw this.notFound();
+    }
+    if (removed === 'invalid') {
+      throw this.conflict('The analysis inputs are frozen.');
+    }
+    await Promise.all(
+      removed.files.map(async (file) =>
+        this.storage.cleanupUpload(file.storageKey, undefined),
+      ),
+    );
   }
 
   public async abortDataset(

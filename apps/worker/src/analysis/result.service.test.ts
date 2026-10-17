@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { analysisArtifactSpecifications } from '@ecosuitability/contracts';
+import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { ResultService, type ProvisionalResult } from './result.service';
 
@@ -15,7 +15,7 @@ const provisional = (
   candidateCompletedAt:
     publicationState === 'provisioned' ? null : '2026-09-02T12:00:00.000Z',
   publicationState,
-  artifacts: analysisArtifactSpecifications.map((definition, index) => {
+  artifacts: scientificArtifactSpecifications.map((definition, index) => {
     const id = `ar_${String(index).padStart(32, '0')}`;
     return {
       id,
@@ -38,7 +38,7 @@ const generated = (value: ProvisionalResult) =>
     kind: artifact.kind,
     size: artifact.size,
     sha256: artifact.sha256,
-  }));
+  })) as Parameters<ResultService['beginUpload']>[3];
 
 const matchingHead = (value: ProvisionalResult) =>
   vi.fn(async (key: string) => {

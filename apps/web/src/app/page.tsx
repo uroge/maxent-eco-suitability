@@ -39,8 +39,8 @@ const referenceSections = [
     items: [
       'suitability.tif continuous raster output',
       'occurrences.geojson validated occurrence records',
-      'analysis-report.xlsx full diagnostics',
-      'result.json and response-curve data',
+      'metrics, variable importance, and response-curve JSON',
+      'threshold raster, vectors, provenance, logs, and a verified ZIP bundle',
     ],
     title: 'Outputs',
   },
@@ -79,6 +79,14 @@ export default function Home() {
                   <ArrowRight aria-hidden="true" size={17} />
                   Start analysis
                 </Link>
+              </Button>
+              <Button
+                asChild
+                className="border-white/25 text-white hover:bg-white/10 hover:text-white"
+                size="lg"
+                variant="secondary"
+              >
+                <Link href="/analyses/new?example=1">Try example dataset</Link>
               </Button>
               <Button
                 asChild
@@ -152,15 +160,15 @@ export default function Home() {
       >
         <p>EcoSuitability — Species &amp; Environmental Suitability Analysis</p>
         <nav aria-label="Footer navigation" className="flex gap-5">
-          <a className="hover:text-foreground" href="#methodology">
+          <Link className="hover:text-foreground" href="/methodology">
             Methodology
-          </a>
-          <a className="hover:text-foreground" href="#footer">
+          </Link>
+          <Link className="hover:text-foreground" href="/privacy">
             Privacy
-          </a>
-          <a className="hover:text-foreground" href="#footer">
+          </Link>
+          <Link className="hover:text-foreground" href="/terms">
             Terms
-          </a>
+          </Link>
         </nav>
       </footer>
     </main>

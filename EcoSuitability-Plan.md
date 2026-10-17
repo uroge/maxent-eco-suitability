@@ -224,12 +224,16 @@ analyses/an_abc123/
 │   └── analysis.json
 │
 └── output/
-    ├── result.json
+    ├── execution-summary.json
+    ├── metrics.json
     ├── suitability.tif
+    ├── suitable-habitat.tif
     ├── occurrences.geojson
+    ├── background-points.geojson
     ├── variable-importance.json
     ├── response-curves.json
-    └── report.xlsx
+    ├── run.log.txt
+    └── ecosuitability-results.zip
 ```
 
 Configure lifecycle deletion so analysis artifacts disappear automatically after the retention period.
@@ -667,10 +671,10 @@ cancelled
 
 # R Output
 
-The main machine-readable output is:
+The execution summary is:
 
 ```text
-result.json
+execution-summary.json
 ```
 
 Example:
@@ -806,14 +810,21 @@ wind → suitability
 Provide:
 
 ```text
-result.json
-analysis-report.xlsx
-occurrences.geojson
-suitability.tif
+execution-summary.json
+metrics.json
+variable-importance.json
 response-curves.json
+occurrences.geojson
+background-points.geojson
+suitability.tif
+suitable-habitat.tif
+run.log.txt
+result-bundle.zip
 ```
 
 Use short-lived signed R2 URLs.
+
+The ZIP contains the nine scientific artifacts and a checksum-bearing bundle manifest. It is published as the tenth manifest artifact and never includes itself. Internal predictor COG copies used by the map are lifecycle-managed map assets, not downloadable scientific artifacts.
 
 ---
 
@@ -899,10 +910,15 @@ eco-suitability/
 │   └── docker/
 │
 ├── services/
-│   └── analysis-r/
+│   ├── analysis-r/
 │       ├── r/
 │       │   └── main.R
 │       ├── renv.lock
+│       └── Dockerfile
+│   └── tiles/
+│       ├── app/
+│       ├── pyproject.toml
+│       ├── uv.lock
 │       └── Dockerfile
 │
 ├── tests/

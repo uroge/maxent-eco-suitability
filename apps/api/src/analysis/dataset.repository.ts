@@ -7,6 +7,7 @@ import { RedisService } from '../platform/redis/redis.service';
 import {
   AbortDatasetScript,
   AttachDatasetScript,
+  DetachDatasetScript,
   CompleteDatasetScript,
   CompleteFileScript,
   CreateDatasetScript,
@@ -315,6 +316,21 @@ export class DatasetRepository {
     return manifest.datasets.find(
       (dataset) => dataset.dataset.id === datasetId,
     );
+  }
+
+  public async detach(
+    analysisId: string,
+    datasetId: string,
+    ownerId: string,
+  ): Promise<AnalysisInputDataset | 'missing' | 'invalid'> {
+    const result = (await this.redis.getClient().eval(DetachDatasetScript, {
+      keys: [this.analysisKey(analysisId), this.analysisInputsKey(analysisId)],
+      arguments: [ownerId, datasetId, new Date().toISOString()],
+    })) as string[];
+    if (result[0] !== 'removed') {
+      return result[0] as 'missing' | 'invalid';
+    }
+    return JSON.parse(result[1]) as AnalysisInputDataset;
   }
 
   public async manifest(

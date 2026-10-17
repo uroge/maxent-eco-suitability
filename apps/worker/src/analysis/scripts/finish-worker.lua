@@ -16,5 +16,6 @@ analysis.status = ARGV[4]
 analysis.updatedAt = ARGV[3]
 analysis.failure = cjson.decode(ARGV[5])
 analysis.progress = cjson.decode(ARGV[6])
+if analysis.status == 'failed' then analysis.completedAt = ARGV[3] end
 redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 return { ARGV[4], cjson.encode(analysis) }

@@ -53,6 +53,7 @@ export const analysisProgressSchema = z.object({
   stage: analysisStageSchema,
   percent: z.number().int().min(0).max(100),
   attempt: z.number().int().positive().nullable(),
+  message: z.string().min(1).max(256).nullable().optional(),
   updatedAt: z.string().datetime(),
 });
 
@@ -70,10 +71,16 @@ export const analysisSchema = z.object({
   id: analysisIdSchema,
   status: analysisStatusSchema,
   displayName: z.string().min(1).max(120).nullable(),
+  inputRevision: z.number().int().nonnegative(),
+  configurationRevision: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   expiredAt: z.string().datetime().nullable(),
+  queuedAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+  cancelledAt: z.string().datetime().nullable(),
   failure: analysisFailureSchema.nullable(),
   progress: analysisProgressSchema.nullable(),
   execution: analysisExecutionSchema.nullable(),
@@ -131,6 +138,17 @@ export const analysisQueueName = 'analysis-execution';
 export const analysisQueuePrefix = 'ecosuitability';
 
 export const analysisJobName = 'run-analysis';
+
+export const analysisInputProfileJobName = 'input-profile';
+
+export const analysisPreflightJobName = 'preflight';
+
+export const analysisValidationJobPayloadSchema = analysisJobPayloadSchema.extend({
+  inputRevision: z.number().int().nonnegative(),
+  configurationRevision: z.number().int().nonnegative().optional(),
+});
+
+export type AnalysisValidationJobPayload = z.infer<typeof analysisValidationJobPayloadSchema>;
 
 export const sha256VerificationSchema = z.enum(['client-declared', 'worker-verified']);
 
@@ -274,11 +292,39 @@ export const analysisInputDatasetSchema = z.object({
 
 export type AnalysisInputDataset = z.infer<typeof analysisInputDatasetSchema>;
 
+export const analysisInputFileSummarySchema = analysisInputFileSchema.omit({
+  storageKey: true,
+});
+
+export type AnalysisInputFileSummary = z.infer<typeof analysisInputFileSummarySchema>;
+
+export const analysisInputDatasetSummarySchema = z.object({
+  dataset: uploadDatasetSchema,
+  files: z.array(analysisInputFileSummarySchema).min(1).max(5),
+  attachedAt: z.string().datetime(),
+});
+
+export type AnalysisInputDatasetSummary = z.infer<typeof analysisInputDatasetSummarySchema>;
+
+export const analysisInputManifestSchema = z.object({
+  analysisId: analysisIdSchema,
+  inputRevision: z.number().int().nonnegative(),
+  datasets: z.array(analysisInputDatasetSummarySchema),
+});
+
+export type AnalysisInputManifest = z.infer<typeof analysisInputManifestSchema>;
+
+export const analysisInputManifestResponseSchema = z.object({
+  inputs: analysisInputManifestSchema,
+});
+
+export type AnalysisInputManifestResponse = z.infer<typeof analysisInputManifestResponseSchema>;
+
 export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
 
 export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
 
-export const analysisArtifactKinds = [
+export const scientificArtifactKinds = [
   'execution-summary',
   'metrics',
   'variable-importance',
@@ -290,7 +336,13 @@ export const analysisArtifactKinds = [
   'run-log',
 ] as const;
 
+export const analysisArtifactKinds = [...scientificArtifactKinds, 'result-bundle'] as const;
+
 export const analysisArtifactKindSchema = z.enum(analysisArtifactKinds);
+
+export const scientificArtifactKindSchema = z.enum(scientificArtifactKinds);
+
+export type ScientificArtifactKind = z.infer<typeof scientificArtifactKindSchema>;
 
 export type AnalysisArtifactKind = z.infer<typeof analysisArtifactKindSchema>;
 
@@ -320,7 +372,16 @@ export const analysisArtifactSpecifications: ReadonlyArray<{
   { kind: 'occurrences', filename: 'occurrences.geojson', contentType: 'application/geo+json' },
   { kind: 'background', filename: 'background.geojson', contentType: 'application/geo+json' },
   { kind: 'run-log', filename: 'run.log.txt', contentType: 'text/plain; charset=utf-8' },
+  { kind: 'result-bundle', filename: 'ecosuitability-results.zip', contentType: 'application/zip' },
 ];
+
+export const scientificArtifactSpecifications = analysisArtifactSpecifications.filter(
+  (artifact) => artifact.kind !== 'result-bundle'
+) as ReadonlyArray<{
+  kind: ScientificArtifactKind;
+  filename: string;
+  contentType: string;
+}>;
 
 export const workerSha256VerificationSchema = z.literal('worker-verified');
 
@@ -486,6 +547,19 @@ export const analysisConfigurationSchema = z
           .strict(),
       ])
       .default({ method: 'train-test-split', testFraction: 0.2 }),
+    visualization: z
+      .object({
+        terrain: z
+          .object({
+            datasetId: uploadDatasetIdSchema,
+            semanticType: z.literal('elevation'),
+            unit: z.literal('metres'),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .default({ terrain: null }),
     seed: z.number().int().min(0).max(4294967295),
   })
   .strict()
@@ -505,6 +579,18 @@ export const analysisConfigurationSchema = z
     }
     if (new Set(value.model.featureClasses).size !== value.model.featureClasses.length) {
       context.addIssue({ code: 'custom', message: 'Feature classes must be unique.' });
+    }
+    if (value.visualization.terrain) {
+      const terrainPredictor = value.predictors.find(
+        (predictor) => predictor.datasetId === value.visualization.terrain?.datasetId
+      );
+      if (!terrainPredictor || terrainPredictor.type !== 'continuous') {
+        context.addIssue({
+          code: 'custom',
+          message: 'Terrain must reference a selected continuous predictor.',
+          path: ['visualization', 'terrain', 'datasetId'],
+        });
+      }
     }
   });
 
@@ -526,6 +612,118 @@ export const analysisConfigurationResponseSchema = z.object({
 });
 
 export type AnalysisConfigurationResponse = z.infer<typeof analysisConfigurationResponseSchema>;
+
+export const analysisCheckStatusSchema = z.enum([
+  'pending',
+  'running',
+  'passed',
+  'warning',
+  'blocked',
+]);
+
+export type AnalysisCheckStatus = z.infer<typeof analysisCheckStatusSchema>;
+
+export const analysisValidationCheckSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,95}$/),
+    label: z.string().min(1).max(120),
+    status: analysisCheckStatusSchema,
+    message: z.string().min(1).max(512),
+  })
+  .strict();
+
+export type AnalysisValidationCheck = z.infer<typeof analysisValidationCheckSchema>;
+
+export const rasterMetadataSchema = z
+  .object({
+    datasetId: uploadDatasetIdSchema,
+    crs: z.string().min(1).max(128),
+    bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    resolution: z.tuple([z.number().positive(), z.number().positive()]),
+    bandCount: z.number().int().positive(),
+    nodata: z.number().finite().nullable(),
+  })
+  .strict();
+
+export type RasterMetadata = z.infer<typeof rasterMetadataSchema>;
+
+const spatialPreviewSchema = z
+  .object({
+    type: z.literal('FeatureCollection'),
+    features: z.array(z.unknown()).max(5000),
+  })
+  .strict();
+
+export const analysisInputProfileSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    inputRevision: z.number().int().nonnegative(),
+    policyVersion: z.string().min(1).max(32),
+    status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
+    progress: z.number().int().min(0).max(100),
+    checks: z.array(analysisValidationCheckSchema),
+    warnings: z.array(z.string().min(1).max(512)),
+    blockers: z.array(z.string().min(1).max(512)),
+    occurrence: z
+      .object({
+        columns: z.array(z.string().min(1).max(255)),
+        layers: z.array(z.string().min(1).max(255)),
+        longitudeCandidates: z.array(z.string().min(1).max(255)),
+        latitudeCandidates: z.array(z.string().min(1).max(255)),
+        speciesCandidates: z.array(z.string().min(1).max(255)),
+        recordCount: z.number().int().nonnegative().nullable(),
+        duplicateCoordinateCount: z.number().int().nonnegative().nullable(),
+      })
+      .strict(),
+    rasters: z.array(rasterMetadataSchema),
+    spatialPreview: spatialPreviewSchema.nullable(),
+    createdAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export type AnalysisInputProfile = z.infer<typeof analysisInputProfileSchema>;
+
+export const analysisInputProfileResponseSchema = z.object({
+  profile: analysisInputProfileSchema,
+});
+
+export type AnalysisInputProfileResponse = z.infer<typeof analysisInputProfileResponseSchema>;
+
+export const analysisPreflightSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    inputRevision: z.number().int().nonnegative(),
+    configurationRevision: z.number().int().nonnegative(),
+    configurationFingerprint: z.string().min(1).max(128),
+    policyVersion: z.string().min(1).max(32),
+    status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
+    progress: z.number().int().min(0).max(100),
+    checks: z.array(analysisValidationCheckSchema),
+    warnings: z.array(z.string().min(1).max(512)),
+    blockers: z.array(z.string().min(1).max(512)),
+    createdAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export type AnalysisPreflight = z.infer<typeof analysisPreflightSchema>;
+
+export const analysisPreflightResponseSchema = z.object({ preflight: analysisPreflightSchema });
+
+export type AnalysisPreflightResponse = z.infer<typeof analysisPreflightResponseSchema>;
+
+export const queueAnalysisRequestSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+    expectedConfigurationRevision: z.number().int().positive(),
+    configurationFingerprint: z.string().min(1).max(128),
+  })
+  .strict();
+
+export type QueueAnalysisRequest = z.infer<typeof queueAnalysisRequestSchema>;
 
 export const scientificValidationFailureCodeSchema = z.enum([
   'INPUT_RESOURCE_LIMIT_EXCEEDED',
@@ -694,14 +892,161 @@ export const analysisThresholdMetricsSchema = z
 
 export const analysisMetricsArtifactSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     method: z.enum(['train-test-split', 'k-fold']),
     folds: z.number().int().positive(),
-    auc: z.number().finite().min(0).max(1),
-    aucStandardDeviation: z.number().finite().nonnegative(),
+    pooledRoc: z
+      .array(
+        z
+          .object({
+            falsePositiveRate: z.number().finite().min(0).max(1),
+            truePositiveRate: z.number().finite().min(0).max(1),
+            threshold: z.number().finite(),
+          })
+          .strict()
+      )
+      .min(2),
+    evaluationRuns: z
+      .array(
+        z
+          .object({
+            run: z.number().int().positive(),
+            auc: z.number().finite().min(0).max(1),
+            presenceCount: z.number().int().nonnegative(),
+            backgroundCount: z.number().int().nonnegative(),
+          })
+          .strict()
+      )
+      .min(1),
+    auc: z
+      .object({
+        mean: z.number().finite().min(0).max(1),
+        standardDeviation: z.number().finite().nonnegative(),
+        minimum: z.number().finite().min(0).max(1),
+        maximum: z.number().finite().min(0).max(1),
+      })
+      .strict(),
     threshold: analysisThresholdMetricsSchema,
   })
   .strict();
+
+export type AnalysisMetricsArtifact = z.infer<typeof analysisMetricsArtifactSchema>;
+
+export const analysisResultOverviewSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    displayName: z.string().min(1).max(120).nullable(),
+    completedAt: z.string().datetime(),
+    resultExpiresAt: z.string().datetime(),
+    metrics: analysisMetricsArtifactSchema,
+    validation: rValidationSummarySchema,
+    configuration: analysisConfigurationSchema,
+  })
+  .strict();
+
+export const analysisResultOverviewResponseSchema = z.object({
+  overview: analysisResultOverviewSchema,
+});
+
+export type AnalysisResultOverviewResponse = z.infer<typeof analysisResultOverviewResponseSchema>;
+
+export const analysisDiagnosticsSchema = z
+  .object({
+    metrics: analysisMetricsArtifactSchema,
+    importance: z.unknown(),
+    responseCurves: z.unknown(),
+  })
+  .strict();
+
+export const analysisDiagnosticsResponseSchema = z.object({
+  diagnostics: analysisDiagnosticsSchema,
+});
+
+export type AnalysisDiagnosticsResponse = z.infer<typeof analysisDiagnosticsResponseSchema>;
+
+export const mapBasemapSchema = z
+  .object({
+    id: z.enum(['light', 'satellite', 'terrain']),
+    label: z.string().min(1).max(64),
+    styleUrl: z.string().url(),
+    attribution: z.string().min(1).max(512),
+  })
+  .strict();
+
+export const mapLayerIdSchema = z.string().regex(/^(?:ar|ml)_[a-z0-9]{32}$/);
+
+export const mapLayerSchema = z
+  .object({
+    id: mapLayerIdSchema,
+    label: z.string().min(1).max(120),
+    kind: z.enum(['suitability', 'threshold', 'predictor', 'occurrences', 'background']),
+    dataType: z.enum(['raster', 'vector']),
+    legend: z
+      .array(
+        z.object({
+          label: z.string().min(1).max(64),
+          value: z.number().finite(),
+          color: z.string().regex(/^#[0-9a-f]{6}$/i),
+        })
+      )
+      .max(20),
+  })
+  .strict();
+
+export const mapCapabilitiesSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    basemaps: z.array(mapBasemapSchema),
+    layers: z.array(mapLayerSchema),
+    terrain: z
+      .object({
+        available: z.boolean(),
+        layerId: z.string().nullable(),
+        unavailableReason: z.string().max(256).nullable(),
+      })
+      .strict(),
+    bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.terrain.available && (!value.terrain.layerId || value.terrain.unavailableReason)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['terrain'],
+        message: 'Available terrain requires a layer and no unavailable reason.',
+      });
+    }
+    if (!value.terrain.available && (value.terrain.layerId || !value.terrain.unavailableReason)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['terrain'],
+        message: 'Unavailable terrain requires a reason and no layer.',
+      });
+    }
+  });
+
+export const mapCapabilitiesResponseSchema = z.object({ capabilities: mapCapabilitiesSchema });
+
+export type MapCapabilities = z.infer<typeof mapCapabilitiesSchema>;
+
+export type MapCapabilitiesResponse = z.infer<typeof mapCapabilitiesResponseSchema>;
+
+export const mapInspectionSchema = z
+  .object({
+    longitude: z.number().min(-180).max(180),
+    latitude: z.number().min(-90).max(90),
+    suitability: z.number().min(0).max(1).nullable(),
+    thresholdClass: z.number().int().min(0).max(1).nullable(),
+    predictors: z.record(z.string(), z.union([z.number(), z.string(), z.null()])),
+    nearestOccurrenceMetres: z.number().nonnegative().nullable(),
+  })
+  .strict();
+
+export const mapInspectionResponseSchema = z.object({ inspection: mapInspectionSchema });
+
+export type MapInspection = z.infer<typeof mapInspectionSchema>;
+
+export type MapInspectionResponse = z.infer<typeof mapInspectionResponseSchema>;
 
 export const analysisVariableImportanceArtifactSchema = z
   .object({
@@ -771,7 +1116,7 @@ export const analysisExecutionSummaryArtifactSchema = z
 
 export const rGeneratedArtifactSchema = z
   .object({
-    kind: analysisArtifactKindSchema,
+    kind: scientificArtifactKindSchema,
     size: z.number().int().positive(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/i),
   })
@@ -781,9 +1126,12 @@ export type RGeneratedArtifact = z.infer<typeof rGeneratedArtifactSchema>;
 
 export const rGeneratedArtifactSetSchema = z
   .array(rGeneratedArtifactSchema)
-  .length(analysisArtifactKinds.length)
+  .length(scientificArtifactKinds.length)
   .superRefine((value, context) => {
-    if (!completeArtifactSet(value)) {
+    if (
+      new Set(value.map((artifact) => artifact.kind)).size !== scientificArtifactKinds.length ||
+      !scientificArtifactKinds.every((kind) => value.some((artifact) => artifact.kind === kind))
+    ) {
       context.addIssue({ code: 'custom', message: 'R runtime must produce every artifact once.' });
     }
   });
