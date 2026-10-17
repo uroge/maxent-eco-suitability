@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import baseConfig from '@ecosuitability/config/vitest/base';
 import { defineConfig, mergeConfig } from 'vitest/config';
 
@@ -5,6 +6,11 @@ import { defineConfig, mergeConfig } from 'vitest/config';
 export default mergeConfig(
   baseConfig,
   defineConfig({
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
     test: {
       environment: 'jsdom',
       include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],

@@ -1,88 +1,168 @@
-import Image from 'next/image';
-import { Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
+import Link from 'next/link';
+import { Activity, ArrowRight, Check, Map, Upload } from 'lucide-react';
+import { Badge, Button } from '@ecosuitability/ui';
+import { AppHeader } from '@/components/app-header';
+import { HeroSuitabilityMap } from '@/components/hero-suitability-map';
+
+const workflow = [
+  {
+    description: 'Provide one occurrence dataset and selected environmental GeoTIFF predictors.',
+    icon: Upload,
+    step: '01',
+    title: 'Upload data',
+  },
+  {
+    description: 'Validate inputs, configure maxnet, and run a deterministic suitability model.',
+    icon: Activity,
+    step: '02',
+    title: 'Model suitability',
+  },
+  {
+    description: 'Review a suitability map, diagnostics, response curves, and verified outputs.',
+    icon: Map,
+    step: '03',
+    title: 'Explore results',
+  },
+];
+
+const referenceSections = [
+  {
+    items: [
+      'CSV, XLSX, GeoJSON, GPKG, or Shapefile occurrence data',
+      'GeoTIFF environmental predictors',
+      'ZIP archives containing one GeoTIFF predictor',
+      'WGS 84 coordinates where applicable',
+    ],
+    title: 'Accepted formats',
+  },
+  {
+    items: [
+      'suitability.tif continuous raster output',
+      'occurrences.geojson validated occurrence records',
+      'analysis-report.xlsx full diagnostics',
+      'result.json and response-curve data',
+    ],
+    title: 'Outputs',
+  },
+  {
+    items: [
+      'MaxEnt modelling via the R maxnet package',
+      'Maximum sensitivity plus specificity threshold',
+      'No silent reprojection or data modification',
+      'Reproducible seed, IDs, and checksums',
+    ],
+    title: 'Methodology',
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <div className="flex min-h-10 items-center gap-3 self-end">
-          <Show when="signed-out">
-            <SignInButton>
-              <button className="h-10 rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-muted">
-                Sign in
-              </button>
-            </SignInButton>
-            <SignUpButton>
-              <button className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90">
-                Create account
-              </button>
-            </SignUpButton>
-          </Show>
-          <Show when="signed-in">
-            <p className="text-sm text-muted-foreground">Signed in</p>
-            <UserButton />
-          </Show>
+    <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
+      <AppHeader />
+      <section className="grid lg:min-h-[32.5rem] lg:grid-cols-[44%_56%]">
+        <div className="flex min-w-0 items-center bg-hero px-6 py-14 text-hero-foreground sm:px-10 lg:px-16 lg:py-16">
+          <div className="max-w-[27.5rem]">
+            <Badge variant="success">MaxEnt / maxnet · R · Open methodology</Badge>
+            <h1 className="mt-3 text-[2.125rem] font-bold leading-tight tracking-tight sm:text-[2.375rem]">
+              From species observations
+              <br />
+              to habitat suitability maps
+            </h1>
+            <p className="mt-5 text-[15px] leading-6 text-white/72">
+              Upload species occurrence records and environmental rasters. EcoSuitability validates
+              your data, fits a MaxEnt model with R maxnet, and delivers georeferenced suitability
+              maps with reproducibility metadata.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Button asChild className="bg-surface text-primary hover:bg-background" size="lg">
+                <Link href="/analyses/new">
+                  <ArrowRight aria-hidden="true" size={17} />
+                  Start analysis
+                </Link>
+              </Button>
+              <Button
+                asChild
+                className="text-white hover:bg-white/10 hover:text-white focus-visible:ring-white focus-visible:ring-offset-hero"
+                size="lg"
+                variant="ghost"
+              >
+                <a href="#methodology">Explore methodology</a>
+              </Button>
+            </div>
+            <p className="mt-8 text-xs text-white/45">
+              Sign in to create, save, and run an analysis. Results remain available for 48 hours.
+            </p>
+          </div>
         </div>
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{' '}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{' '}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{' '}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{' '}
-            or the{' '}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{' '}
-            center.
-          </p>
+        <div className="relative min-h-72 min-w-0 overflow-hidden bg-surface-subtle sm:min-h-96 lg:min-h-0">
+          <HeroSuitabilityMap />
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-linear-to-r from-hero/35 to-transparent"
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
+      </section>
+
+      <section className="border-b border-border px-6 py-14 sm:px-10 lg:px-16">
+        <p className="mb-8 text-[13px] font-semibold uppercase tracking-widest text-muted-foreground">
+          How it works
+        </p>
+        <div className="grid gap-8 lg:grid-cols-3">
+          {workflow.map(({ description, icon: Icon, step, title }) => (
+            <article className="flex min-w-0 gap-5" key={step}>
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+                <Icon aria-hidden="true" size={24} />
+              </span>
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {step}
+                </p>
+                <h2 className="mb-2 text-base font-semibold text-foreground">{title}</h2>
+                <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section
+        id="methodology"
+        className="grid divide-y divide-border border-b border-border lg:grid-cols-3 lg:divide-x lg:divide-y-0"
+      >
+        {referenceSections.map(({ items, title }) => (
+          <article className="px-6 py-10 sm:px-10 lg:px-12" key={title}>
+            <h2 className="text-[13px] font-semibold uppercase tracking-widest text-muted-foreground">
+              {title}
+            </h2>
+            <ul className="mt-4 space-y-2.5">
+              {items.map((item) => (
+                <li className="flex items-start gap-2.5 text-sm text-foreground" key={item}>
+                  <Check aria-hidden="true" className="mt-0.5 shrink-0 text-success" size={14} />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </section>
+
+      <footer
+        id="footer"
+        className="flex flex-col gap-4 px-6 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-10 lg:px-16"
+      >
+        <p>EcoSuitability — Species &amp; Environmental Suitability Analysis</p>
+        <nav aria-label="Footer navigation" className="flex gap-5">
+          <a className="hover:text-foreground" href="#methodology">
+            Methodology
           </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
+          <a className="hover:text-foreground" href="#footer">
+            Privacy
           </a>
-        </div>
-      </main>
-    </div>
+          <a className="hover:text-foreground" href="#footer">
+            Terms
+          </a>
+        </nav>
+      </footer>
+    </main>
   );
 }
