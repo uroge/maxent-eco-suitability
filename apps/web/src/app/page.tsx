@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { Activity, ArrowRight, Check, Map, Upload } from 'lucide-react';
 import { Badge, Button } from '@ecosuitability/ui';
-import { AppHeader } from '@/components/app-header';
-import { HeroSuitabilityMap } from '@/components/hero-suitability-map';
+import { AppHeader } from '@/components/AppHeader';
+import { HeroSuitabilityMap } from '@/components/HeroSuitabilityMap';
 
 const workflow = [
   {

@@ -5,7 +5,7 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import { appearanceBootstrapScript } from '@/appearance';
 import { getConfiguredBrand } from '@/brand';
-import { AppearanceController } from '@/components/appearance-controller';
+import { AppearanceController } from '@/components/AppearanceController';
 import './globals.css';
 
 export const metadata: Metadata = {
