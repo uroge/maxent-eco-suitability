@@ -34,9 +34,12 @@ export class ValidationService {
       return analysis.inputProfile;
     }
     const now = new Date().toISOString();
+    const inputManifest = await this.repository.inputManifest(analysisId);
+    const inputFingerprint = this.repository.inputFingerprint(inputManifest);
     const profile: AnalysisInputProfile = {
       analysisId: analysis.id,
       inputRevision: analysis.inputRevision,
+      inputFingerprint,
       policyVersion,
       status: 'queued',
       progress: 0,
@@ -51,6 +54,7 @@ export class ValidationService {
         speciesCandidates: [],
         recordCount: null,
         duplicateCoordinateCount: null,
+        crs: null,
       },
       rasters: [],
       spatialPreview: null,
@@ -111,10 +115,13 @@ export class ValidationService {
       return analysis.preflight;
     }
     const now = new Date().toISOString();
+    const inputManifest = await this.repository.inputManifest(analysisId);
+    const inputFingerprint = this.repository.inputFingerprint(inputManifest);
     const preflight: AnalysisPreflight = {
       analysisId: analysis.id,
       inputRevision: analysis.inputRevision,
       configurationRevision: analysis.configurationRevision,
+      inputFingerprint,
       configurationFingerprint: analysis.configurationFingerprint,
       policyVersion,
       status: 'queued',

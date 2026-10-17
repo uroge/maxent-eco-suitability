@@ -1,11 +1,19 @@
 import { createHash, createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RValidationClient } from './r-validation.client';
+import {
+  RRuntimeError,
+  RValidationCancelledError,
+  RValidationClient,
+} from './r-validation.client';
 import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
 
 const secret = 'r-runtime-shared-secret-with-at-least-32-bytes';
 
-const createClient = (lifecycle: object = {}, storage: object = {}) =>
+const createClient = (
+  lifecycle: object = {},
+  storage: object = {},
+  overrides: Record<string, string | number> = {},
+) =>
   new RValidationClient(
     {
       getOrThrow: vi.fn((key: string) => {
@@ -17,7 +25,7 @@ const createClient = (lifecycle: object = {}, storage: object = {}) =>
           R_RUNTIME_INPUT_URL_TTL_SECONDS: 900,
           R_RUNTIME_OUTPUT_URL_TTL_SECONDS: 900,
         };
-        return values[key];
+        return overrides[key] ?? values[key];
       }),
     } as never,
     lifecycle as never,
@@ -72,13 +80,14 @@ describe('RValidationClient', () => {
     );
     const responses = [
       {
-        runId: `${analysisId}.1`,
+        runId: `${analysisId}.execute.1`,
         state: 'accepted',
         eventSequence: 0,
         generation: 1,
       },
-      { runId: `${analysisId}.1`, state: 'running', eventSequence: 1 },
+      { runId: `${analysisId}.execute.1`, state: 'running', eventSequence: 1 },
       {
+        mode: 'execute',
         generation: 1,
         events: [
           {
@@ -95,9 +104,11 @@ describe('RValidationClient', () => {
         artifacts,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
+        result: null,
       },
-      { runId: `${analysisId}.1`, state: 'running', eventSequence: 1 },
+      { runId: `${analysisId}.execute.1`, state: 'running', eventSequence: 1 },
       {
+        mode: 'execute',
         generation: 1,
         events: [
           {
@@ -119,6 +130,7 @@ describe('RValidationClient', () => {
         artifacts,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
+        result: null,
       },
     ];
     const fetchMock = vi.fn(async (_input: URL, _init?: RequestInit) => {
@@ -130,8 +142,10 @@ describe('RValidationClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     const lifecycle = {
       executionSnapshot: vi.fn().mockResolvedValue({
-        fingerprint: 'a'.repeat(64),
-        inputFingerprint: 'b'.repeat(64),
+        fingerprint: `jcs-sha256-v1:${'a'.repeat(64)}`,
+        inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
+        inputRevision: 2,
+        configurationRevision: 3,
         configuration: {
           predictors: [{ datasetId: 'ds_0123456789abcdef0123456789abcdef' }],
         },
@@ -183,7 +197,11 @@ describe('RValidationClient', () => {
       runId: string;
       attempt: number;
     };
-    expect(createBody).toMatchObject({ runId: `${analysisId}.1`, attempt: 2 });
+    expect(createBody).toMatchObject({
+      runId: `${analysisId}.execute.1`,
+      mode: 'execute',
+      attempt: 2,
+    });
     expect(onArtifactsReady).toHaveBeenCalledWith(
       artifacts,
       '2026-09-02T12:30:00.000Z',
@@ -202,13 +220,14 @@ describe('RValidationClient', () => {
     );
     const responses = [
       {
-        runId: `${analysisId}.1`,
+        runId: `${analysisId}.execute.1`,
         state: 'running',
         eventSequence: 8,
         generation: 1,
       },
-      { runId: `${analysisId}.1`, state: 'running', eventSequence: 8 },
+      { runId: `${analysisId}.execute.1`, state: 'running', eventSequence: 8 },
       {
+        mode: 'execute',
         generation: 2,
         events: [],
         nextSequence: 8,
@@ -218,8 +237,10 @@ describe('RValidationClient', () => {
         artifacts,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
+        result: null,
       },
       {
+        mode: 'execute',
         generation: 2,
         events: [
           {
@@ -236,9 +257,11 @@ describe('RValidationClient', () => {
         artifacts,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
+        result: null,
       },
-      { runId: `${analysisId}.1`, state: 'running', eventSequence: 1 },
+      { runId: `${analysisId}.execute.1`, state: 'running', eventSequence: 1 },
       {
+        mode: 'execute',
         generation: 2,
         events: [],
         nextSequence: 1,
@@ -253,6 +276,7 @@ describe('RValidationClient', () => {
         artifacts,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
+        result: null,
       },
     ];
     const fetchMock = vi.fn(async (_input: URL, _init?: RequestInit) => {
@@ -263,8 +287,10 @@ describe('RValidationClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     const lifecycle = {
       executionSnapshot: vi.fn().mockResolvedValue({
-        fingerprint: 'a'.repeat(64),
-        inputFingerprint: 'b'.repeat(64),
+        fingerprint: `jcs-sha256-v1:${'a'.repeat(64)}`,
+        inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
+        inputRevision: 2,
+        configurationRevision: 3,
         configuration: {
           predictors: [{ datasetId: 'ds_0123456789abcdef0123456789abcdef' }],
         },
@@ -319,5 +345,175 @@ describe('RValidationClient', () => {
       null,
       2,
     );
+  });
+
+  it('returns a typed profile result through the recoverable R job protocol', async () => {
+    const analysisId = 'an_2123456789abcdef0123456789abcdef';
+    const inputFingerprint = `jcs-sha256-v1:${'a'.repeat(64)}`;
+    const profile = {
+      analysisId,
+      inputRevision: 4,
+      inputFingerprint,
+      policyVersion: '2026-10-01',
+      status: 'passed',
+      progress: 100,
+      checks: [
+        {
+          id: 'occurrence.schema.readable',
+          label: 'Occurrence structure',
+          status: 'passed',
+          message: '10 records detected.',
+        },
+      ],
+      warnings: [],
+      blockers: [],
+      occurrence: {
+        columns: ['longitude', 'latitude'],
+        layers: [],
+        longitudeCandidates: ['longitude'],
+        latitudeCandidates: ['latitude'],
+        speciesCandidates: [],
+        recordCount: 10,
+        duplicateCoordinateCount: 0,
+        crs: 'EPSG:4326',
+      },
+      rasters: [],
+      spatialPreview: { type: 'FeatureCollection', features: [] },
+      createdAt: '2026-10-17T12:00:00.000Z',
+      completedAt: '2026-10-17T12:01:00.000Z',
+    };
+    const responses = [
+      {
+        runId: `${analysisId}.profile.4`,
+        state: 'accepted',
+        eventSequence: 0,
+        generation: 1,
+      },
+      { runId: `${analysisId}.profile.4`, state: 'running', eventSequence: 1 },
+      {
+        mode: 'profile',
+        generation: 1,
+        events: [],
+        nextSequence: 1,
+        hasMore: false,
+        state: 'succeeded',
+        summary: null,
+        artifacts: null,
+        candidateCompletedAt: null,
+        failureCode: null,
+        result: profile,
+      },
+    ];
+    const fetchMock = vi.fn(async (_input: URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+      return new Response(JSON.stringify(responses.shift()), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createClient(
+        {},
+        {
+          presignGet: vi
+            .fn()
+            .mockResolvedValue('https://storage.example/input'),
+        },
+      ).profileInputs({
+        analysisId,
+        jobId: 'profile-job',
+        attempt: 1,
+        inputRevision: 4,
+        inputFingerprint,
+        inputManifest: { datasets: [] },
+        policyVersion: '2026-10-01',
+        createdAt: profile.createdAt,
+        signal: new AbortController().signal,
+        onEvent: vi.fn(),
+        onHeartbeat: vi.fn(),
+      }),
+    ).resolves.toEqual(profile);
+    expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({
+      mode: 'profile',
+      runId: `${analysisId}.profile.4`,
+      inputFingerprint,
+    });
+  });
+
+  it('distinguishes cancellation and timeout for validation jobs', async () => {
+    const analysisId = 'an_3123456789abcdef0123456789abcdef';
+    const accepted = {
+      runId: `${analysisId}.profile.1`,
+      state: 'accepted',
+      eventSequence: 0,
+      generation: 1,
+    };
+    const cancelledResponses = [
+      accepted,
+      { ...accepted, state: 'running' },
+      {
+        mode: 'profile',
+        generation: 1,
+        events: [],
+        nextSequence: 0,
+        hasMore: false,
+        state: 'cancelled',
+        summary: null,
+        artifacts: null,
+        candidateCompletedAt: null,
+        failureCode: null,
+        result: null,
+      },
+      { ...accepted, state: 'cancelled' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(cancelledResponses.shift()), {
+            status: 200,
+          }),
+      ),
+    );
+    const input = {
+      analysisId,
+      jobId: 'profile-job',
+      attempt: 1,
+      inputRevision: 1,
+      inputFingerprint: `jcs-sha256-v1:${'a'.repeat(64)}`,
+      inputManifest: { datasets: [] },
+      policyVersion: '2026-10-01',
+      createdAt: '2026-10-17T12:00:00.000Z',
+      signal: new AbortController().signal,
+      onEvent: vi.fn(),
+      onHeartbeat: vi.fn(),
+    };
+    await expect(
+      createClient({}, { presignGet: vi.fn() }).profileInputs(input),
+    ).rejects.toBeInstanceOf(RValidationCancelledError);
+
+    const timeoutResponses = [
+      accepted,
+      { ...accepted, state: 'running' },
+      { ...accepted },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(timeoutResponses.shift()), {
+            status: 200,
+          }),
+      ),
+    );
+    await expect(
+      createClient(
+        {},
+        { presignGet: vi.fn() },
+        { R_RUNTIME_RUN_TIMEOUT_MS: 0 },
+      ).profileInputs(input),
+    ).rejects.toEqual(new RRuntimeError('R_RUNTIME_TIMEOUT'));
   });
 });

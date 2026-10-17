@@ -46,10 +46,11 @@ capability_map <- function(capabilities) {
   stats::setNames(urls, keys)
 }
 
-download_file <- function(file, urls, workspace, index, failure_code) {
+download_file <- function(file, urls, workspace, index, failure_code, target = NULL) {
   url <- urls[[file$storageKey]]
   if (is.null(url)) abort_validation("R_RUNTIME_PROTOCOL_INVALID")
-  target <- file.path(workspace, sprintf("input-%03d", index))
+  if (is.null(target)) target <- file.path(workspace, sprintf("input-%03d", index))
+  dir.create(dirname(target), recursive = TRUE, showWarnings = FALSE, mode = "0700")
   result <- tryCatch({
     curl::curl_download(url, target, quiet = TRUE)
     target
@@ -66,6 +67,44 @@ download_file <- function(file, urls, workspace, index, failure_code) {
     abort_validation(failure_code)
   }
   target
+}
+
+prepare_input_files <- function(manifest, capabilities, workspace, emit, capability_path = NULL) {
+  if (is.null(manifest$datasets)) abort_validation("R_RUNTIME_PROTOCOL_INVALID")
+  urls <- capability_map(capabilities)
+  all_files <- unlist(lapply(manifest$datasets, function(dataset) dataset$files), recursive = FALSE)
+  aggregate_size <- sum(vapply(all_files, function(file) file$size, numeric(1)))
+  if (aggregate_size > 5 * 1024^3) abort_validation("INPUT_RESOURCE_LIMIT_EXCEEDED")
+  emit_event(emit, "downloading", 10L, "Downloading immutable input files.")
+  files_by_dataset <- list()
+  cursor <- 0L
+  for (dataset in manifest$datasets) {
+    paths <- list()
+    failure_code <- if (identical(dataset$dataset$kind, "occurrence")) "OCCURRENCE_FILE_UNREADABLE" else "PREDICTOR_FILE_UNREADABLE"
+    dataset_directory <- file.path(workspace, "inputs", dataset$dataset$id)
+    for (file in dataset$files) {
+      if (!is.null(capability_path)) {
+        refreshed <- tryCatch(jsonlite::read_json(capability_path, simplifyVector = FALSE), error = function(error) NULL)
+        if (!is.null(refreshed)) urls <- capability_map(refreshed)
+      }
+      cursor <- cursor + 1L
+      filename <- if (is.null(file$originalName)) "" else basename(file$originalName)
+      if (!nzchar(filename) || filename %in% c(".", "..")) filename <- sprintf("input-%03d", cursor)
+      paths[[length(paths) + 1L]] <- download_file(
+        file,
+        urls,
+        workspace,
+        cursor,
+        failure_code,
+        file.path(dataset_directory, filename)
+      )
+    }
+    if (identical(dataset$dataset$format, "geotiff-zip")) {
+      paths <- list(extract_geotiff_archive(paths[[1L]], workspace, cursor))
+    }
+    files_by_dataset[[dataset$dataset$id]] <- paths
+  }
+  files_by_dataset
 }
 
 coordinate_records <- function(longitude, latitude, species, policy) {
@@ -264,32 +303,7 @@ validate_run <- function(request, capabilities, workspace, emit, capability_path
   configuration <- request$configuration
   manifest <- request$inputManifest
   if (is.null(configuration) || is.null(manifest$datasets)) abort_validation("R_RUNTIME_PROTOCOL_INVALID")
-  urls <- capability_map(capabilities)
-  all_files <- unlist(lapply(manifest$datasets, function(dataset) dataset$files), recursive = FALSE)
-  aggregate_size <- sum(vapply(all_files, function(file) file$size, numeric(1)))
-  if (aggregate_size > 5 * 1024^3) abort_validation("INPUT_RESOURCE_LIMIT_EXCEEDED")
-  emit_event(emit, "downloading", 10L, "Downloading immutable input files.")
-  files_by_dataset <- list()
-  cursor <- 0L
-  for (dataset in manifest$datasets) {
-    paths <- list()
-    failure_code <- if (identical(dataset$dataset$kind, "occurrence")) "OCCURRENCE_FILE_UNREADABLE" else "PREDICTOR_FILE_UNREADABLE"
-    for (file in dataset$files) {
-      if (!is.null(capability_path)) {
-        refreshed <- tryCatch(
-          jsonlite::read_json(capability_path, simplifyVector = FALSE),
-          error = function(error) NULL
-        )
-        if (!is.null(refreshed)) urls <- capability_map(refreshed)
-      }
-      cursor <- cursor + 1L
-      paths[[length(paths) + 1L]] <- download_file(file, urls, workspace, cursor, failure_code)
-    }
-    if (identical(dataset$dataset$format, "geotiff-zip")) {
-      paths <- list(extract_geotiff_archive(paths[[1L]], workspace, cursor))
-    }
-    files_by_dataset[[dataset$dataset$id]] <- paths
-  }
+  files_by_dataset <- prepare_input_files(manifest, capabilities, workspace, emit, capability_path)
   occurrence <- Filter(function(dataset) identical(dataset$dataset$kind, "occurrence"), manifest$datasets)
   if (length(occurrence) != 1L) abort_validation("OCCURRENCE_FORMAT_INVALID")
   emit_event(emit, "parsing", 35L, "Parsing occurrence records.")

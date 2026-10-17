@@ -62,6 +62,20 @@ const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
 const configurationIdempotencyKeyPrefix =
   'ecosuitability:analysis-configuration:idempotency:';
 
+const redisArray = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.keys(value).length === 0
+  ) {
+    return [];
+  }
+  return value as T[];
+};
+
 @Injectable()
 export class AnalysisRepository {
   public constructor(private readonly redis: RedisService) {}
@@ -110,7 +124,9 @@ export class AnalysisRepository {
       return undefined;
     }
 
-    const analysis = JSON.parse(payload) as StoredAnalysis;
+    const analysis = this.normalizeValidationArrays(
+      JSON.parse(payload) as StoredAnalysis,
+    );
     return analysis.ownerId === ownerId ? analysis : undefined;
   }
 
@@ -504,6 +520,55 @@ export class AnalysisRepository {
           datasets: AnalysisInputDataset[];
         })
       : { datasets: [] };
+  }
+
+  public inputFingerprint(manifest: unknown): string {
+    return this.fingerprint(manifest);
+  }
+
+  private normalizeValidationArrays(analysis: StoredAnalysis): StoredAnalysis {
+    const profile = analysis.inputProfile;
+    const preflight = analysis.preflight;
+    return {
+      ...analysis,
+      inputProfile: profile
+        ? {
+            ...profile,
+            checks: redisArray(profile.checks),
+            warnings: redisArray(profile.warnings),
+            blockers: redisArray(profile.blockers),
+            occurrence: {
+              ...profile.occurrence,
+              columns: redisArray(profile.occurrence.columns),
+              layers: redisArray(profile.occurrence.layers),
+              longitudeCandidates: redisArray(
+                profile.occurrence.longitudeCandidates,
+              ),
+              latitudeCandidates: redisArray(
+                profile.occurrence.latitudeCandidates,
+              ),
+              speciesCandidates: redisArray(
+                profile.occurrence.speciesCandidates,
+              ),
+            },
+            rasters: redisArray(profile.rasters),
+            spatialPreview: profile.spatialPreview
+              ? {
+                  ...profile.spatialPreview,
+                  features: redisArray(profile.spatialPreview.features),
+                }
+              : null,
+          }
+        : undefined,
+      preflight: preflight
+        ? {
+            ...preflight,
+            checks: redisArray(preflight.checks),
+            warnings: redisArray(preflight.warnings),
+            blockers: redisArray(preflight.blockers),
+          }
+        : undefined,
+    };
   }
 
   private fingerprint(value: unknown): string {

@@ -10,18 +10,21 @@ dir.create(workspace_root)
 on.exit(unlink(workspace_root, recursive = TRUE, force = TRUE), add = TRUE)
 Sys.setenv(R_RUNTIME_WORKSPACE_ROOT = workspace_root)
 
-run_id <- "an_0123456789abcdef0123456789abcdef.1"
+run_id <- "an_0123456789abcdef0123456789abcdef.execute.1"
 workspace <- file.path(workspace_root, run_id)
 output_directory <- file.path(workspace, "outputs")
 dir.create(output_directory, recursive = TRUE)
 
 request <- list(
   runId = run_id,
+  mode = "execute",
   analysisId = "an_0123456789abcdef0123456789abcdef",
   jobId = "an_0123456789abcdef0123456789abcdef",
   attempt = 1L,
-  configurationFingerprint = paste(rep("a", 64L), collapse = ""),
-  inputFingerprint = paste(rep("b", 64L), collapse = "")
+  inputRevision = 1L,
+  configurationRevision = 1L,
+  configurationFingerprint = paste0("jcs-sha256-v1:", paste(rep("a", 64L), collapse = "")),
+  inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("b", 64L), collapse = ""))
 )
 jsonlite::write_json(
   request,
@@ -77,9 +80,35 @@ assert_identical(
 )
 
 conflict <- request
-conflict$inputFingerprint <- paste(rep("c", 64L), collapse = "")
+conflict$inputFingerprint <- paste0("jcs-sha256-v1:", paste(rep("c", 64L), collapse = ""))
 conflicted <- store$create(conflict)
 assert_identical(conflicted$status, 409L, "Semantic run identity conflict was accepted.")
 assert_identical(conflicted$body$code, "RUN_ID_CONFLICT", "Conflict code is incorrect.")
+
+profile_run_id <- "an_1123456789abcdef0123456789abcdef.profile.4"
+profile_workspace <- file.path(workspace_root, profile_run_id)
+dir.create(profile_workspace, recursive = TRUE)
+profile_request <- list(
+  runId = profile_run_id,
+  mode = "profile",
+  analysisId = "an_1123456789abcdef0123456789abcdef",
+  jobId = "profile-job",
+  attempt = 1L,
+  inputRevision = 4L,
+  inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("d", 64L), collapse = ""))
+)
+profile_result <- list(
+  analysisId = profile_request$analysisId,
+  inputRevision = 4L,
+  inputFingerprint = profile_request$inputFingerprint,
+  status = "passed"
+)
+jsonlite::write_json(profile_request, file.path(profile_workspace, "request.json"), auto_unbox = TRUE)
+jsonlite::write_json(profile_result, file.path(profile_workspace, "job-result.json"), auto_unbox = TRUE)
+profile_recovered <- store$create(profile_request)
+assert_identical(profile_recovered$body$state, "succeeded", "Profile result was not recovered.")
+profile_events <- store$events(profile_run_id, 0L, 100L)
+assert_identical(profile_events$body$mode, "profile", "Recovered profile mode is incorrect.")
+assert_identical(profile_events$body$result$status, "passed", "Recovered profile result is missing.")
 
 cat("R runtime recovery tests passed.\n")

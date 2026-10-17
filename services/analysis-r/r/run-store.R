@@ -3,13 +3,16 @@ create_run_store <- function() {
   workspace_root <- Sys.getenv("R_RUNTIME_WORKSPACE_ROOT", "/workspaces")
   dir.create(workspace_root, recursive = TRUE, showWarnings = FALSE)
   safe_run_id <- function(run_id) {
-    is.character(run_id) && grepl("^an_[a-z0-9]{32}\\.[1-9][0-9]*$", run_id)
+    is.character(run_id) && grepl("^an_[a-z0-9]{32}\\.(profile|validate|execute)\\.[0-9]+(\\.[0-9]+)?$", run_id)
   }
   semantic_request <- function(body) {
     list(
       runId = body$runId,
       analysisId = body$analysisId,
       jobId = body$jobId,
+      mode = body$mode,
+      inputRevision = body$inputRevision,
+      configurationRevision = body$configurationRevision,
       configurationFingerprint = body$configurationFingerprint,
       inputFingerprint = body$inputFingerprint
     )
@@ -37,11 +40,12 @@ create_run_store <- function() {
     )
     if (!file.rename(temporary, path)) stop("Unable to persist run recovery state.")
   }
-  terminal <- function(run, state, code = NULL, summary = NULL, artifacts = NULL) {
+  terminal <- function(run, state, code = NULL, summary = NULL, artifacts = NULL, result = NULL) {
     run$state <- state
     run$failureCode <- code
     run$summary <- summary
     run$artifacts <- artifacts
+    run$result <- result
     run$finishedAt <- Sys.time()
     if (state %in% c("failed", "cancelled") && dir.exists(run$workspace)) {
       unlink(run$workspace, recursive = TRUE, force = TRUE)
@@ -82,7 +86,7 @@ create_run_store <- function() {
     lines <- run$child$read_output_lines()
     for (line in lines) {
       if (run$state %in% c("succeeded", "failed", "cancelled")) break
-      if (nchar(line, type = "bytes") > 8192L) {
+      if (nchar(line, type = "bytes") > 1024L * 1024L) {
         terminal(run, "failed", "R_RUNTIME_PROTOCOL_INVALID")
         next
       }
@@ -94,6 +98,7 @@ create_run_store <- function() {
         run$state <- "running"
       } else if (identical(control$kind, "artifacts-ready")) {
         if (
+          !identical(run$request$mode, "execute") ||
           is.null(control$artifacts) ||
             length(control$artifacts) != 9L ||
             is.null(control$candidateCompletedAt)
@@ -107,9 +112,15 @@ create_run_store <- function() {
           event(run, "writing-artifacts", 94L, "Scientific artifacts are ready for upload.")
         }
       } else if (identical(control$kind, "completed")) {
-        event(run, "completed", 100L, "Scientific model execution completed.")
-        run$candidateCompletedAt <- control$candidateCompletedAt
-        terminal(run, "succeeded", summary = control$summary, artifacts = control$artifacts)
+        event(run, "completed", 100L, if (identical(run$request$mode, "execute")) "Scientific model execution completed." else "Scientific validation job completed.")
+        if (identical(run$request$mode, "execute")) {
+          run$candidateCompletedAt <- control$candidateCompletedAt
+          terminal(run, "succeeded", summary = control$summary, artifacts = control$artifacts)
+        } else if (is.null(control$result)) {
+          terminal(run, "failed", "R_RUNTIME_PROTOCOL_INVALID")
+        } else {
+          terminal(run, "succeeded", result = control$result)
+        }
       } else if (identical(control$kind, "failed")) {
         terminal(run, "failed", control$code)
       } else {
@@ -140,7 +151,7 @@ create_run_store <- function() {
     )
     run$deadline <- Sys.time() + as.numeric(Sys.getenv("R_RUNTIME_RUN_TIMEOUT_MS", "1800000")) / 1000
     persist_recovery(run)
-    event(run, "accepted", 0L, "Scientific model execution accepted.")
+    event(run, "accepted", 0L, sprintf("Scientific %s job accepted.", run$request$mode))
   }
   restore_run <- function(run_id) {
     if (!safe_run_id(run_id)) return(NULL)
@@ -165,6 +176,7 @@ create_run_store <- function() {
     run$events <- list()
     run$summary <- NULL
     run$artifacts <- NULL
+    run$result <- NULL
     run$candidateCompletedAt <- NULL
     run$failureCode <- NULL
     run$workspace <- workspace
@@ -176,7 +188,11 @@ create_run_store <- function() {
     definitions <- artifact_definitions()
     filenames <- vapply(definitions, `[[`, character(1), "filename")
     paths <- file.path(output_directory, filenames)
-    if (all(file.exists(paths))) {
+    result_path <- file.path(workspace, "job-result.json")
+    if (!identical(request$mode, "execute") && file.exists(result_path)) {
+      run$result <- tryCatch(jsonlite::read_json(result_path, simplifyVector = FALSE), error = function(error) NULL)
+      if (!is.null(run$result)) run$state <- "succeeded"
+    } else if (identical(request$mode, "execute") && all(file.exists(paths))) {
       kinds <- vapply(definitions, `[[`, character(1), "kind")
       run$artifacts <- lapply(seq_along(paths), function(index) {
         list(
@@ -200,7 +216,7 @@ create_run_store <- function() {
     }
     assign(run_id, run, envir = runs)
     persist_recovery(run)
-    event(run, "accepted", 0L, "Recovered scientific execution after runtime restart.")
+    event(run, "accepted", 0L, sprintf("Recovered scientific %s job after runtime restart.", request$mode))
     if (identical(run$state, "awaiting-output-capabilities")) {
       event(run, "writing-artifacts", 94L, "Recovered scientific artifacts are ready for upload.")
     }
@@ -213,7 +229,7 @@ create_run_store <- function() {
 
   list(
     create = function(body) {
-      if (!safe_run_id(body$runId) || is.null(body$configurationFingerprint) || is.null(body$inputFingerprint)) {
+      if (!safe_run_id(body$runId) || is.null(body$mode) || !(body$mode %in% c("profile", "validate", "execute")) || is.null(body$inputFingerprint) || (body$mode %in% c("validate", "execute") && is.null(body$configurationFingerprint))) {
         return(list(status = 400L, body = list(code = "R_RUNTIME_PROTOCOL_INVALID")))
       }
       existing <- find_run(body$runId)
@@ -236,10 +252,12 @@ create_run_store <- function() {
           existing$events <- list()
           existing$summary <- NULL
           existing$artifacts <- NULL
+          existing$result <- NULL
           existing$candidateCompletedAt <- NULL
           existing$failureCode <- NULL
           existing$child <- NULL
           existing$deadline <- NULL
+          unlink(file.path(existing$workspace, "job-result.json"), force = TRUE)
           event(existing, "accepted", 0L, "Retrying scientific execution after a runtime failure.")
         }
         return(list(status = 202L, body = list(runId = body$runId, state = existing$state, eventSequence = existing$sequence, generation = existing$generation)))
@@ -254,6 +272,7 @@ create_run_store <- function() {
       run$events <- list()
       run$summary <- NULL
       run$artifacts <- NULL
+      run$result <- NULL
       run$candidateCompletedAt <- NULL
       run$failureCode <- NULL
       run$workspace <- workspace
@@ -286,7 +305,7 @@ create_run_store <- function() {
       run <- find_run(run_id)
       if (is.null(run)) return(list(status = 404L, body = list(code = "R_RUNTIME_UNAVAILABLE")))
       poll_child(run)
-      if (!(run$state %in% c("awaiting-output-capabilities", "running")) || is.null(run$artifacts) || is.null(body$capabilities) || length(body$capabilities) != 9L) {
+      if (!identical(run$request$mode, "execute") || !(run$state %in% c("awaiting-output-capabilities", "running")) || is.null(run$artifacts) || is.null(body$capabilities) || length(body$capabilities) != 9L) {
         return(list(status = 409L, body = list(code = "R_RUNTIME_PROTOCOL_INVALID")))
       }
       path <- file.path(run$workspace, "output-capabilities.json")
@@ -325,7 +344,7 @@ create_run_store <- function() {
       has_more <- length(selected) > page_size
       selected <- head(selected, page_size)
       next_sequence <- if (length(selected) == 0L) after else selected[[length(selected)]]$sequence
-      list(status = 200L, body = list(generation = run$generation, events = selected, nextSequence = next_sequence, hasMore = has_more, state = run$state, summary = run$summary, artifacts = run$artifacts, candidateCompletedAt = run$candidateCompletedAt, failureCode = run$failureCode))
+      list(status = 200L, body = list(mode = run$request$mode, generation = run$generation, events = selected, nextSequence = next_sequence, hasMore = has_more, state = run$state, summary = run$summary, artifacts = run$artifacts, result = run$result, candidateCompletedAt = run$candidateCompletedAt, failureCode = run$failureCode))
     },
     cancel = function(run_id) {
       run <- find_run(run_id)

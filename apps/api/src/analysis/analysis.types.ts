@@ -45,6 +45,15 @@ export type StoredAnalysis = Analysis & {
       datasets: AnalysisInputDataset[];
     };
     inputFingerprint: string;
+    validationReceipt: Pick<
+      AnalysisPreflight,
+      | 'inputRevision'
+      | 'inputFingerprint'
+      | 'configurationRevision'
+      | 'configurationFingerprint'
+      | 'policyVersion'
+      | 'completedAt'
+    >;
     queuedAt: string;
     processingExpiresAt: string;
     seed: number;

@@ -1,4 +1,5 @@
 source("r/validate.R")
+source("r/profile.R")
 
 expect_code <- function(expression, code) {
   observed <- tryCatch(
@@ -377,5 +378,91 @@ expect_code(
   ),
   "PREDICTOR_CRS_INCOMPATIBLE"
 )
+
+csv_profile <- profile_tabular_occurrence(csv_path, "csv")
+if (
+  csv_profile$recordCount != 10L ||
+    !identical(csv_profile$longitudeCandidates[[1L]], "longitude") ||
+    !identical(csv_profile$latitudeCandidates[[1L]], "latitude")
+) {
+  stop("CSV profiling did not detect the occurrence mapping.", call. = FALSE)
+}
+
+xlsx_profile <- profile_tabular_occurrence(xlsx_path, "xlsx")
+if (xlsx_profile$layers[[1L]] != "Occurrences" || xlsx_profile$recordCount != 10L) {
+  stop("XLSX profiling did not detect worksheets and records.", call. = FALSE)
+}
+
+geojson_profile <- profile_vector_occurrence(geojson_path, "geojson", list())
+if (geojson_profile$recordCount != 10L || !identical(geojson_profile$crs, "EPSG:4326")) {
+  stop("GeoJSON profiling did not detect point geometry and CRS.", call. = FALSE)
+}
+
+gpkg_profile <- profile_vector_occurrence(gpkg_path, "gpkg", list())
+if (length(gpkg_profile$layers) != 2L) {
+  stop("GeoPackage profiling did not enumerate layers.", call. = FALSE)
+}
+
+shape_files <- list(
+  list(component = "shp"),
+  list(component = "dbf"),
+  list(component = "shx"),
+  list(component = "prj")
+)
+shape_paths <- file.path(workspace, paste0("occurrences.", c("shp", "dbf", "shx", "prj")))
+shape_profile <- profile_vector_occurrence(shape_paths, "shapefile", shape_files)
+if (shape_profile$recordCount != 10L || is.null(shape_profile$crs)) {
+  stop("Shapefile profiling did not inspect the component set.", call. = FALSE)
+}
+
+raster_profile <- profile_raster(
+  list(dataset = list(id = "ds_0123456789abcdef0123456789abcdef")),
+  raster_a_path
+)
+if (
+  is.null(raster_profile) ||
+    raster_profile$metadata$width != 20L ||
+    raster_profile$metadata$height != 20L ||
+    !isTRUE(raster_profile$metadata$alignedToReference)
+) {
+  stop("Raster profiling did not return grid metadata.", call. = FALSE)
+}
+
+profiled_coverage <- profile_occurrence_coverage(
+  terra::xyFromCell(raster_a, c(1L, 2L, 3L)),
+  "EPSG:4326",
+  list(raster_a)
+)
+if (
+  profiled_coverage$covered != 3L ||
+    profiled_coverage$total != 3L ||
+    profiled_coverage$percent != 100
+) {
+  stop("Input profiling did not calculate occurrence raster coverage.", call. = FALSE)
+}
+
+preview <- profile_preview(csv_profile$coordinates)
+if (!identical(preview$type, "FeatureCollection") || length(preview$features) != 10L) {
+  stop("Occurrence preview GeoJSON was not generated.", call. = FALSE)
+}
+
+passed_preflight <- preflight_result(
+  list(
+    analysisId = "an_0123456789abcdef0123456789abcdef",
+    inputRevision = 1L,
+    configurationRevision = 1L,
+    inputFingerprint = "jcs-sha256-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    configurationFingerprint = "jcs-sha256-v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    policyVersion = "2026-10-01",
+    createdAt = "2026-10-17T12:00:00.000Z"
+  ),
+  validated = list(summary = list(deduplicatedOccurrences = 0L, uncoveredOccurrences = 0L))
+)
+if (
+  !identical(passed_preflight$status, "passed") ||
+    !identical(passed_preflight$checks[[1L]]$id, "scientific.configuration.validation")
+) {
+  stop("Preflight did not return a stable passed validation receipt.", call. = FALSE)
+}
 
 cat("Scientific validation tests passed.\n")

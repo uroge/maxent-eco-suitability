@@ -637,17 +637,20 @@ export type AnalysisValidationCheck = z.infer<typeof analysisValidationCheckSche
 export const rasterMetadataSchema = z
   .object({
     datasetId: uploadDatasetIdSchema,
-    crs: z.string().min(1).max(128),
+    crs: z.string().min(1).max(4096),
     bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     resolution: z.tuple([z.number().positive(), z.number().positive()]),
     bandCount: z.number().int().positive(),
     nodata: z.number().finite().nullable(),
+    alignedToReference: z.boolean(),
   })
   .strict();
 
 export type RasterMetadata = z.infer<typeof rasterMetadataSchema>;
+
+export const canonicalFingerprintSchema = z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/);
 
 const spatialPreviewSchema = z
   .object({
@@ -660,6 +663,7 @@ export const analysisInputProfileSchema = z
   .object({
     analysisId: analysisIdSchema,
     inputRevision: z.number().int().nonnegative(),
+    inputFingerprint: canonicalFingerprintSchema,
     policyVersion: z.string().min(1).max(32),
     status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
     progress: z.number().int().min(0).max(100),
@@ -675,6 +679,7 @@ export const analysisInputProfileSchema = z
         speciesCandidates: z.array(z.string().min(1).max(255)),
         recordCount: z.number().int().nonnegative().nullable(),
         duplicateCoordinateCount: z.number().int().nonnegative().nullable(),
+        crs: z.string().min(1).max(4096).nullable(),
       })
       .strict(),
     rasters: z.array(rasterMetadataSchema),
@@ -697,7 +702,8 @@ export const analysisPreflightSchema = z
     analysisId: analysisIdSchema,
     inputRevision: z.number().int().nonnegative(),
     configurationRevision: z.number().int().nonnegative(),
-    configurationFingerprint: z.string().min(1).max(128),
+    inputFingerprint: canonicalFingerprintSchema,
+    configurationFingerprint: canonicalFingerprintSchema,
     policyVersion: z.string().min(1).max(32),
     status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
     progress: z.number().int().min(0).max(100),
@@ -715,11 +721,15 @@ export const analysisPreflightResponseSchema = z.object({ preflight: analysisPre
 
 export type AnalysisPreflightResponse = z.infer<typeof analysisPreflightResponseSchema>;
 
+export const rJobModeSchema = z.enum(['profile', 'validate', 'execute']);
+
+export type RJobMode = z.infer<typeof rJobModeSchema>;
+
 export const queueAnalysisRequestSchema = z
   .object({
     expectedInputRevision: z.number().int().nonnegative(),
     expectedConfigurationRevision: z.number().int().positive(),
-    configurationFingerprint: z.string().min(1).max(128),
+    configurationFingerprint: canonicalFingerprintSchema,
   })
   .strict();
 
@@ -762,6 +772,7 @@ export const scientificValidationFailureCodeSchema = z.enum([
 export type ScientificValidationFailureCode = z.infer<typeof scientificValidationFailureCodeSchema>;
 
 export const rValidationEventsResponseSchema = z.object({
+  mode: rJobModeSchema,
   events: z
     .array(
       z.object({
@@ -808,7 +819,18 @@ export const rValidationEventsResponseSchema = z.object({
     .nullable(),
   artifacts: z.array(z.unknown()).nullable(),
   candidateCompletedAt: z.string().datetime().nullable(),
-  failureCode: scientificValidationFailureCodeSchema.nullable(),
+  failureCode: z
+    .union([
+      scientificValidationFailureCodeSchema,
+      z.enum([
+        'R_RUNTIME_UNAVAILABLE',
+        'R_RUNTIME_TIMEOUT',
+        'R_RUNTIME_PROTOCOL_INVALID',
+        'R_RUNTIME_CANCEL_FAILED',
+      ]),
+    ])
+    .nullable(),
+  result: z.union([analysisInputProfileSchema, analysisPreflightSchema]).nullable(),
 });
 
 export type RValidationEventsResponse = z.infer<typeof rValidationEventsResponseSchema>;
@@ -1086,8 +1108,8 @@ export const analysisExecutionSummaryArtifactSchema = z
     placeholder: z.literal(false),
     scientificModelExecuted: z.literal(true),
     completedAt: z.string().datetime(),
-    configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
-    inputFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
+    configurationFingerprint: canonicalFingerprintSchema,
+    inputFingerprint: canonicalFingerprintSchema,
     validation: rValidationSummarySchema,
     inputValidation: z
       .object({
@@ -1138,6 +1160,7 @@ export const rGeneratedArtifactSetSchema = z
 
 export const rValidationEventsPageSchema = z
   .object({
+    mode: rJobModeSchema,
     generation: z.number().int().positive(),
     events: z.array(rValidationEventSchema).max(100),
     nextSequence: z.number().int().nonnegative(),
@@ -1147,6 +1170,7 @@ export const rValidationEventsPageSchema = z
     artifacts: rGeneratedArtifactSetSchema.nullable(),
     candidateCompletedAt: z.string().datetime().nullable(),
     failureCode: rValidationFailureCodeSchema.nullable(),
+    result: z.union([analysisInputProfileSchema, analysisPreflightSchema]).nullable(),
   })
   .strict();
 

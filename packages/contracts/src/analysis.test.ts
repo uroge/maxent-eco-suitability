@@ -8,7 +8,10 @@ import {
   analysisArtifactSpecifications,
   analysisResultManifestSchema,
   analysisMetricsArtifactSchema,
+  analysisInputProfileSchema,
+  analysisPreflightSchema,
   mapCapabilitiesSchema,
+  rValidationEventsPageSchema,
 } from './analysis';
 
 describe('analysis contracts', () => {
@@ -232,5 +235,129 @@ describe('analysis contracts', () => {
         terrain: { available: true, layerId: 42, unavailableReason: null },
       }).success
     ).toBe(false);
+  });
+
+  it('binds scientific profiles and preflights to exact revisions and fingerprints', () => {
+    const inputFingerprint = `jcs-sha256-v1:${'a'.repeat(64)}`;
+    const configurationFingerprint = `jcs-sha256-v1:${'b'.repeat(64)}`;
+    const profile = {
+      analysisId: 'an_0123456789abcdef0123456789abcdef',
+      inputRevision: 2,
+      inputFingerprint,
+      policyVersion: '2026-10-01',
+      status: 'passed',
+      progress: 100,
+      checks: [
+        {
+          id: 'rasters.grid.alignment',
+          label: 'Raster alignment',
+          status: 'passed',
+          message: 'Predictor grids share the same geometry.',
+        },
+      ],
+      warnings: [],
+      blockers: [],
+      occurrence: {
+        columns: ['longitude', 'latitude'],
+        layers: [],
+        longitudeCandidates: ['longitude'],
+        latitudeCandidates: ['latitude'],
+        speciesCandidates: [],
+        recordCount: 12,
+        duplicateCoordinateCount: 1,
+        crs: 'EPSG:4326',
+      },
+      rasters: [
+        {
+          datasetId: 'ds_0123456789abcdef0123456789abcdef',
+          crs: 'EPSG:4326',
+          bounds: [0, 0, 10, 10],
+          width: 10,
+          height: 10,
+          resolution: [1, 1],
+          bandCount: 1,
+          nodata: null,
+          alignedToReference: true,
+        },
+      ],
+      spatialPreview: { type: 'FeatureCollection', features: [] },
+      createdAt: '2026-10-17T12:00:00.000Z',
+      completedAt: '2026-10-17T12:01:00.000Z',
+    };
+    const preflight = {
+      analysisId: profile.analysisId,
+      inputRevision: profile.inputRevision,
+      configurationRevision: 3,
+      inputFingerprint,
+      configurationFingerprint,
+      policyVersion: profile.policyVersion,
+      status: 'passed',
+      progress: 100,
+      checks: profile.checks,
+      warnings: [],
+      blockers: [],
+      createdAt: profile.createdAt,
+      completedAt: profile.completedAt,
+    };
+
+    expect(analysisInputProfileSchema.safeParse(profile).success).toBe(true);
+    expect(analysisPreflightSchema.safeParse(preflight).success).toBe(true);
+    expect(
+      analysisInputProfileSchema.safeParse({ ...profile, inputFingerprint: 'unbound' }).success
+    ).toBe(false);
+    expect(
+      analysisPreflightSchema.safeParse({ ...preflight, configurationRevision: -1 }).success
+    ).toBe(false);
+  });
+
+  it('carries typed profile results through the recoverable R event protocol', () => {
+    const profile = analysisInputProfileSchema.parse({
+      analysisId: 'an_0123456789abcdef0123456789abcdef',
+      inputRevision: 2,
+      inputFingerprint: `jcs-sha256-v1:${'a'.repeat(64)}`,
+      policyVersion: '2026-10-01',
+      status: 'blocked',
+      progress: 100,
+      checks: [
+        {
+          id: 'occurrence.mapping.candidates',
+          label: 'Occurrence mapping',
+          status: 'blocked',
+          message: 'The occurrence mapping is ambiguous and must be confirmed.',
+        },
+      ],
+      warnings: [],
+      blockers: ['Confirm the occurrence mapping.'],
+      occurrence: {
+        columns: ['x', 'y'],
+        layers: [],
+        longitudeCandidates: ['x'],
+        latitudeCandidates: ['y'],
+        speciesCandidates: [],
+        recordCount: 10,
+        duplicateCoordinateCount: 0,
+        crs: 'EPSG:4326',
+      },
+      rasters: [],
+      spatialPreview: null,
+      createdAt: '2026-10-17T12:00:00.000Z',
+      completedAt: '2026-10-17T12:01:00.000Z',
+    });
+
+    expect(
+      rValidationEventsPageSchema.safeParse({
+        mode: 'profile',
+        generation: 2,
+        events: [],
+        nextSequence: 0,
+        hasMore: false,
+        state: 'succeeded',
+        summary: null,
+        artifacts: null,
+        candidateCompletedAt: null,
+        failureCode: null,
+        result: profile,
+      }).success
+    ).toBe(true);
   });
 });

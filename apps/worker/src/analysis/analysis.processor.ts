@@ -64,13 +64,13 @@ export class AnalysisProcessor
   ): Promise<void> {
     if (job.name === analysisInputProfileJobName) {
       await this.validationJobs.profile(
-        job.data as AnalysisValidationJobPayload,
+        job as Job<AnalysisValidationJobPayload>,
       );
       return;
     }
     if (job.name === analysisPreflightJobName) {
       await this.validationJobs.preflight(
-        job.data as AnalysisValidationJobPayload,
+        job as Job<AnalysisValidationJobPayload>,
       );
       return;
     }

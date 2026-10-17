@@ -118,7 +118,7 @@ const createAnalysis = (
     visualization: { terrain: null },
     seed: 42,
   },
-  configurationFingerprint: 'jcs-sha256-v1:test',
+  configurationFingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
 });
 
 describe.runIf(integrationEnabled)(
@@ -131,6 +131,29 @@ describe.runIf(integrationEnabled)(
     let repository: AnalysisRepository;
 
     let queue: Queue;
+
+    const withPassedPreflight = (
+      analysis: StoredAnalysis,
+      manifest: ReturnType<typeof inputManifest>,
+    ): StoredAnalysis => ({
+      ...analysis,
+      status: 'ready',
+      preflight: {
+        analysisId: analysis.id,
+        inputRevision: analysis.inputRevision,
+        configurationRevision: analysis.configurationRevision,
+        inputFingerprint: repository.inputFingerprint(manifest),
+        configurationFingerprint: analysis.configurationFingerprint!,
+        policyVersion: '2026-10-01',
+        status: 'passed',
+        progress: 100,
+        checks: [],
+        warnings: [],
+        blockers: [],
+        createdAt: '2026-08-31T12:00:00.000Z',
+        completedAt: '2026-08-31T12:01:00.000Z',
+      },
+    });
 
     beforeAll(async () => {
       container = await new GenericContainer('redis:8-alpine')
@@ -225,18 +248,75 @@ describe.runIf(integrationEnabled)(
       ).resolves.toMatchObject({ replayed: false });
     });
 
+    it('preserves empty validation arrays when Redis Lua stores a profile', async () => {
+      const analysis = createAnalysis(
+        'an_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        'request-key-profile-arrays',
+      );
+      const profile = {
+        analysisId: analysis.id,
+        inputRevision: analysis.inputRevision,
+        inputFingerprint: repository.inputFingerprint({ datasets: [] }),
+        policyVersion: '2026-10-01',
+        status: 'queued' as const,
+        progress: 0,
+        checks: [],
+        warnings: [],
+        blockers: [],
+        occurrence: {
+          columns: [],
+          layers: [],
+          longitudeCandidates: [],
+          latitudeCandidates: [],
+          speciesCandidates: [],
+          recordCount: null,
+          duplicateCoordinateCount: null,
+          crs: null,
+        },
+        rasters: [],
+        spatialPreview: { type: 'FeatureCollection' as const, features: [] },
+        createdAt: '2026-08-31T12:00:00.000Z',
+        completedAt: null,
+      };
+      await repository.create(
+        { analysis, fingerprint: 'fingerprint-profile-arrays' },
+        3600,
+      );
+
+      await expect(
+        repository.updateValidationState(
+          analysis.id,
+          analysis.ownerId,
+          'inputProfile',
+          profile,
+        ),
+      ).resolves.toMatchObject({ inputProfile: profile });
+      await repository.transition({
+        analysisId: analysis.id,
+        ownerId: analysis.ownerId,
+        expectedStatuses: ['draft'],
+        status: 'uploading',
+        failure: null,
+      });
+      await expect(
+        repository.findOwned(analysis.id, analysis.ownerId),
+      ).resolves.toMatchObject({ inputProfile: profile });
+    });
+
     it('atomically queues a ready analysis and dispatches its deterministic outbox job', async () => {
-      const analysis = {
-        ...createAnalysis(
+      const manifest = inputManifest();
+      const inputFingerprint = repository.inputFingerprint(manifest);
+      const analysis = withPassedPreflight(
+        createAnalysis(
           'an_44444444444444444444444444444444',
           'request-key-444',
         ),
-        status: 'ready' as const,
-      };
+        manifest,
+      );
       await repository.create({ analysis, fingerprint: 'fingerprint-5' }, 3600);
       await client.set(
         analysisInputsKey(analysis.id),
-        JSON.stringify(inputManifest()),
+        JSON.stringify(manifest),
       );
 
       await expect(
@@ -268,9 +348,57 @@ describe.runIf(integrationEnabled)(
         executionSnapshot: {
           configuration: analysis.configuration,
           inputManifest: inputManifest(),
-          inputFingerprint: expect.stringMatching(/^jcs-sha256-v1:/),
+          inputFingerprint,
+          validationReceipt: {
+            inputRevision: analysis.preflight?.inputRevision,
+            inputFingerprint: analysis.preflight?.inputFingerprint,
+            configurationRevision: analysis.preflight?.configurationRevision,
+            configurationFingerprint:
+              analysis.preflight?.configurationFingerprint,
+            policyVersion: analysis.preflight?.policyVersion,
+            completedAt: analysis.preflight?.completedAt,
+          },
         },
       });
+    });
+
+    it('rejects queueing when the validated input fingerprint is stale', async () => {
+      const manifest = inputManifest();
+      const analysis = {
+        ...createAnalysis(
+          'an_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'request-key-stale-input',
+        ),
+        status: 'ready' as const,
+        preflight: {
+          analysisId: 'an_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          inputRevision: 0,
+          configurationRevision: 1,
+          inputFingerprint: `jcs-sha256-v1:${'f'.repeat(64)}`,
+          configurationFingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
+          policyVersion: '2026-10-01',
+          status: 'passed' as const,
+          progress: 100,
+          checks: [],
+          warnings: [],
+          blockers: [],
+          createdAt: '2026-08-31T12:00:00.000Z',
+          completedAt: '2026-08-31T12:01:00.000Z',
+        },
+      };
+      await repository.create({ analysis, fingerprint: 'fingerprint-6' }, 3600);
+      await client.set(
+        analysisInputsKey(analysis.id),
+        JSON.stringify(manifest),
+      );
+
+      await expect(
+        repository.queue(
+          analysis.id,
+          analysis.ownerId,
+          new Date('2026-09-03T12:00:00.000Z'),
+        ),
+      ).resolves.toBe('preflight_required');
     });
 
     it('persists idempotent configuration revisions only for attached inputs', async () => {
@@ -342,11 +470,13 @@ describe.runIf(integrationEnabled)(
 
     it('freezes the original input manifest even if its Redis key is later corrupted', async () => {
       const analysis = {
-        ...createAnalysis(
-          'an_88888888888888888888888888888888',
-          'request-key-888',
+        ...withPassedPreflight(
+          createAnalysis(
+            'an_88888888888888888888888888888888',
+            'request-key-888',
+          ),
+          inputManifest(),
         ),
-        status: 'ready' as const,
       };
       await repository.create(
         { analysis, fingerprint: 'fingerprint-10' },
@@ -376,13 +506,14 @@ describe.runIf(integrationEnabled)(
     });
 
     it('reclaims an undispatched outbox after its lease expires', async () => {
-      const analysis = {
-        ...createAnalysis(
+      const manifest = { datasets: [] };
+      const analysis = withPassedPreflight(
+        createAnalysis(
           'an_77777777777777777777777777777777',
           'request-key-777',
         ),
-        status: 'ready' as const,
-      };
+        manifest,
+      );
       const now = new Date('2026-08-31T12:00:00.000Z');
       await repository.create({ analysis, fingerprint: 'fingerprint-8' }, 3600);
       await repository.queue(
@@ -406,13 +537,13 @@ describe.runIf(integrationEnabled)(
     });
 
     it('cancels queued and running analyses without allowing a later success transition', async () => {
-      const queued = {
-        ...createAnalysis(
+      const queued = withPassedPreflight(
+        createAnalysis(
           'an_55555555555555555555555555555555',
           'request-key-555',
         ),
-        status: 'ready' as const,
-      };
+        { datasets: [] },
+      );
       await repository.create(
         { analysis: queued, fingerprint: 'fingerprint-6' },
         3600,

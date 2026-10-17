@@ -27,6 +27,7 @@ if ARGV[8] ~= '' and (
 end
 if type(analysis.preflight) ~= 'table' or analysis.preflight.status ~= 'passed' or
   analysis.preflight.inputRevision ~= (analysis.inputRevision or 0) or
+  analysis.preflight.inputFingerprint ~= ARGV[7] or
   analysis.preflight.configurationRevision ~= analysis.configurationRevision or
   analysis.preflight.configurationFingerprint ~= analysis.configurationFingerprint then
   return { 'preflight_required' }
@@ -43,7 +44,25 @@ analysis.status = 'queued'
 analysis.updatedAt = now
 analysis.expiresAt = processingExpiresAt
 analysis.processingExpiresAt = processingExpiresAt
-analysis.executionSnapshot = { configuration = analysis.configuration, inputRevision = analysis.inputRevision, configurationRevision = analysis.configurationRevision, fingerprint = analysis.configurationFingerprint, inputManifest = inputManifest, inputFingerprint = ARGV[7], queuedAt = now, processingExpiresAt = processingExpiresAt, seed = analysis.configuration.seed }
+analysis.executionSnapshot = {
+  configuration = analysis.configuration,
+  inputRevision = analysis.inputRevision,
+  configurationRevision = analysis.configurationRevision,
+  fingerprint = analysis.configurationFingerprint,
+  inputManifest = inputManifest,
+  inputFingerprint = ARGV[7],
+  validationReceipt = {
+    inputRevision = analysis.preflight.inputRevision,
+    inputFingerprint = analysis.preflight.inputFingerprint,
+    configurationRevision = analysis.preflight.configurationRevision,
+    configurationFingerprint = analysis.preflight.configurationFingerprint,
+    policyVersion = analysis.preflight.policyVersion,
+    completedAt = analysis.preflight.completedAt
+  },
+  queuedAt = now,
+  processingExpiresAt = processingExpiresAt,
+  seed = analysis.configuration.seed
+}
 analysis.queuedAt = now
 analysis.failure = cjson.null
 analysis.progress = { stage = 'queued', percent = 0, attempt = cjson.null, message = 'Waiting for the analysis worker.', updatedAt = now }

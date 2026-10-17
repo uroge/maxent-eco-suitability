@@ -90,8 +90,8 @@ validated <- list(
   occurrenceCrs = "EPSG:4326",
   rasters = list(continuous),
   configuration = configuration,
-  configurationFingerprint = paste(rep("a", 64L), collapse = ""),
-  inputFingerprint = paste(rep("b", 64L), collapse = "")
+  configurationFingerprint = paste0("jcs-sha256-v1:", paste(rep("a", 64L), collapse = "")),
+  inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("b", 64L), collapse = ""))
 )
 events <- list()
 emit <- function(value) events[[length(events) + 1L]] <<- value
@@ -142,8 +142,8 @@ if (!is.finite(metrics$auc$mean) || metrics$auc$mean < 0 || metrics$auc$mean > 1
 if (
   metrics$auc$standardDeviation < 0 ||
     metrics$folds != 5L ||
-    length(metrics$evaluationRuns) != 5L ||
-    length(metrics$pooledRoc) < 2L
+    nrow(metrics$evaluationRuns) != 5L ||
+    nrow(metrics$pooledRoc) < 2L
 ) {
   stop("K-fold aggregate metrics are invalid.", call. = FALSE)
 }
