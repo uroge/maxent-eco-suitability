@@ -11,6 +11,7 @@ import {
   analysisInputProfileSchema,
   analysisPreflightSchema,
   mapCapabilitiesSchema,
+  rGeneratedMapAssetSchema,
   rValidationEventsPageSchema,
 } from './analysis';
 
@@ -233,6 +234,55 @@ describe('analysis contracts', () => {
       mapCapabilitiesSchema.safeParse({
         ...base,
         terrain: { available: true, layerId: 42, unavailableReason: null },
+      }).success
+    ).toBe(false);
+  });
+
+  it('binds terrain eligibility to a verified COG and every DEM check', () => {
+    const asset = {
+      datasetId: 'ds_0123456789abcdef0123456789abcdef',
+      filename: 'ds_0123456789abcdef0123456789abcdef.tif',
+      size: 1024,
+      sha256: 'a'.repeat(64),
+      raster: {
+        cog: true,
+        overviewCount: 1,
+        compression: 'DEFLATE',
+        nodata: -9999,
+        crs: 'EPSG:4326',
+        bounds: [-1, -1, 1, 1],
+        resolution: [0.1, 0.1],
+        width: 20,
+        height: 20,
+        dataType: 'FLT4S',
+        finiteValueCount: 400,
+        minimum: 0,
+        maximum: 1000,
+      },
+      dem: {
+        eligible: true,
+        reason: null,
+        sourceDataType: 'FLT4S',
+        dataTypeValid: true,
+        unit: 'metre',
+        crsTransformable: true,
+        resolutionValid: true,
+        finiteValuesValid: true,
+        rangeValid: true,
+      },
+    };
+
+    expect(rGeneratedMapAssetSchema.safeParse(asset).success).toBe(true);
+    expect(
+      rGeneratedMapAssetSchema.safeParse({
+        ...asset,
+        dem: { ...asset.dem, rangeValid: false },
+      }).success
+    ).toBe(false);
+    expect(
+      rGeneratedMapAssetSchema.safeParse({
+        ...asset,
+        raster: { ...asset.raster, overviewCount: 0 },
       }).success
     ).toBe(false);
   });

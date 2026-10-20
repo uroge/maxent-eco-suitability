@@ -54,22 +54,25 @@ wait_for_output_capabilities <- function(workspace) {
   runtime_error("R_RUNTIME_TIMEOUT")
 }
 
-upload_artifacts <- function(output_directory, capabilities, capability_path = NULL) {
-  if (is.null(capabilities$capabilities) || length(capabilities$capabilities) != 9L) {
+upload_artifacts <- function(output_directory, workspace, map_assets, capabilities, capability_path = NULL) {
+  expected_count <- 9L + length(map_assets)
+  if (is.null(capabilities$capabilities) || length(capabilities$capabilities) != expected_count) {
     runtime_error("R_RUNTIME_PROTOCOL_INVALID")
   }
+  scientific_capabilities <- Filter(function(capability) !identical(capability$kind, "map-asset"), capabilities$capabilities)
   by_kind <- setNames(
-    capabilities$capabilities,
-    vapply(capabilities$capabilities, `[[`, character(1), "kind")
+    scientific_capabilities,
+    vapply(scientific_capabilities, `[[`, character(1), "kind")
   )
-  if (length(unique(names(by_kind))) != 9L) runtime_error("R_RUNTIME_PROTOCOL_INVALID")
+  if (length(scientific_capabilities) != 9L || length(unique(names(by_kind))) != 9L) runtime_error("R_RUNTIME_PROTOCOL_INVALID")
   metadata <- artifact_metadata(output_directory)
   for (artifact in metadata) {
     if (!is.null(capability_path)) {
       capabilities <- jsonlite::read_json(capability_path, simplifyVector = FALSE)
+      scientific_capabilities <- Filter(function(item) !identical(item$kind, "map-asset"), capabilities$capabilities)
       by_kind <- setNames(
-        capabilities$capabilities,
-        vapply(capabilities$capabilities, `[[`, character(1), "kind")
+        scientific_capabilities,
+        vapply(scientific_capabilities, `[[`, character(1), "kind")
       )
     }
     capability <- by_kind[[artifact$kind]]
@@ -90,6 +93,39 @@ upload_artifacts <- function(output_directory, capabilities, capability_path = N
           "Content-Type" = capability$contentType,
           "Content-Disposition" = capability$contentDisposition,
           "x-amz-meta-sha256" = artifact$sha256
+        )
+      )
+    )
+    if (response$status_code < 200L || response$status_code >= 300L) {
+      runtime_error("R_RUNTIME_UNAVAILABLE")
+    }
+  }
+  for (asset in map_assets) {
+    if (!is.null(capability_path)) {
+      capabilities <- jsonlite::read_json(capability_path, simplifyVector = FALSE)
+    }
+    matches <- Filter(
+      function(capability) identical(capability$kind, "map-asset") && identical(capability$datasetId, asset$datasetId),
+      capabilities$capabilities
+    )
+    if (length(matches) != 1L) runtime_error("R_RUNTIME_PROTOCOL_INVALID")
+    capability <- matches[[1L]]
+    if (
+      !isTRUE(all.equal(as.numeric(capability$size), as.numeric(asset$size))) ||
+        !identical(tolower(capability$sha256), tolower(asset$sha256)) ||
+        !identical(capability$filename, asset$filename)
+    ) {
+      runtime_error("R_RUNTIME_PROTOCOL_INVALID")
+    }
+    response <- curl::curl_upload(
+      file.path(workspace, "map-assets", asset$filename),
+      capability$url,
+      handle = curl::new_handle(
+        customrequest = "PUT",
+        httpheader = c(
+          "Content-Type" = capability$contentType,
+          "Content-Disposition" = capability$contentDisposition,
+          "x-amz-meta-sha256" = asset$sha256
         )
       )
     )

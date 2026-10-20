@@ -13,6 +13,7 @@ import {
   type AnalysisJobPayload,
   type AnalysisResultManifest,
   type RGeneratedArtifact,
+  type RGeneratedMapAsset,
 } from '@ecosuitability/contracts';
 import { WorkerStorageService } from '../storage/worker-storage.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
@@ -241,6 +242,7 @@ export class ResultService {
   public async publishMapAssets(
     job: { id?: string; data: AnalysisJobPayload },
     attempt: number,
+    generated: RGeneratedMapAsset[],
   ): Promise<void> {
     if (!job.id) {
       throw new ResultLifecycleError('stale_attempt');
@@ -257,12 +259,6 @@ export class ResultService {
             }>;
             visualization?: { terrain?: { datasetId: string } | null };
           };
-          inputManifest?: {
-            datasets?: Array<{
-              dataset: { id: string; format: string };
-              files: Array<{ storageKey: string }>;
-            }>;
-          };
         }
       | undefined;
     const assets: Array<{
@@ -271,28 +267,60 @@ export class ResultService {
       label: string;
       storageKey: string;
       terrainEligible: boolean;
+      terrainUnavailableReason: string | null;
+      raster: RGeneratedMapAsset['raster'];
     }> = [];
-    for (const predictor of snapshot?.configuration?.predictors ?? []) {
-      const source = snapshot?.inputManifest?.datasets?.find(
-        (entry) =>
-          entry.dataset.id === predictor.datasetId &&
-          entry.dataset.format === 'geotiff',
-      )?.files[0];
-      if (!source) {
-        continue;
+    const predictors = snapshot?.configuration?.predictors ?? [];
+    if (
+      generated.length !== predictors.length ||
+      new Set(generated.map((asset) => asset.datasetId)).size !==
+        generated.length ||
+      predictors.some(
+        (predictor) =>
+          !generated.some((asset) => asset.datasetId === predictor.datasetId),
+      )
+    ) {
+      throw new Error('R runtime produced an invalid predictor map asset set.');
+    }
+    for (const predictor of predictors) {
+      const generatedAsset = generated.find(
+        (asset) => asset.datasetId === predictor.datasetId,
+      );
+      if (!generatedAsset) {
+        throw new Error('R runtime omitted a predictor map asset.');
       }
-      const id = `ml_${createHash('sha256').update(`${job.data.analysisId}:${predictor.datasetId}`).digest('hex').slice(0, 32)}`;
-      const storageKey = `analyses/${job.data.analysisId}/map-assets/${id}.tif`;
-      await this.storage.copy(source.storageKey, storageKey);
+      const { id, storageKey, contentDisposition } = this.mapAssetTarget(
+        job.data.analysisId,
+        generatedAsset,
+      );
+      const head = await this.storage.head(storageKey);
+      if (
+        !head ||
+        head.size !== generatedAsset.size ||
+        head.contentType !== 'image/tiff' ||
+        head.contentDisposition !== contentDisposition ||
+        head.sha256?.toLowerCase() !== generatedAsset.sha256.toLowerCase()
+      ) {
+        throw new Error('Predictor map asset storage verification failed.');
+      }
+      const selectedForTerrain =
+        predictor.type === 'continuous' &&
+        snapshot?.configuration?.visualization?.terrain?.datasetId ===
+          predictor.datasetId;
       assets.push({
         id,
         datasetId: predictor.datasetId,
         label: predictor.variableName,
         storageKey,
         terrainEligible:
-          predictor.type === 'continuous' &&
-          snapshot?.configuration?.visualization?.terrain?.datasetId ===
-            predictor.datasetId,
+          selectedForTerrain && generatedAsset.dem?.eligible === true,
+        terrainUnavailableReason: selectedForTerrain
+          ? generatedAsset.dem?.eligible
+            ? null
+            : (generatedAsset.dem?.reason ??
+              'The selected raster did not pass DEM validation.')
+          : null,
+        raster: generatedAsset.raster,
       });
     }
     const outcome = await this.lifecycle.publishMapAssets(
@@ -304,6 +332,34 @@ export class ResultService {
     if (outcome !== 'updated') {
       throw new ResultLifecycleError(outcome);
     }
+  }
+
+  public async mapAssetUploadCapabilities(
+    analysisId: string,
+    generated: RGeneratedMapAsset[],
+    expiresIn: number,
+  ): Promise<unknown[]> {
+    return Promise.all(
+      generated.map(async (asset) => {
+        const target = this.mapAssetTarget(analysisId, asset);
+        return {
+          kind: 'map-asset',
+          datasetId: asset.datasetId,
+          filename: asset.filename,
+          size: asset.size,
+          sha256: asset.sha256,
+          contentType: 'image/tiff',
+          contentDisposition: target.contentDisposition,
+          url: await this.storage.presignPut(
+            target.storageKey,
+            expiresIn,
+            'image/tiff',
+            target.contentDisposition,
+            asset.sha256,
+          ),
+        };
+      }),
+    );
   }
 
   public async resumeAvailable(
@@ -323,7 +379,10 @@ export class ResultService {
     }
     if (
       provisional.publicationState === 'provisioned' ||
-      !provisional.candidateCompletedAt
+      !provisional.candidateCompletedAt ||
+      !provisional.artifacts.some(
+        (artifact) => artifact.kind === 'result-bundle',
+      )
     ) {
       return 'not-ready';
     }
@@ -439,6 +498,21 @@ export class ResultService {
       sha256: '0'.repeat(64),
       sha256Verification: 'worker-verified',
       createdAt: '',
+    };
+  }
+
+  private mapAssetTarget(
+    analysisId: string,
+    asset: Pick<RGeneratedMapAsset, 'datasetId' | 'filename'>,
+  ): { id: string; storageKey: string; contentDisposition: string } {
+    const id = `ml_${createHash('sha256')
+      .update(`${analysisId}:${asset.datasetId}`)
+      .digest('hex')
+      .slice(0, 32)}`;
+    return {
+      id,
+      storageKey: `analyses/${analysisId}/map-assets/${id}.tif`,
+      contentDisposition: `inline; filename="${asset.filename}"`,
     };
   }
 

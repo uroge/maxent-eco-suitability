@@ -1,4 +1,5 @@
 source("r/validate.R")
+source("r/raster-assets.R")
 source("r/model.R")
 source("r/artifacts.R")
 
@@ -21,9 +22,15 @@ tryCatch({
     file.path(workspace, "output-capabilities.json"),
     simplifyVector = FALSE
   )
+  map_assets <- jsonlite::read_json(
+    file.path(workspace, "map-assets.json"),
+    simplifyVector = FALSE
+  )
   emit_event(emit, "uploading-artifacts", 96L, "Uploading recovered scientific artifacts.")
   artifacts <- upload_artifacts(
     output_directory,
+    workspace,
+    map_assets,
     capabilities,
     file.path(workspace, "output-capabilities.json")
   )
@@ -31,6 +38,7 @@ tryCatch({
     kind = "completed",
     summary = execution_summary$validation,
     artifacts = lapply(artifacts, function(artifact) artifact[c("kind", "size", "sha256")]),
+    mapAssets = map_assets,
     candidateCompletedAt = execution_summary$completedAt
   ))
 }, validation_error = function(error) {

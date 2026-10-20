@@ -414,18 +414,18 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   dir.create(output_directory, recursive = TRUE, showWarnings = FALSE, mode = "0700")
   emit_event(emit, "projecting", 84L, "Projecting block-based cloglog suitability rasters.")
   suitability_path <- file.path(output_directory, "suitability.tif")
+  suitability_source <- file.path(output_directory, "suitability-source.tif")
   suitability <- tryCatch(
     terra::predict(
       stack,
       final_model,
       fun = predict_raster_values,
       study_area = study_area,
-      filename = suitability_path,
+      filename = suitability_source,
       overwrite = TRUE,
       wopt = list(
         datatype = "FLT4S",
-        filetype = "COG",
-        gdal = c("COMPRESS=DEFLATE", "OVERVIEWS=IGNORE_EXISTING")
+        gdal = c("COMPRESS=DEFLATE", "TILED=YES")
       )
     ),
     error = function(error) NULL
@@ -433,18 +433,19 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   if (is.null(suitability)) {
     abort_model("MODEL_PROJECTION_FAILED")
   }
+  write_verified_cog(suitability, suitability_path, "Float32", -9999, "AVERAGE", 0, 1)
   threshold_path <- file.path(output_directory, "suitability-threshold.tif")
+  threshold_source <- file.path(output_directory, "suitability-threshold-source.tif")
   thresholded <- tryCatch(
     terra::ifel(
       suitability >= evaluation$threshold$threshold,
       1L,
       0L,
-      filename = threshold_path,
+      filename = threshold_source,
       overwrite = TRUE,
       wopt = list(
         datatype = "INT1U",
-        filetype = "COG",
-        gdal = c("COMPRESS=DEFLATE", "OVERVIEWS=IGNORE_EXISTING")
+        gdal = c("COMPRESS=DEFLATE", "TILED=YES")
       )
     ),
     error = function(error) NULL
@@ -452,6 +453,9 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   if (is.null(thresholded)) {
     abort_model("MODEL_PROJECTION_FAILED")
   }
+  write_verified_cog(thresholded, threshold_path, "Byte", 255, "NEAREST", 0, 1)
+  unlink(c(suitability_source, threshold_source), force = TRUE)
+  map_assets <- create_predictor_map_assets(validated, workspace)
 
   emit_event(emit, "writing-artifacts", 92L, "Writing versioned scientific artifacts.")
   curves <- list(
@@ -543,6 +547,7 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   list(
     summary = validated$summary,
     outputDirectory = output_directory,
+    mapAssets = map_assets,
     candidateCompletedAt = candidate_completed_at
   )
 }

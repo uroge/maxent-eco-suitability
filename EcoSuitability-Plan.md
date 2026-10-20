@@ -824,7 +824,7 @@ result-bundle.zip
 
 Use short-lived signed R2 URLs.
 
-The ZIP contains the nine scientific artifacts and a checksum-bearing bundle manifest. It is published as the tenth manifest artifact and never includes itself. Internal predictor COG copies used by the map are lifecycle-managed map assets, not downloadable scientific artifacts.
+The ZIP contains the nine scientific artifacts and a checksum-bearing bundle manifest. It is published as the tenth manifest artifact and never includes itself. Internal predictor COGs used by the map are normalized and structurally verified by R, verified again against their stored upload receipts by the worker, lifecycle-managed as map assets, and excluded from the downloadable scientific artifacts. Terrain capability is published only after the selected predictor passes authoritative data-type, CRS, resolution, metre-unit, finite-value, and supported-range checks.
 
 ---
 

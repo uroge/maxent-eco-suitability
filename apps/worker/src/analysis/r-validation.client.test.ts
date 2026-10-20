@@ -9,6 +9,31 @@ import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
 
 const secret = 'r-runtime-shared-secret-with-at-least-32-bytes';
 
+const mapAssets = [
+  {
+    datasetId: 'ds_0123456789abcdef0123456789abcdef',
+    filename: 'ds_0123456789abcdef0123456789abcdef.tif',
+    size: 1024,
+    sha256: 'c'.repeat(64),
+    raster: {
+      cog: true,
+      overviewCount: 1,
+      compression: 'DEFLATE',
+      nodata: -9999,
+      crs: 'EPSG:4326',
+      bounds: [-1, -1, 1, 1],
+      resolution: [0.1, 0.1],
+      width: 20,
+      height: 20,
+      dataType: 'FLT4S',
+      finiteValueCount: 400,
+      minimum: 0,
+      maximum: 1,
+    },
+    dem: null,
+  },
+];
+
 const createClient = (
   lifecycle: object = {},
   storage: object = {},
@@ -102,6 +127,7 @@ describe('RValidationClient', () => {
         state: 'awaiting-output-capabilities',
         summary: null,
         artifacts,
+        mapAssets,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
         result: null,
@@ -128,6 +154,7 @@ describe('RValidationClient', () => {
           validatedAt: '2026-09-02T12:00:00.000Z',
         },
         artifacts,
+        mapAssets,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
         result: null,
@@ -204,6 +231,7 @@ describe('RValidationClient', () => {
     });
     expect(onArtifactsReady).toHaveBeenCalledWith(
       artifacts,
+      mapAssets,
       '2026-09-02T12:30:00.000Z',
     );
     expect(onHeartbeat).toHaveBeenCalledTimes(2);
@@ -235,6 +263,7 @@ describe('RValidationClient', () => {
         state: 'awaiting-output-capabilities',
         summary: null,
         artifacts,
+        mapAssets,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
         result: null,
@@ -255,6 +284,7 @@ describe('RValidationClient', () => {
         state: 'awaiting-output-capabilities',
         summary: null,
         artifacts,
+        mapAssets,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
         result: null,
@@ -274,6 +304,7 @@ describe('RValidationClient', () => {
           validatedAt: '2026-09-02T12:00:00.000Z',
         },
         artifacts,
+        mapAssets,
         candidateCompletedAt: '2026-09-02T12:30:00.000Z',
         failureCode: null,
         result: null,

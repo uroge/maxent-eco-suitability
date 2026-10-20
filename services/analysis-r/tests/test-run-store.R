@@ -58,6 +58,21 @@ for (definition in artifact_definitions()) {
     writeLines(definition$kind, path)
   }
 }
+map_directory <- file.path(workspace, "map-assets")
+dir.create(map_directory)
+map_path <- file.path(map_directory, "ds_0123456789abcdef0123456789abcdef.tif")
+writeLines("verified-cog-fixture", map_path)
+jsonlite::write_json(
+  list(list(
+    datasetId = "ds_0123456789abcdef0123456789abcdef",
+    filename = basename(map_path),
+    size = as.numeric(file.info(map_path)$size),
+    sha256 = digest::digest(file = map_path, algo = "sha256", serialize = FALSE)
+  )),
+  file.path(workspace, "map-assets.json"),
+  auto_unbox = TRUE,
+  null = "null"
+)
 
 store <- create_run_store()
 recovered <- store$create(request)
@@ -73,6 +88,7 @@ events <- store$events(run_id, 0L, 100L)
 assert_identical(events$status, 200L, "Recovered events were unavailable.")
 assert_identical(events$body$generation, 2L, "Recovered event generation is incorrect.")
 assert_identical(length(events$body$artifacts), 9L, "Recovered artifact metadata is incomplete.")
+assert_identical(length(events$body$mapAssets), 1L, "Recovered map asset metadata is incomplete.")
 assert_identical(
   events$body$candidateCompletedAt,
   completed_at,

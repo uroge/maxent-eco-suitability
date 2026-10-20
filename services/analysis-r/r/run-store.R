@@ -40,11 +40,12 @@ create_run_store <- function() {
     )
     if (!file.rename(temporary, path)) stop("Unable to persist run recovery state.")
   }
-  terminal <- function(run, state, code = NULL, summary = NULL, artifacts = NULL, result = NULL) {
+  terminal <- function(run, state, code = NULL, summary = NULL, artifacts = NULL, map_assets = NULL, result = NULL) {
     run$state <- state
     run$failureCode <- code
     run$summary <- summary
     run$artifacts <- artifacts
+    run$mapAssets <- map_assets
     run$result <- result
     run$finishedAt <- Sys.time()
     if (state %in% c("failed", "cancelled") && dir.exists(run$workspace)) {
@@ -101,11 +102,14 @@ create_run_store <- function() {
           !identical(run$request$mode, "execute") ||
           is.null(control$artifacts) ||
             length(control$artifacts) != 9L ||
+            is.null(control$mapAssets) ||
+            length(control$mapAssets) != length(run$request$configuration$predictors) ||
             is.null(control$candidateCompletedAt)
         ) {
           terminal(run, "failed", "R_RUNTIME_PROTOCOL_INVALID")
         } else {
           run$artifacts <- control$artifacts
+          run$mapAssets <- control$mapAssets
           run$candidateCompletedAt <- control$candidateCompletedAt
           run$state <- "awaiting-output-capabilities"
           persist_recovery(run)
@@ -115,7 +119,7 @@ create_run_store <- function() {
         event(run, "completed", 100L, if (identical(run$request$mode, "execute")) "Scientific model execution completed." else "Scientific validation job completed.")
         if (identical(run$request$mode, "execute")) {
           run$candidateCompletedAt <- control$candidateCompletedAt
-          terminal(run, "succeeded", summary = control$summary, artifacts = control$artifacts)
+          terminal(run, "succeeded", summary = control$summary, artifacts = control$artifacts, map_assets = control$mapAssets)
         } else if (is.null(control$result)) {
           terminal(run, "failed", "R_RUNTIME_PROTOCOL_INVALID")
         } else {
@@ -176,6 +180,7 @@ create_run_store <- function() {
     run$events <- list()
     run$summary <- NULL
     run$artifacts <- NULL
+    run$mapAssets <- NULL
     run$result <- NULL
     run$candidateCompletedAt <- NULL
     run$failureCode <- NULL
@@ -201,11 +206,15 @@ create_run_store <- function() {
           sha256 = digest::digest(file = paths[[index]], algo = "sha256", serialize = FALSE)
         )
       })
+      run$mapAssets <- tryCatch(
+        jsonlite::read_json(file.path(workspace, "map-assets.json"), simplifyVector = FALSE),
+        error = function(error) NULL
+      )
       summary <- tryCatch(
         jsonlite::read_json(paths[[1L]], simplifyVector = FALSE),
         error = function(error) NULL
       )
-      if (!is.null(summary$completedAt)) {
+      if (!is.null(summary$completedAt) && !is.null(run$mapAssets)) {
         run$candidateCompletedAt <- summary$completedAt
         run$state <- "awaiting-output-capabilities"
       }
@@ -252,6 +261,7 @@ create_run_store <- function() {
           existing$events <- list()
           existing$summary <- NULL
           existing$artifacts <- NULL
+          existing$mapAssets <- NULL
           existing$result <- NULL
           existing$candidateCompletedAt <- NULL
           existing$failureCode <- NULL
@@ -272,6 +282,7 @@ create_run_store <- function() {
       run$events <- list()
       run$summary <- NULL
       run$artifacts <- NULL
+      run$mapAssets <- NULL
       run$result <- NULL
       run$candidateCompletedAt <- NULL
       run$failureCode <- NULL
@@ -305,7 +316,7 @@ create_run_store <- function() {
       run <- find_run(run_id)
       if (is.null(run)) return(list(status = 404L, body = list(code = "R_RUNTIME_UNAVAILABLE")))
       poll_child(run)
-      if (!identical(run$request$mode, "execute") || !(run$state %in% c("awaiting-output-capabilities", "running")) || is.null(run$artifacts) || is.null(body$capabilities) || length(body$capabilities) != 9L) {
+      if (!identical(run$request$mode, "execute") || !(run$state %in% c("awaiting-output-capabilities", "running")) || is.null(run$artifacts) || is.null(run$mapAssets) || is.null(body$capabilities) || length(body$capabilities) != 9L + length(run$mapAssets)) {
         return(list(status = 409L, body = list(code = "R_RUNTIME_PROTOCOL_INVALID")))
       }
       path <- file.path(run$workspace, "output-capabilities.json")
@@ -344,7 +355,7 @@ create_run_store <- function() {
       has_more <- length(selected) > page_size
       selected <- head(selected, page_size)
       next_sequence <- if (length(selected) == 0L) after else selected[[length(selected)]]$sequence
-      list(status = 200L, body = list(mode = run$request$mode, generation = run$generation, events = selected, nextSequence = next_sequence, hasMore = has_more, state = run$state, summary = run$summary, artifacts = run$artifacts, result = run$result, candidateCompletedAt = run$candidateCompletedAt, failureCode = run$failureCode))
+      list(status = 200L, body = list(mode = run$request$mode, generation = run$generation, events = selected, nextSequence = next_sequence, hasMore = has_more, state = run$state, summary = run$summary, artifacts = run$artifacts, mapAssets = run$mapAssets, result = run$result, candidateCompletedAt = run$candidateCompletedAt, failureCode = run$failureCode))
     },
     cancel = function(run_id) {
       run <- find_run(run_id)

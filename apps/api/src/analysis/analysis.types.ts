@@ -34,6 +34,7 @@ export type StoredAnalysis = Analysis & {
     label: string;
     storageKey: string;
     terrainEligible: boolean;
+    terrainUnavailableReason?: string | null;
   }>;
   executionSnapshot?: {
     configuration: AnalysisConfiguration;

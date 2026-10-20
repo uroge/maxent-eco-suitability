@@ -1,5 +1,6 @@
 source("r/validate.R")
 source("r/profile.R")
+source("r/raster-assets.R")
 source("r/model.R")
 source("r/artifacts.R")
 
@@ -45,12 +46,15 @@ tryCatch({
   emit(list(
     kind = "artifacts-ready",
     artifacts = lapply(artifacts, function(artifact) artifact[c("kind", "size", "sha256")]),
+    mapAssets = execution$mapAssets,
     candidateCompletedAt = execution$candidateCompletedAt
   ))
   output_capabilities <- wait_for_output_capabilities(arguments[[3L]])
   emit_event(emit, "uploading-artifacts", 96L, "Uploading verified scientific artifacts.")
   artifacts <- upload_artifacts(
     execution$outputDirectory,
+    arguments[[3L]],
+    execution$mapAssets,
     output_capabilities,
     file.path(arguments[[3L]], "output-capabilities.json")
   )
@@ -58,6 +62,7 @@ tryCatch({
     kind = "completed",
     summary = execution$summary,
     artifacts = lapply(artifacts, function(artifact) artifact[c("kind", "size", "sha256")]),
+    mapAssets = execution$mapAssets,
     candidateCompletedAt = execution$candidateCompletedAt
   ))
 }, validation_error = function(error) {

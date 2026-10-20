@@ -818,6 +818,7 @@ export const rValidationEventsResponseSchema = z.object({
     })
     .nullable(),
   artifacts: z.array(z.unknown()).nullable(),
+  mapAssets: z.array(z.unknown()).nullable().default(null),
   candidateCompletedAt: z.string().datetime().nullable(),
   failureCode: z
     .union([
@@ -1146,6 +1147,79 @@ export const rGeneratedArtifactSchema = z
 
 export type RGeneratedArtifact = z.infer<typeof rGeneratedArtifactSchema>;
 
+export const rCogValidationSchema = z
+  .object({
+    cog: z.literal(true),
+    overviewCount: z.number().int().positive(),
+    compression: z.string().min(1),
+    nodata: z.number().finite(),
+    crs: z.string().min(1),
+    bounds: z.tuple([
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+    ]),
+    resolution: z.tuple([z.number().finite().positive(), z.number().finite().positive()]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    dataType: z.string().min(1),
+    finiteValueCount: z.number().int().positive(),
+    minimum: z.number().finite(),
+    maximum: z.number().finite(),
+  })
+  .strict();
+
+export type RCogValidation = z.infer<typeof rCogValidationSchema>;
+
+export const rDemValidationSchema = z
+  .object({
+    eligible: z.boolean(),
+    reason: z.string().min(1).max(256).nullable(),
+    sourceDataType: z.string().min(1),
+    dataTypeValid: z.boolean(),
+    unit: z.literal('metre').nullable(),
+    crsTransformable: z.boolean(),
+    resolutionValid: z.boolean(),
+    finiteValuesValid: z.boolean(),
+    rangeValid: z.boolean(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const checksPass =
+      value.unit === 'metre' &&
+      value.dataTypeValid &&
+      value.crsTransformable &&
+      value.resolutionValid &&
+      value.finiteValuesValid &&
+      value.rangeValid;
+    if (value.eligible !== checksPass || (value.eligible ? value.reason !== null : !value.reason)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'DEM eligibility must match all authoritative raster checks.',
+      });
+    }
+  });
+
+export type RDemValidation = z.infer<typeof rDemValidationSchema>;
+
+export const rGeneratedMapAssetSchema = z
+  .object({
+    datasetId: uploadDatasetIdSchema,
+    filename: z.string().regex(/^[A-Za-z0-9._-]+\.tif$/i),
+    size: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    raster: rCogValidationSchema,
+    dem: rDemValidationSchema.nullable(),
+  })
+  .strict()
+  .refine((value) => value.filename === `${value.datasetId}.tif`, {
+    path: ['filename'],
+    message: 'Map asset filenames must be derived from their dataset ID.',
+  });
+
+export type RGeneratedMapAsset = z.infer<typeof rGeneratedMapAssetSchema>;
+
 export const rGeneratedArtifactSetSchema = z
   .array(rGeneratedArtifactSchema)
   .length(scientificArtifactKinds.length)
@@ -1168,6 +1242,7 @@ export const rValidationEventsPageSchema = z
     state: rValidationRunStateSchema,
     summary: rValidationSummarySchema.nullable(),
     artifacts: rGeneratedArtifactSetSchema.nullable(),
+    mapAssets: z.array(rGeneratedMapAssetSchema).max(64).nullable().default(null),
     candidateCompletedAt: z.string().datetime().nullable(),
     failureCode: rValidationFailureCodeSchema.nullable(),
     result: z.union([analysisInputProfileSchema, analysisPreflightSchema]).nullable(),

@@ -8,6 +8,7 @@ import {
   type AnalysisJobPayload,
   type AnalysisProgress,
   type AnalysisValidationJobPayload,
+  type RGeneratedMapAsset,
 } from '@ecosuitability/contracts';
 import type { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
@@ -144,9 +145,10 @@ export class AnalysisProcessor
         controller.signal,
       );
       let uploading = provisional;
+      let generatedMapAssets: RGeneratedMapAsset[] = [];
       let heartbeatStage: AnalysisProgress['stage'] = 'downloading';
       let heartbeatPercent = 5;
-      await this.validation.validate(
+      const validationResult = await this.validation.validate(
         job.data.analysisId,
         job.id,
         attempt,
@@ -194,7 +196,8 @@ export class AnalysisProcessor
             controller.signal,
           );
         },
-        async (artifacts, candidateCompletedAt) => {
+        async (artifacts, mapAssets, candidateCompletedAt) => {
+          generatedMapAssets = mapAssets;
           uploading = await this.results.beginUpload(
             job,
             attempt,
@@ -202,12 +205,20 @@ export class AnalysisProcessor
             artifacts,
             candidateCompletedAt,
           );
-          return this.results.uploadCapabilities(
-            uploading,
-            this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS'),
+          const expiresIn = this.config.getOrThrow(
+            'R_RUNTIME_OUTPUT_URL_TTL_SECONDS',
           );
+          return [
+            ...(await this.results.uploadCapabilities(uploading, expiresIn)),
+            ...(await this.results.mapAssetUploadCapabilities(
+              job.data.analysisId,
+              mapAssets,
+              expiresIn,
+            )),
+          ];
         },
       );
+      generatedMapAssets = validationResult.mapAssets;
       await this.assertActive(
         job,
         attempt,
@@ -216,7 +227,11 @@ export class AnalysisProcessor
         controller.signal,
       );
 
-      await this.results.publishMapAssets(analysisJob, attempt);
+      await this.results.publishMapAssets(
+        analysisJob,
+        attempt,
+        generatedMapAssets,
+      );
       uploading = await this.results.createBundle(
         analysisJob,
         attempt,

@@ -1,4 +1,5 @@
 source("r/validate.R")
+source("r/raster-assets.R")
 source("r/model.R")
 
 assert_equal <- function(actual, expected, message) {
@@ -70,12 +71,13 @@ expect_code(
 configuration <- list(
   speciesName = "Lynx lynx",
   predictors = list(
-    list(variableName = "temperature", type = "continuous")
+    list(datasetId = "ds_0123456789abcdef0123456789abcdef", variableName = "temperature", type = "continuous")
   ),
   background = list(pointCount = 200L),
   model = list(featureClasses = c("linear", "quadratic"), regularizationMultiplier = 1),
   validation = list(method = "k-fold", folds = 5L),
-  seed = 42L
+  seed = 42L,
+  visualization = list(terrain = NULL)
 )
 presence_cells <- seq(50L, 1550L, length.out = 20L)
 coordinates <- terra::xyFromCell(continuous, as.integer(presence_cells))
@@ -118,6 +120,11 @@ expected_files <- c(
 if (!all(file.exists(file.path(result_a$outputDirectory, expected_files)))) {
   stop("The model did not generate the complete artifact set.", call. = FALSE)
 }
+if (length(result_a$mapAssets) != 1L || !isTRUE(result_a$mapAssets[[1L]]$raster$cog)) {
+  stop("The model did not publish a verified predictor COG.", call. = FALSE)
+}
+verify_cog(file.path(result_a$outputDirectory, "suitability.tif"), 0, 1)
+verify_cog(file.path(result_a$outputDirectory, "suitability-threshold.tif"), 0, 1)
 for (filename in expected_files) {
   hash_a <- digest::digest(
     file = file.path(result_a$outputDirectory, filename),

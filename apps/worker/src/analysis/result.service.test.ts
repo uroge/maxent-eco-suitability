@@ -40,6 +40,39 @@ const generated = (value: ProvisionalResult) =>
     sha256: artifact.sha256,
   })) as Parameters<ResultService['beginUpload']>[3];
 
+const generatedMapAsset = {
+  datasetId: 'ds_0123456789abcdef0123456789abcdef',
+  filename: 'ds_0123456789abcdef0123456789abcdef.tif',
+  size: 2048,
+  sha256: 'a'.repeat(64),
+  raster: {
+    cog: true as const,
+    overviewCount: 1,
+    compression: 'DEFLATE',
+    nodata: -3.4e38,
+    crs: 'EPSG:4326',
+    bounds: [-1, -1, 1, 1] as [number, number, number, number],
+    resolution: [0.1, 0.1] as [number, number],
+    width: 20,
+    height: 20,
+    dataType: 'FLT4S',
+    finiteValueCount: 400,
+    minimum: 0,
+    maximum: 1000,
+  },
+  dem: {
+    eligible: true,
+    reason: null,
+    sourceDataType: 'FLT4S',
+    dataTypeValid: true,
+    unit: 'metre' as const,
+    crsTransformable: true,
+    resolutionValid: true,
+    finiteValuesValid: true,
+    rangeValid: true,
+  },
+};
+
 const matchingHead = (value: ProvisionalResult) =>
   vi.fn(async (key: string) => {
     const artifact = value.artifacts.find((entry) => entry.storageKey === key)!;
@@ -100,7 +133,7 @@ describe('ResultService', () => {
     expect(manifest.artifacts).toHaveLength(9);
   });
 
-  it('recovers uploaded artifacts without rerunning the model', async () => {
+  it('lets the R recovery protocol finish map assets and the bundle before publication', async () => {
     const value = provisional();
     const verified = { ...value, publicationState: 'verified' as const };
     const lifecycle = {
@@ -113,8 +146,8 @@ describe('ResultService', () => {
       { head: matchingHead(value) } as never,
     );
 
-    await expect(service.resumeAvailable(job, 2)).resolves.toBe('succeeded');
-    expect(lifecycle.publishResult).toHaveBeenCalledOnce();
+    await expect(service.resumeAvailable(job, 2)).resolves.toBe('not-ready');
+    expect(lifecycle.publishResult).not.toHaveBeenCalled();
   });
 
   it('does not mark a partial upload as recoverable', async () => {
@@ -126,5 +159,78 @@ describe('ResultService', () => {
     );
 
     await expect(service.resumeAvailable(job, 2)).resolves.toBe('not-ready');
+  });
+
+  it('publishes terrain only after the R receipt and uploaded COG both verify', async () => {
+    const lifecycle = {
+      executionSnapshot: vi.fn().mockResolvedValue({
+        configuration: {
+          predictors: [
+            {
+              datasetId: generatedMapAsset.datasetId,
+              variableName: 'Elevation',
+              type: 'continuous',
+            },
+          ],
+          visualization: {
+            terrain: { datasetId: generatedMapAsset.datasetId },
+          },
+        },
+      }),
+      publishMapAssets: vi.fn().mockResolvedValue('updated'),
+    };
+    const storage = {
+      presignPut: vi.fn().mockResolvedValue('https://storage.example/map'),
+      head: vi.fn().mockResolvedValue({
+        size: generatedMapAsset.size,
+        contentType: 'image/tiff',
+        contentDisposition: `inline; filename="${generatedMapAsset.filename}"`,
+        sha256: generatedMapAsset.sha256,
+      }),
+    };
+    const service = new ResultService(lifecycle as never, storage as never);
+
+    await expect(
+      service.mapAssetUploadCapabilities(analysisId, [generatedMapAsset], 900),
+    ).resolves.toHaveLength(1);
+    await expect(
+      service.publishMapAssets(job, 1, [generatedMapAsset]),
+    ).resolves.toBeUndefined();
+
+    expect(lifecycle.publishMapAssets.mock.calls[0]?.[3]).toEqual([
+      expect.objectContaining({
+        datasetId: generatedMapAsset.datasetId,
+        terrainEligible: true,
+        terrainUnavailableReason: null,
+        raster: generatedMapAsset.raster,
+      }),
+    ]);
+  });
+
+  it('rejects a predictor asset whose stored metadata does not match the R receipt', async () => {
+    const lifecycle = {
+      executionSnapshot: vi.fn().mockResolvedValue({
+        configuration: {
+          predictors: [
+            {
+              datasetId: generatedMapAsset.datasetId,
+              variableName: 'Elevation',
+              type: 'continuous',
+            },
+          ],
+          visualization: {
+            terrain: { datasetId: generatedMapAsset.datasetId },
+          },
+        },
+      }),
+    };
+    const service = new ResultService(
+      lifecycle as never,
+      { head: vi.fn().mockResolvedValue({ size: 1 }) } as never,
+    );
+
+    await expect(
+      service.publishMapAssets(job, 1, [generatedMapAsset]),
+    ).rejects.toThrow('storage verification failed');
   });
 });

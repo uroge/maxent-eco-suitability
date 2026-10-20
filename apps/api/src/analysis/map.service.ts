@@ -87,6 +87,12 @@ export class MapService {
       })),
     );
     const terrain = analysis.mapAssets?.find((asset) => asset.terrainEligible);
+    const selectedTerrainDatasetId =
+      analysis.executionSnapshot?.configuration.visualization.terrain
+        ?.datasetId;
+    const selectedTerrainAsset = analysis.mapAssets?.find(
+      (asset) => asset.datasetId === selectedTerrainDatasetId,
+    );
     return {
       analysisId: analysis.id,
       basemaps: this.basemaps(),
@@ -96,8 +102,9 @@ export class MapService {
         layerId: terrain?.id ?? null,
         unavailableReason: terrain
           ? null
-          : analysis.executionSnapshot?.configuration.visualization.terrain
-            ? 'The selected elevation raster did not pass DEM publication checks.'
+          : selectedTerrainDatasetId
+            ? (selectedTerrainAsset?.terrainUnavailableReason ??
+              'The selected elevation raster did not pass DEM publication checks.')
             : 'No continuous predictor was explicitly confirmed as elevation in metres.',
       },
       bounds: analysis.inputProfile?.rasters[0]?.bounds ?? [-180, -90, 180, 90],

@@ -30,6 +30,7 @@ const createResultService = () => ({
     .fn()
     .mockImplementation(async (_job, _attempt, provisional) => provisional),
   uploadCapabilities: vi.fn().mockResolvedValue([]),
+  mapAssetUploadCapabilities: vi.fn().mockResolvedValue([]),
   verifyAndPublish: vi.fn().mockResolvedValue('succeeded'),
   createBundle: vi
     .fn()
@@ -38,7 +39,9 @@ const createResultService = () => ({
 });
 
 const createValidationClient = () => ({
-  validate: vi.fn().mockResolvedValue({ summary: null, artifacts: [] }),
+  validate: vi
+    .fn()
+    .mockResolvedValue({ summary: null, artifacts: [], mapAssets: [] }),
   acknowledge: vi.fn().mockResolvedValue(undefined),
 });
 

@@ -249,7 +249,7 @@ Depending on the supplied inputs and analysis configuration, a completed analysi
 
 GIS artifacts that depend on spatial raster prediction are generated only when the required spatial predictor data is available.
 
-The application also publishes private COG copies used only for interactive maps. Those copies are not additional scientific downloads. The API authorizes every tile, point, vector, and terrain request before proxying it to the internal `services/tiles` service; browsers cannot submit storage keys or arbitrary source URLs.
+The R runtime normalizes every interactive raster into a private COG and verifies its layout, overview, compression, nodata, CRS, bounds, resolution, and finite values before upload; the worker then verifies the stored size, checksum metadata, and content headers before publication. Terrain remains unavailable unless the selected continuous predictor also passes data-type, metre-unit, transformability, resolution, finite-value, and TerrainRGB-range checks. These map assets are not additional scientific downloads. The API authorizes every tile, point, vector, and terrain request before proxying it to the internal `services/tiles` service; browsers cannot submit storage keys or arbitrary source URLs.
 
 ---
 

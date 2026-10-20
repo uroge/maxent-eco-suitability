@@ -9,6 +9,7 @@ import {
   type AnalysisPreflight,
   type RValidationEvent,
   type RGeneratedArtifact,
+  type RGeneratedMapAsset,
   type RValidationSummary,
 } from '@ecosuitability/contracts';
 import { ConfigService } from '@nestjs/config';
@@ -89,9 +90,14 @@ export class RValidationClient {
     onHeartbeat: () => Promise<void>,
     onArtifactsReady: (
       artifacts: RGeneratedArtifact[],
+      mapAssets: RGeneratedMapAsset[],
       candidateCompletedAt: string,
     ) => Promise<unknown[]>,
-  ): Promise<{ summary: RValidationSummary; artifacts: RGeneratedArtifact[] }> {
+  ): Promise<{
+    summary: RValidationSummary;
+    artifacts: RGeneratedArtifact[];
+    mapAssets: RGeneratedMapAsset[];
+  }> {
     const snapshot = await this.snapshot(analysisId);
     const inputManifest = this.selectedManifest(snapshot);
     const runId = `${analysisId}.execute.1`;
@@ -166,6 +172,7 @@ export class RValidationClient {
           (page.state === 'awaiting-output-capabilities' ||
             page.state === 'running') &&
           page.artifacts &&
+          page.mapAssets &&
           page.candidateCompletedAt &&
           (!capabilitiesIssued ||
             Date.now() - outputCapabilitiesIssuedAt >=
@@ -173,6 +180,7 @@ export class RValidationClient {
         ) {
           const capabilities = await onArtifactsReady(
             page.artifacts,
+            page.mapAssets,
             page.candidateCompletedAt,
           );
           await this.request(
@@ -192,10 +200,17 @@ export class RValidationClient {
           if (!page.artifacts) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
           }
+          if (!page.mapAssets) {
+            throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+          }
           if (!page.candidateCompletedAt) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
           }
-          return { summary: page.summary, artifacts: page.artifacts };
+          return {
+            summary: page.summary,
+            artifacts: page.artifacts,
+            mapAssets: page.mapAssets,
+          };
         }
         if (page.state === 'failed') {
           if (!page.failureCode) {

@@ -36,6 +36,7 @@ COPY tests ./tests
 COPY .Rprofile ./.Rprofile
 
 RUN Rscript tests/test-validation.R \
+    && Rscript tests/test-raster-assets.R \
     && Rscript tests/test-model.R \
     && Rscript tests/test-run-store.R
 

@@ -1,5 +1,4 @@
 import {
-  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -115,16 +114,6 @@ export class WorkerStorageService {
   public async delete(key: string): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
-  }
-
-  public async copy(sourceKey: string, targetKey: string): Promise<void> {
-    await this.client.send(
-      new CopyObjectCommand({
-        Bucket: this.bucket,
-        CopySource: `${this.bucket}/${encodeURIComponent(sourceKey).replaceAll('%2F', '/')}`,
-        Key: targetKey,
-      }),
     );
   }
 
