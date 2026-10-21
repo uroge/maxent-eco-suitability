@@ -3,6 +3,8 @@ import type {
   AnalysisInputProfile,
   AnalysisPreflight,
   Principal,
+  RequestInputProfile,
+  RequestPreflight,
 } from '@ecosuitability/contracts';
 import { ApiException } from '../platform/errors/api.exception';
 import { AnalysisQueueService } from './analysis-queue.service';
@@ -20,8 +22,14 @@ export class ValidationService {
   public async requestProfile(
     principal: Principal,
     analysisId: string,
+    request: RequestInputProfile,
   ): Promise<AnalysisInputProfile> {
     const analysis = await this.owned(principal, analysisId);
+    if (request.expectedInputRevision !== analysis.inputRevision) {
+      throw this.conflict(
+        'The inputs changed. Reload before requesting profiling.',
+      );
+    }
     if (analysis.status !== 'ready') {
       throw this.conflict('Complete the analysis inputs before profiling.');
     }
@@ -31,6 +39,13 @@ export class ValidationService {
         analysis.inputProfile.status,
       )
     ) {
+      if (['queued', 'running'].includes(analysis.inputProfile.status)) {
+        await this.queue.enqueueInputProfile({
+          analysisId: analysis.id,
+          ownerId: principal.userId,
+          inputRevision: analysis.inputRevision,
+        });
+      }
       return analysis.inputProfile;
     }
     const now = new Date().toISOString();
@@ -92,8 +107,19 @@ export class ValidationService {
   public async requestPreflight(
     principal: Principal,
     analysisId: string,
+    request: RequestPreflight,
   ): Promise<AnalysisPreflight> {
     const analysis = await this.owned(principal, analysisId);
+    if (
+      request.expectedInputRevision !== analysis.inputRevision ||
+      request.expectedConfigurationRevision !==
+        analysis.configurationRevision ||
+      request.configurationFingerprint !== analysis.configurationFingerprint
+    ) {
+      throw this.conflict(
+        'The inputs or configuration changed. Reload before preflight.',
+      );
+    }
     if (
       analysis.status !== 'ready' ||
       !analysis.configuration ||
@@ -112,6 +138,14 @@ export class ValidationService {
         analysis.preflight.status,
       )
     ) {
+      if (['queued', 'running'].includes(analysis.preflight.status)) {
+        await this.queue.enqueuePreflight({
+          analysisId: analysis.id,
+          ownerId: principal.userId,
+          inputRevision: analysis.inputRevision,
+          configurationRevision: analysis.configurationRevision,
+        });
+      }
       return analysis.preflight;
     }
     const now = new Date().toISOString();

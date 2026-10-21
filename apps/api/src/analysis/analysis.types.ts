@@ -11,6 +11,7 @@ import type {
   AnalysisInputDataset,
   AnalysisInputProfile,
   AnalysisPreflight,
+  RCogValidation,
 } from '@ecosuitability/contracts';
 
 export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
@@ -35,6 +36,7 @@ export type StoredAnalysis = Analysis & {
     storageKey: string;
     terrainEligible: boolean;
     terrainUnavailableReason?: string | null;
+    raster: RCogValidation;
   }>;
   executionSnapshot?: {
     configuration: AnalysisConfiguration;

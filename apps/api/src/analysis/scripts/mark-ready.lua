@@ -7,6 +7,9 @@ local analysis = cjson.decode(analysisPayload)
 if analysis.ownerId ~= ARGV[1] then
   return { 'missing' }
 end
+if analysis.inputRevision ~= tonumber(ARGV[3]) then
+  return { 'stale' }
+end
 if analysis.status == 'ready' then
   return { 'ready', analysisPayload }
 end

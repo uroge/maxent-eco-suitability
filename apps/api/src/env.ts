@@ -115,6 +115,7 @@ const schema = z
       .max(10 * 1024 * 1024)
       .default(2 * 1024 * 1024),
     MAP_LIGHT_STYLE_URL: optionalUrl,
+    MAP_DARK_STYLE_URL: optionalUrl,
     MAP_LIGHT_ATTRIBUTION: optionalAttribution,
     MAP_SATELLITE_STYLE_URL: optionalUrl,
     MAP_SATELLITE_ATTRIBUTION: optionalAttribution,
@@ -122,6 +123,31 @@ const schema = z
     MAP_TERRAIN_ATTRIBUTION: optionalAttribution,
   })
   .superRefine((environment, context) => {
+    for (const [urlKey, attributionKey] of [
+      ['MAP_LIGHT_STYLE_URL', 'MAP_LIGHT_ATTRIBUTION'],
+      ['MAP_SATELLITE_STYLE_URL', 'MAP_SATELLITE_ATTRIBUTION'],
+      ['MAP_TERRAIN_STYLE_URL', 'MAP_TERRAIN_ATTRIBUTION'],
+    ] as const) {
+      if (
+        Boolean(environment[urlKey]) !== Boolean(environment[attributionKey])
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: [urlKey],
+          message:
+            'A basemap style URL and attribution must be configured together.',
+        });
+      }
+    }
+    if (environment.MAP_DARK_STYLE_URL && !environment.MAP_LIGHT_STYLE_URL) {
+      context.addIssue({
+        code: 'custom',
+        path: ['MAP_DARK_STYLE_URL'],
+        message:
+          'The dark basemap variant requires the light basemap configuration.',
+      });
+    }
+
     if (environment.APP_ENV !== 'production') {
       return;
     }

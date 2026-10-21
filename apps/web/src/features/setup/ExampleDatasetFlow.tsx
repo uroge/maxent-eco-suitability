@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Card, Progress } from '@ecosuitability/ui';
 import { uploadDataset } from '@/lib/direct-upload';
-import { useAnalysisApi } from '../analysis/api';
+import { idempotencyKey, useAnalysisApi } from '../analysis/api';
+import {
+  analysisInputManifestResponseSchema,
+  analysisResponseSchema,
+} from '@ecosuitability/contracts';
 
 export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
@@ -42,13 +46,32 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           signal: controller.signal,
           onProgress: () => setProgress(75),
         });
+        const inputs = await api.json(
+          `/v1/analyses/${analysisId}/inputs`,
+          analysisInputManifestResponseSchema
+        );
+        const completeBody = { expectedInputRevision: inputs.inputs.inputRevision };
         const completed = await api.request(`/v1/analyses/${analysisId}/inputs/complete`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey('complete-inputs', analysisId, completeBody),
+          },
+          body: JSON.stringify(completeBody),
         });
         if (!completed.ok) throw new Error('The example inputs could not be completed.');
+        const completedAnalysis = analysisResponseSchema.parse(await completed.json());
         setProgress(90);
+        const profileBody = {
+          expectedInputRevision: completedAnalysis.analysis.inputRevision,
+        };
         const profile = await api.request(`/v1/analyses/${analysisId}/input-profile`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey('input-profile', analysisId, profileBody),
+          },
+          body: JSON.stringify(profileBody),
         });
         if (!profile.ok) throw new Error('The example profile could not be queued.');
         setProgress(100);

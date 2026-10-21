@@ -62,6 +62,8 @@ const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
 const configurationIdempotencyKeyPrefix =
   'ecosuitability:analysis-configuration:idempotency:';
 
+const operationIndexKeyPrefix = 'ecosuitability:analysis-operations:';
+
 const redisArray = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) {
     return value as T[];
@@ -466,6 +468,7 @@ export class AnalysisRepository {
         this.outboxKey(analysisId),
         outboxIndexKey,
         `${resultKeyPrefix}${analysisId}`,
+        `${operationIndexKeyPrefix}${analysisId}`,
       ],
       arguments: [
         ownerId,

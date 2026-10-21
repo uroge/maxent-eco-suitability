@@ -54,6 +54,9 @@ importers:
       '@ecosuitability/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ecosuitability/geo-utils':
+        specifier: workspace:*
+        version: link:../../packages/geo-utils
       '@ecosuitability/runtime-utils':
         specifier: workspace:*
         version: link:../../packages/runtime-utils

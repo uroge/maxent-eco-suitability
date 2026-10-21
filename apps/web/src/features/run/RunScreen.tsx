@@ -17,7 +17,7 @@ import {
 } from '@ecosuitability/ui';
 import { Clock3 } from 'lucide-react';
 import { useAnalysis } from '../analysis/useAnalysis';
-import { useAnalysisApi } from '../analysis/api';
+import { idempotencyKey, useAnalysisApi } from '../analysis/api';
 
 const active = new Set(['queued', 'running', 'cancelling']);
 
@@ -37,9 +37,17 @@ export const RunScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const start = value?.startedAt ?? value?.queuedAt;
   const elapsed = start ? Math.max(0, Math.floor((now - new Date(start).getTime()) / 1000)) : 0;
   const cancel = async (): Promise<void> => {
+    if (!value) {
+      return;
+    }
+    const body = { expectedStatus: value.status };
     await api.request(`/v1/analyses/${analysisId}/cancel`, {
       method: 'POST',
-      headers: { 'Idempotency-Key': `cancel-${analysisId}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey('cancel', analysisId, body),
+      },
+      body: JSON.stringify(body),
     });
     await analysis.refetch();
   };

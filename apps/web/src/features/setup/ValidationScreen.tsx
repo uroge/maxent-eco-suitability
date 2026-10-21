@@ -18,17 +18,26 @@ import {
 } from '@ecosuitability/ui';
 import { CheckCircle2, CircleAlert, LoaderCircle } from 'lucide-react';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
+import { idempotencyKey } from '../analysis/api';
+import { useAnalysis } from '../analysis/useAnalysis';
 import { SetupShell } from './SetupShell';
 
 export const ValidationScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
+  const analysis = useAnalysis(analysisId);
   const profile = useQuery({
     queryKey: analysisKeys.profile(analysisId),
     queryFn: async () => {
       const response = await api.request(`/v1/analyses/${analysisId}/input-profile`);
-      if (response.status === 404) {
+      if (response.status === 404 && analysis.data) {
+        const body = { expectedInputRevision: analysis.data.analysis.inputRevision };
         const created = await api.request(`/v1/analyses/${analysisId}/input-profile`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey('input-profile', analysisId, body),
+          },
+          body: JSON.stringify(body),
         });
         if (!created.ok) {
           throw new Error('REQUEST_FAILED');
@@ -40,6 +49,7 @@ export const ValidationScreen: React.FC<{ analysisId: string }> = ({ analysisId 
       }
       return analysisInputProfileResponseSchema.parse(await response.json());
     },
+    enabled: Boolean(analysis.data),
     refetchInterval: (query) =>
       ['queued', 'running'].includes(query.state.data?.profile.status ?? '') ? 1_500 : false,
   });

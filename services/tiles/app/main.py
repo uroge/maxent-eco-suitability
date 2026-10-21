@@ -65,6 +65,8 @@ def tile(
     x: int,
     y: int,
     key: Annotated[str, Query(min_length=1, max_length=1024)],
+    minimum: Annotated[float | None, Query()] = None,
+    maximum: Annotated[float | None, Query()] = None,
 ) -> Response:
     if z < 0 or z > 22 or x < 0 or y < 0 or x >= 2**z or y >= 2**z:
         raise HTTPException(status_code=400, detail="Invalid tile coordinates")
@@ -80,7 +82,12 @@ def tile(
             colormap={0: (245, 245, 245, 255), 1: (33, 145, 140, 255)},
         )
     else:
-        rescaled = image.rescale(in_range=((0.0, 1.0),)) if style == "suitability" else image
+        if style == "predictor" and (
+            minimum is None or maximum is None or not minimum < maximum
+        ):
+            raise HTTPException(status_code=400, detail="Predictor range is required")
+        value_range = (0.0, 1.0) if style == "suitability" else (minimum, maximum)
+        rescaled = image.rescale(in_range=(value_range,))
         content = render(
             rescaled.data,
             mask=rescaled.mask,
@@ -89,7 +96,11 @@ def tile(
         )
     if len(content) > MAX_TILE_BYTES:
         raise HTTPException(status_code=502, detail="Tile response exceeds limit")
-    return Response(content, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
+    return Response(
+        content,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @app.get("/v1/point", dependencies=[Depends(require_secret)])
@@ -100,4 +111,14 @@ def point(
 ) -> dict[str, object]:
     with COGReader(source_path(key)) as cog:
         value = cog.point(longitude, latitude, coord_crs="epsg:4326")
-    return {"coordinates": [longitude, latitude], "values": value.data.tolist()}
+    data = numpy.asarray(value.data).reshape(-1)
+    mask = numpy.asarray(value.mask).reshape(-1)
+    values = [
+        float(item)
+        if mask.size > 0
+        and bool(mask[index if mask.size > 1 else 0])
+        and numpy.isfinite(item)
+        else None
+        for index, item in enumerate(data)
+    ]
+    return {"coordinates": [longitude, latitude], "values": values}

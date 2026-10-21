@@ -3,7 +3,10 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { analysisInputManifestResponseSchema } from '@ecosuitability/contracts';
+import {
+  analysisInputManifestResponseSchema,
+  analysisResponseSchema,
+} from '@ecosuitability/contracts';
 import { Alert, Button, Card, Progress } from '@ecosuitability/ui';
 import { Trash2, UploadCloud, X } from 'lucide-react';
 import { uploadDataset, type DirectUploadFile } from '@/lib/direct-upload';
@@ -23,6 +26,16 @@ const shapefileComponent = (file: File): DirectUploadFile['component'] => {
     ? extension
     : undefined;
 };
+
+const fileIntent = (files: File[]): Array<Record<string, string | number>> =>
+  files
+    .map((file) => ({
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+      type: file.type,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
 
 export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = ({
   analysisId,
@@ -69,7 +82,10 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
           component: format === 'shapefile' ? shapefileComponent(file) : undefined,
         })),
         {
-          idempotencyKey: idempotencyKey('occurrence', analysisId),
+          idempotencyKey: idempotencyKey('occurrence', analysisId, {
+            format,
+            files: fileIntent(occurrenceFiles),
+          }),
           signal: controller.signal,
           onProgress: ({ loadedBytes, totalBytes }) =>
             setProgress(Math.round((loadedBytes / totalBytes) * 45)),
@@ -84,7 +100,10 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
           file.name.toLowerCase().endsWith('.zip') ? 'geotiff-zip' : 'geotiff',
           [{ file }],
           {
-            idempotencyKey: idempotencyKey(`predictor-${index}`, analysisId),
+            idempotencyKey: idempotencyKey('predictor', analysisId, {
+              format: file.name.toLowerCase().endsWith('.zip') ? 'geotiff-zip' : 'geotiff',
+              files: fileIntent([file]),
+            }),
             signal: controller.signal,
             onProgress: ({ loadedBytes, totalBytes }) =>
               setProgress(
@@ -93,14 +112,31 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
           }
         );
       }
+      const refreshedInputs = await api.json(
+        `/v1/analyses/${analysisId}/inputs`,
+        analysisInputManifestResponseSchema
+      );
+      const completeBody = { expectedInputRevision: refreshedInputs.inputs.inputRevision };
       const completed = await api.request(`/v1/analyses/${analysisId}/inputs/complete`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey('complete-inputs', analysisId, completeBody),
+        },
+        body: JSON.stringify(completeBody),
       });
       if (!completed.ok) {
         throw new Error('The uploaded datasets did not satisfy the input requirements.');
       }
+      const completedAnalysis = analysisResponseSchema.parse(await completed.json());
+      const profileBody = { expectedInputRevision: completedAnalysis.analysis.inputRevision };
       const profile = await api.request(`/v1/analyses/${analysisId}/input-profile`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey('input-profile', analysisId, profileBody),
+        },
+        body: JSON.stringify(profileBody),
       });
       if (!profile.ok) {
         throw new Error('Input profiling could not be queued.');
@@ -125,6 +161,12 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
   const remove = async (datasetId: string): Promise<void> => {
     const response = await api.request(`/v1/analyses/${analysisId}/inputs/${datasetId}`, {
       method: 'DELETE',
+      headers: {
+        'Idempotency-Key': idempotencyKey('remove-input', analysisId, {
+          datasetId,
+          inputRevision: inputs.data?.inputs.inputRevision,
+        }),
+      },
     });
     if (response.ok) {
       await queryClient.invalidateQueries({ queryKey: analysisKeys.inputs(analysisId) });

@@ -485,6 +485,8 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
     crs = terra::crs(stack)
   )
   tryCatch({
+    occurrence <- sf::st_transform(occurrence, 4326)
+    background_points <- sf::st_transform(background_points, 4326)
     sf::st_write(
       occurrence,
       file.path(output_directory, "occurrences.geojson"),

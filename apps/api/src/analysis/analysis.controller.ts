@@ -23,6 +23,7 @@ import type {
   QueueAnalysisRequest,
   AnalysisDiagnosticsResponse,
   AnalysisResultOverviewResponse,
+  CancelAnalysisRequest,
 } from '@ecosuitability/contracts';
 import {
   analysisIdSchema,
@@ -31,6 +32,7 @@ import {
   idempotencyKeySchema,
   updateAnalysisConfigurationRequestSchema,
   queueAnalysisRequestSchema,
+  cancelAnalysisRequestSchema,
 } from '@ecosuitability/contracts';
 import type { Response } from 'express';
 import { AuthenticationGuard } from '../platform/auth/authentication.guard';
@@ -40,6 +42,7 @@ import { ZodValidationPipe } from '../platform/validation/zod-validation.pipe';
 import { AnalysisService } from './analysis.service';
 import { ResultService } from './result.service';
 import { ConfigurationService } from './configuration.service';
+import { OperationIdempotencyService } from './operation-idempotency.service';
 
 const idempotencyKeyPipe = new ZodValidationPipe(idempotencyKeySchema);
 
@@ -50,6 +53,7 @@ export class AnalysisController {
     private readonly analysisService: AnalysisService,
     private readonly resultService: ResultService,
     private readonly configurationService: ConfigurationService,
+    private readonly operations: OperationIdempotencyService,
   ) {}
 
   @Post()
@@ -175,11 +179,26 @@ export class AnalysisController {
     @Req() request: AuthenticatedRequest,
     @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
     analysisId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+    @Body(new ZodValidationPipe(cancelAnalysisRequestSchema))
+    body: CancelAnalysisRequest,
   ): Promise<AnalysisResponse> {
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
     return {
-      analysis: await this.analysisService.cancel(
+      analysis: await this.operations.execute(
         request.principal!,
         analysisId,
+        key,
+        'cancel',
+        body,
+        () =>
+          this.analysisService.cancel(
+            request.principal!,
+            analysisId,
+            body.expectedStatus,
+          ),
       ),
     };
   }
@@ -190,14 +209,26 @@ export class AnalysisController {
     @Req() request: AuthenticatedRequest,
     @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
     analysisId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
     @Body(new ZodValidationPipe(queueAnalysisRequestSchema))
     body: QueueAnalysisRequest,
   ): Promise<AnalysisResponse> {
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
     return {
-      analysis: await this.analysisService.queueAnalysis(
+      analysis: await this.operations.execute(
         request.principal!,
         analysisId,
+        key,
+        'queue',
         body,
+        () =>
+          this.analysisService.queueAnalysis(
+            request.principal!,
+            analysisId,
+            body,
+          ),
       ),
     };
   }

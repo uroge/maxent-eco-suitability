@@ -25,6 +25,7 @@
     "@aws-sdk/s3-request-presigner": "3.1121.0",
     "@clerk/backend": "3.16.4",
     "@ecosuitability/contracts": "workspace:*",
+    "@ecosuitability/geo-utils": "workspace:*",
     "@ecosuitability/runtime-utils": "workspace:*",
     "@nestjs/bullmq": "11.0.5",
     "@nestjs/common": "^11.0.1",

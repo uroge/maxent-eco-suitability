@@ -28,10 +28,11 @@ rate-limit policies:
 - `GET /v1/analyses/:analysisId` returns an analysis owned by the authenticated
   Clerk user. A resource owned by someone else returns `404` to prevent
   enumeration.
-- `POST /v1/analyses/:analysisId/queue` creates a durable execution request for
-  a `ready` analysis. It atomically moves the record to `queued` and persists
-  an outbox record before BullMQ insertion.
-- `POST /v1/analyses/:analysisId/cancel` is idempotent. It cancels preparation
+- `POST /v1/analyses/:analysisId/queue` requires an `Idempotency-Key` and creates
+  a durable execution request for a `ready` analysis. It atomically moves the
+  record to `queued` and persists an outbox record before BullMQ insertion.
+- `POST /v1/analyses/:analysisId/cancel` requires an `Idempotency-Key` and is
+  idempotent. It cancels preparation
   and queued work immediately; running work becomes `cancelling` until the
   worker cooperatively finalizes it as `cancelled`.
 
@@ -53,6 +54,15 @@ HMAC-authenticated requests and sequenced polling; it has no callback endpoint.
 Profile and preflight results are persisted in the runtime workspace until the
 worker stores and acknowledges them, so a runtime restart can recover the same
 revision-bound semantic run.
+
+Every durable mutation uses either its lifecycle-specific atomic Redis script
+or the analysis-scoped operation ledger. The ledger binds the key to a
+canonical operation/payload fingerprint, serializes concurrent execution with
+a recoverable lease, stores the exact successful response for the analysis
+TTL, and rejects reuse with different revisions or content. Profile and
+preflight retries also reassert their deterministic BullMQ job IDs, closing the
+state-written/job-not-enqueued crash window. Temporary signed URL issuance is
+not a durable mutation and deliberately issues a fresh credential on retry.
 
 The R runtime supports `profile`, `validate`, and `execute` modes. Profiling
 inspects occurrence headers, worksheets/layers, coordinate candidates,

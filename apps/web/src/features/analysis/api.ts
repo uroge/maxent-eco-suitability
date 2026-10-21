@@ -34,5 +34,18 @@ export const useAnalysisApi = () => {
   }, [getToken]);
 };
 
-export const idempotencyKey = (operation: string, analysisId: string): string =>
-  `${operation}-${analysisId}-${crypto.randomUUID()}`;
+export const idempotencyKey = (
+  operation: string,
+  analysisId: string,
+  intent: unknown = null
+): string => {
+  const intentKey = JSON.stringify(intent);
+  const storageKey = `ecosuitability:idempotency:${operation}:${analysisId}:${intentKey}`;
+  const existing = window.sessionStorage.getItem(storageKey);
+  if (existing) {
+    return existing;
+  }
+  const created = `${operation}-${crypto.randomUUID()}`;
+  window.sessionStorage.setItem(storageKey, created);
+  return created;
+};

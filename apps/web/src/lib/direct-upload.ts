@@ -98,7 +98,10 @@ export const uploadDataset = async (
           `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': `${options.idempotencyKey}-file-${digest.slice(0, 12)}`,
+            },
             body: JSON.stringify({
               originalName: file.name,
               size: file.size,
@@ -131,7 +134,10 @@ export const uploadDataset = async (
         `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files/${upload.id}/complete`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': `${options.idempotencyKey}-complete-${upload.id.slice(-8)}`,
+          },
           body: JSON.stringify({ parts }),
           signal: options.signal,
         }
@@ -140,6 +146,7 @@ export const uploadDataset = async (
 
     await requestJson(api, `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/complete`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': `${options.idempotencyKey}-attach` },
       signal: options.signal,
     });
     return datasetId;
@@ -147,6 +154,7 @@ export const uploadDataset = async (
     await api
       .request(`/v1/analyses/${analysisId}/upload-datasets/${datasetId}`, {
         method: 'DELETE',
+        headers: { 'Idempotency-Key': `${options.idempotencyKey}-abort` },
       })
       .catch(() => undefined);
     throw error;

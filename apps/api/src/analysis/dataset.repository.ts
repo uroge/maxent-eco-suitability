@@ -273,13 +273,6 @@ export class DatasetRepository {
       .getClient()
       .multi()
       .del(this.datasetKey(dataset.id))
-      .del(
-        this.idempotencyKey(
-          dataset.ownerId,
-          dataset.analysisId,
-          dataset.idempotencyKey,
-        ),
-      )
       .zRem(expiryIndexKey, dataset.id)
       .sRem(this.analysisSessionsKey(dataset.analysisId), dataset.id)
       .exec();
@@ -347,16 +340,25 @@ export class DatasetRepository {
   public async markReady(
     analysisId: string,
     ownerId: string,
+    expectedInputRevision: number,
   ): Promise<
-    { status: 'ready'; analysis: string } | 'missing' | 'invalid' | 'incomplete'
+    | { status: 'ready'; analysis: string }
+    | 'missing'
+    | 'invalid'
+    | 'incomplete'
+    | 'stale'
   > {
     const result = (await this.redis.getClient().eval(MarkReadyScript, {
       keys: [this.analysisKey(analysisId), this.analysisInputsKey(analysisId)],
-      arguments: [ownerId, new Date().toISOString()],
+      arguments: [
+        ownerId,
+        new Date().toISOString(),
+        String(expectedInputRevision),
+      ],
     })) as string[];
 
     if (result[0] !== 'ready') {
-      return result[0] as 'missing' | 'invalid' | 'incomplete';
+      return result[0] as 'missing' | 'invalid' | 'incomplete' | 'stale';
     }
 
     return { status: 'ready', analysis: result[1] };

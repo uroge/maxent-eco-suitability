@@ -165,6 +165,33 @@ describe('ConfigurationService', () => {
     });
   });
 
+  it('allows the repository to replay a saved configuration after the analysis is frozen', async () => {
+    const repository = {
+      findOwned: vi.fn(async () => ({ status: 'queued' })),
+      inputManifest: vi.fn(),
+      updateConfiguration: vi.fn(async () => ({
+        configuration: request.configuration,
+        configurationRevision: 1,
+        configurationFingerprint: 'jcs-sha256-v1:original',
+      })),
+    };
+    const service = new ConfigurationService(repository as never);
+
+    await expect(
+      service.update(
+        principal,
+        'an_0123456789abcdef0123456789abcdef',
+        'configuration-key-123',
+        request,
+      ),
+    ).resolves.toMatchObject({
+      configuration: request.configuration,
+      revision: 1,
+      fingerprint: 'jcs-sha256-v1:original',
+    });
+    expect(repository.inputManifest).not.toHaveBeenCalled();
+  });
+
   it('returns frozen snapshots without exposing internal manifest fields', async () => {
     const repository = {
       findOwned: vi.fn(async () => ({

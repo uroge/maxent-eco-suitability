@@ -58,7 +58,6 @@ for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
       end
     end
     redis.call('DEL', KEYS[8] .. datasetId)
-    redis.call('DEL', KEYS[10] .. dataset.ownerId .. ':' .. dataset.analysisId .. ':' .. dataset.idempotencyKey)
     redis.call('ZREM', KEYS[11], datasetId)
   end
 end
@@ -84,6 +83,10 @@ analysis.status = ARGV[6]
 analysis.updatedAt = ARGV[4]
 analysis.failure = cjson.null
 if ARGV[6] == 'expired' then
+  for _, operationKey in ipairs(redis.call('SMEMBERS', KEYS[15])) do
+    redis.call('DEL', operationKey)
+  end
+  redis.call('DEL', KEYS[15])
   analysis.expiredAt = ARGV[4]
   redis.call('SET', KEYS[1], cjson.encode(analysis), 'EX', ARGV[7])
   redis.call('DEL', KEYS[6] .. analysis.ownerId .. ':' .. analysis.idempotencyKey)

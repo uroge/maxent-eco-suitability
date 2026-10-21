@@ -103,13 +103,14 @@ export const ConfigurationScreen: React.FC<{ analysisId: string }> = ({ analysis
   }, [form, occurrence, predictors, saved.data, saved.isLoading]);
 
   const submit = form.handleSubmit(async (configuration) => {
+    const configurationBody = { expectedRevision: saved.data?.revision ?? 0, configuration };
     const response = await api.request(`/v1/analyses/${analysisId}/configuration`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey('configuration', analysisId),
+        'Idempotency-Key': idempotencyKey('configuration', analysisId, configurationBody),
       },
-      body: JSON.stringify({ expectedRevision: saved.data?.revision ?? 0, configuration }),
+      body: JSON.stringify(configurationBody),
     });
     if (!response.ok) {
       form.setError('root', {
@@ -117,7 +118,20 @@ export const ConfigurationScreen: React.FC<{ analysisId: string }> = ({ analysis
       });
       return;
     }
-    const preflight = await api.request(`/v1/analyses/${analysisId}/preflight`, { method: 'POST' });
+    const savedConfiguration = analysisConfigurationResponseSchema.parse(await response.json());
+    const preflightBody = {
+      expectedInputRevision: inputs.data?.inputs.inputRevision ?? 0,
+      expectedConfigurationRevision: savedConfiguration.revision,
+      configurationFingerprint: savedConfiguration.fingerprint,
+    };
+    const preflight = await api.request(`/v1/analyses/${analysisId}/preflight`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey('preflight', analysisId, preflightBody),
+      },
+      body: JSON.stringify(preflightBody),
+    });
     if (!preflight.ok) {
       form.setError('root', { message: 'Configuration saved, but preflight could not be queued.' });
       return;

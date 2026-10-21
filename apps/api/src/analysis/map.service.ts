@@ -5,12 +5,18 @@ import type {
   MapInspection,
   Principal,
 } from '@ecosuitability/contracts';
+import { geodesicDistanceMetres } from '@ecosuitability/geo-utils';
 import type { ApiEnvironment } from '../env';
 import { ApiException } from '../platform/errors/api.exception';
 import { StorageService } from '../storage/storage.service';
 import { AnalysisRepository } from './analysis.repository';
+import type { StoredAnalysis } from './analysis.types';
 
 type TileStyle = 'suitability' | 'threshold' | 'predictor' | 'terrainrgb';
+
+type PointResponse = { values?: unknown[] };
+
+type GeoJsonPosition = [number, number];
 
 @Injectable()
 export class MapService {
@@ -78,13 +84,32 @@ export class MapService {
         },
       );
     layers.push(
-      ...(analysis.mapAssets ?? []).map((asset) => ({
-        id: asset.id,
-        label: asset.label,
-        kind: 'predictor' as const,
-        dataType: 'raster' as const,
-        legend: [],
-      })),
+      ...(analysis.mapAssets ?? []).map((asset) => {
+        const middle = (asset.raster.minimum + asset.raster.maximum) / 2;
+        return {
+          id: asset.id,
+          label: asset.label,
+          kind: 'predictor' as const,
+          dataType: 'raster' as const,
+          legend: [
+            {
+              label: this.legendValue(asset.raster.minimum),
+              value: asset.raster.minimum,
+              color: '#440154',
+            },
+            {
+              label: this.legendValue(middle),
+              value: middle,
+              color: '#21918c',
+            },
+            {
+              label: this.legendValue(asset.raster.maximum),
+              value: asset.raster.maximum,
+              color: '#fde725',
+            },
+          ],
+        };
+      }),
     );
     const terrain = analysis.mapAssets?.find((asset) => asset.terrainEligible);
     const selectedTerrainDatasetId =
@@ -107,7 +132,7 @@ export class MapService {
               'The selected elevation raster did not pass DEM publication checks.')
             : 'No continuous predictor was explicitly confirmed as elevation in metres.',
       },
-      bounds: analysis.inputProfile?.rasters[0]?.bounds ?? [-180, -90, 180, 90],
+      bounds: this.mapBounds(analysis),
     };
   }
 
@@ -120,6 +145,7 @@ export class MapService {
     y: number,
     requestId: string | undefined,
   ): Promise<{ body: Uint8Array; contentType: string }> {
+    this.validateTileCoordinates(z, x, y);
     const analysis = await this.analysis(principal, analysisId);
     const artifact = analysis.resultManifest!.artifacts.find(
       (item) => item.id === layerId,
@@ -143,30 +169,16 @@ export class MapService {
       this.config.getOrThrow('TILE_SERVICE_URL'),
     );
     url.searchParams.set('key', storageKey);
-    const response = await fetch(url, {
-      headers: {
-        'x-tile-secret': this.config.getOrThrow('TILE_INTERNAL_SHARED_SECRET'),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-      signal: AbortSignal.timeout(
-        this.config.getOrThrow('TILE_REQUEST_TIMEOUT_MS'),
-      ),
-    });
-    if (!response.ok) {
-      throw new ApiException(
-        502,
-        'DEPENDENCY_UNAVAILABLE',
-        'Map tiles are temporarily unavailable.',
-      );
+    if (mapAsset) {
+      url.searchParams.set('minimum', String(mapAsset.raster.minimum));
+      url.searchParams.set('maximum', String(mapAsset.raster.maximum));
     }
-    const body = new Uint8Array(await response.arrayBuffer());
-    if (body.byteLength > this.config.getOrThrow('TILE_RESPONSE_MAX_BYTES')) {
-      throw new ApiException(
-        502,
-        'DEPENDENCY_UNAVAILABLE',
-        'The tile response exceeded its limit.',
-      );
-    }
+    const response = await this.tileRequest(
+      url,
+      requestId,
+      'Map tiles are temporarily unavailable.',
+    );
+    const body = await this.boundedBody(response);
     return {
       body,
       contentType: response.headers.get('content-type') ?? 'image/png',
@@ -187,7 +199,13 @@ export class MapService {
     if (!artifact) {
       throw this.notFound();
     }
-    return this.storage.getBytes(artifact.storageKey, 10 * 1024 * 1024);
+    try {
+      return await this.storage.getBytes(artifact.storageKey, 10 * 1024 * 1024);
+    } catch {
+      throw this.dependencyUnavailable(
+        'The vector layer exceeded its limit or is temporarily unavailable.',
+      );
+    }
   }
 
   public async terrain(
@@ -198,6 +216,7 @@ export class MapService {
     y: number,
     requestId: string | undefined,
   ): Promise<{ body: Uint8Array; contentType: string }> {
+    this.validateTileCoordinates(z, x, y);
     const analysis = await this.analysis(principal, analysisId);
     const asset = analysis.mapAssets?.find((item) => item.terrainEligible);
     if (!asset) {
@@ -208,23 +227,12 @@ export class MapService {
       this.config.getOrThrow('TILE_SERVICE_URL'),
     );
     url.searchParams.set('key', asset.storageKey);
-    const response = await fetch(url, {
-      headers: {
-        'x-tile-secret': this.config.getOrThrow('TILE_INTERNAL_SHARED_SECRET'),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-      signal: AbortSignal.timeout(
-        this.config.getOrThrow('TILE_REQUEST_TIMEOUT_MS'),
-      ),
-    });
-    if (!response.ok) {
-      throw new ApiException(
-        502,
-        'DEPENDENCY_UNAVAILABLE',
-        'Terrain tiles are temporarily unavailable.',
-      );
-    }
-    const body = new Uint8Array(await response.arrayBuffer());
+    const response = await this.tileRequest(
+      url,
+      requestId,
+      'Terrain tiles are temporarily unavailable.',
+    );
+    const body = await this.boundedBody(response);
     return {
       body,
       contentType: response.headers.get('content-type') ?? 'image/png',
@@ -239,46 +247,308 @@ export class MapService {
     requestId: string | undefined,
   ): Promise<MapInspection> {
     const analysis = await this.analysis(principal, analysisId);
-    const artifact = analysis.resultManifest!.artifacts.find(
+    const suitabilityArtifact = analysis.resultManifest!.artifacts.find(
       (item) => item.kind === 'suitability-raster',
     );
-    if (!artifact) {
+    if (!suitabilityArtifact) {
       throw this.notFound();
     }
-    const url = new URL(
-      '/v1/point',
-      this.config.getOrThrow('TILE_SERVICE_URL'),
+    const thresholdArtifact = analysis.resultManifest!.artifacts.find(
+      (item) => item.kind === 'suitability-threshold-raster',
     );
-    url.searchParams.set('key', artifact.storageKey);
-    url.searchParams.set('longitude', String(longitude));
-    url.searchParams.set('latitude', String(latitude));
-    const response = await fetch(url, {
-      headers: {
-        'x-tile-secret': this.config.getOrThrow('TILE_INTERNAL_SHARED_SECRET'),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-      signal: AbortSignal.timeout(
-        this.config.getOrThrow('TILE_REQUEST_TIMEOUT_MS'),
+    const occurrenceArtifact = analysis.resultManifest!.artifacts.find(
+      (item) => item.kind === 'occurrences',
+    );
+    const samples = await Promise.all([
+      this.sample(
+        suitabilityArtifact.storageKey,
+        longitude,
+        latitude,
+        requestId,
       ),
-    });
-    if (!response.ok) {
-      throw new ApiException(
-        502,
-        'DEPENDENCY_UNAVAILABLE',
-        'Map inspection is temporarily unavailable.',
-      );
-    }
-    const value = (await response.json()) as { values?: unknown[] };
-    const suitability =
-      typeof value.values?.[0] === 'number' ? value.values[0] : null;
+      thresholdArtifact
+        ? this.sample(
+            thresholdArtifact.storageKey,
+            longitude,
+            latitude,
+            requestId,
+          )
+        : Promise.resolve(null),
+      ...(analysis.mapAssets ?? []).map((asset) =>
+        this.sample(asset.storageKey, longitude, latitude, requestId),
+      ),
+    ]);
+    const [suitability, threshold, ...predictorValues] = samples;
+    const predictors = Object.fromEntries(
+      (analysis.mapAssets ?? []).map((asset, index) => [
+        asset.label,
+        predictorValues[index] ?? null,
+      ]),
+    );
+    const nearestOccurrenceMetres = occurrenceArtifact
+      ? await this.nearestOccurrence(
+          occurrenceArtifact.storageKey,
+          longitude,
+          latitude,
+        )
+      : null;
     return {
       longitude,
       latitude,
       suitability,
-      thresholdClass: null,
-      predictors: {},
-      nearestOccurrenceMetres: null,
+      thresholdClass: threshold === 0 || threshold === 1 ? threshold : null,
+      predictors,
+      nearestOccurrenceMetres,
     };
+  }
+
+  private async sample(
+    storageKey: string,
+    longitude: number,
+    latitude: number,
+    requestId: string | undefined,
+  ): Promise<number | null> {
+    const url = new URL(
+      '/v1/point',
+      this.config.getOrThrow('TILE_SERVICE_URL'),
+    );
+    url.searchParams.set('key', storageKey);
+    url.searchParams.set('longitude', String(longitude));
+    url.searchParams.set('latitude', String(latitude));
+    const response = await this.tileRequest(
+      url,
+      requestId,
+      'Map inspection is temporarily unavailable.',
+    );
+    const body = await this.boundedBody(response);
+    let parsed: PointResponse;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(body)) as PointResponse;
+    } catch {
+      throw this.dependencyUnavailable(
+        'Map inspection returned an invalid response.',
+      );
+    }
+    const value = parsed.values?.[0];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private async nearestOccurrence(
+    storageKey: string,
+    longitude: number,
+    latitude: number,
+  ): Promise<number | null> {
+    let body: Uint8Array;
+    try {
+      body = await this.storage.getBytes(storageKey, 10 * 1024 * 1024);
+    } catch {
+      throw this.dependencyUnavailable(
+        'Occurrence inspection is temporarily unavailable.',
+      );
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(new TextDecoder().decode(body));
+    } catch {
+      return null;
+    }
+    const positions = this.geoJsonPositions(payload);
+    if (positions.length === 0) {
+      return null;
+    }
+    return positions.reduce(
+      (nearest, position) =>
+        Math.min(
+          nearest,
+          geodesicDistanceMetres([longitude, latitude], position),
+        ),
+      Number.POSITIVE_INFINITY,
+    );
+  }
+
+  private geoJsonPositions(payload: unknown): GeoJsonPosition[] {
+    if (!payload || typeof payload !== 'object') {
+      return [];
+    }
+    const features = (payload as { features?: unknown }).features;
+    if (!Array.isArray(features) || features.length > 1_000_000) {
+      return [];
+    }
+    return features.flatMap((feature) => {
+      if (!feature || typeof feature !== 'object') {
+        return [];
+      }
+      const geometry = (feature as { geometry?: unknown }).geometry;
+      if (!geometry || typeof geometry !== 'object') {
+        return [];
+      }
+      const candidate = geometry as { type?: unknown; coordinates?: unknown };
+      if (
+        candidate.type !== 'Point' ||
+        !Array.isArray(candidate.coordinates) ||
+        typeof candidate.coordinates[0] !== 'number' ||
+        typeof candidate.coordinates[1] !== 'number'
+      ) {
+        return [];
+      }
+      const position: GeoJsonPosition = [
+        candidate.coordinates[0],
+        candidate.coordinates[1],
+      ];
+      return position[0] >= -180 &&
+        position[0] <= 180 &&
+        position[1] >= -90 &&
+        position[1] <= 90
+        ? [position]
+        : [];
+    });
+  }
+
+  private mapBounds(
+    analysis: StoredAnalysis,
+  ): [number, number, number, number] {
+    const rasterBounds = analysis.inputProfile?.rasters[0]?.bounds;
+    if (
+      rasterBounds &&
+      rasterBounds[0] >= -180 &&
+      rasterBounds[2] <= 180 &&
+      rasterBounds[1] >= -90 &&
+      rasterBounds[3] <= 90
+    ) {
+      return rasterBounds;
+    }
+    const coordinates: GeoJsonPosition[] = [];
+    const visit = (value: unknown): void => {
+      if (!Array.isArray(value)) {
+        return;
+      }
+      if (
+        value.length >= 2 &&
+        typeof value[0] === 'number' &&
+        typeof value[1] === 'number' &&
+        value[0] >= -180 &&
+        value[0] <= 180 &&
+        value[1] >= -90 &&
+        value[1] <= 90
+      ) {
+        coordinates.push([value[0], value[1]]);
+        return;
+      }
+      for (const child of value) {
+        visit(child);
+      }
+    };
+    for (const feature of analysis.inputProfile?.spatialPreview?.features ??
+      []) {
+      if (feature && typeof feature === 'object') {
+        visit(
+          (feature as { geometry?: { coordinates?: unknown } }).geometry
+            ?.coordinates,
+        );
+      }
+    }
+    if (coordinates.length === 0) {
+      return [-180, -90, 180, 90];
+    }
+    const longitudes = coordinates.map(([longitude]) => longitude);
+    const latitudes = coordinates.map(([, latitude]) => latitude);
+    const west = Math.min(...longitudes);
+    const east = Math.max(...longitudes);
+    const south = Math.min(...latitudes);
+    const north = Math.max(...latitudes);
+    const longitudePadding = Math.max((east - west) * 0.05, 0.01);
+    const latitudePadding = Math.max((north - south) * 0.05, 0.01);
+    return [
+      Math.max(-180, west - longitudePadding),
+      Math.max(-90, south - latitudePadding),
+      Math.min(180, east + longitudePadding),
+      Math.min(90, north + latitudePadding),
+    ];
+  }
+
+  private async tileRequest(
+    url: URL,
+    requestId: string | undefined,
+    message: string,
+  ): Promise<Response> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          'x-tile-secret': this.config.getOrThrow(
+            'TILE_INTERNAL_SHARED_SECRET',
+          ),
+          ...(requestId ? { 'x-request-id': requestId } : {}),
+        },
+        signal: AbortSignal.timeout(
+          this.config.getOrThrow('TILE_REQUEST_TIMEOUT_MS'),
+        ),
+      });
+    } catch {
+      throw this.dependencyUnavailable(message);
+    }
+    if (!response.ok) {
+      throw this.dependencyUnavailable(message);
+    }
+    return response;
+  }
+
+  private async boundedBody(response: Response): Promise<Uint8Array> {
+    const limit = this.config.getOrThrow('TILE_RESPONSE_MAX_BYTES');
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > limit) {
+      await response.body?.cancel();
+      throw this.dependencyUnavailable('The tile response exceeded its limit.');
+    }
+    if (!response.body) {
+      throw this.dependencyUnavailable(
+        'The tile service returned an empty response.',
+      );
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    while (true) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      length += result.value.byteLength;
+      if (length > limit) {
+        await reader.cancel();
+        throw this.dependencyUnavailable(
+          'The tile response exceeded its limit.',
+        );
+      }
+      chunks.push(result.value);
+    }
+    const body = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return body;
+  }
+
+  private legendValue(value: number): string {
+    return new Intl.NumberFormat('en', { maximumSignificantDigits: 4 }).format(
+      value,
+    );
+  }
+
+  private validateTileCoordinates(z: number, x: number, y: number): void {
+    if (z > 22 || x >= 2 ** z || y >= 2 ** z) {
+      throw new ApiException(
+        400,
+        'VALIDATION_FAILED',
+        'The requested tile coordinate is invalid.',
+      );
+    }
+  }
+
+  private dependencyUnavailable(message: string): ApiException {
+    return new ApiException(502, 'DEPENDENCY_UNAVAILABLE', message);
   }
 
   private basemaps(): MapCapabilities['basemaps'] {
@@ -301,7 +571,18 @@ export class MapService {
       const styleUrl = this.config.get(urlKey);
       const attribution = this.config.get(attributionKey);
       return styleUrl && attribution
-        ? [{ id, label, styleUrl, attribution }]
+        ? [
+            {
+              id,
+              label,
+              styleUrl,
+              darkStyleUrl:
+                id === 'light'
+                  ? (this.config.get('MAP_DARK_STYLE_URL') ?? null)
+                  : null,
+              attribution,
+            },
+          ]
         : [];
     });
   }

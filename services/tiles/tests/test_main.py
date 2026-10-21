@@ -79,9 +79,12 @@ def raster_fixtures(tmp_path: Path, monkeypatch) -> dict[str, str]:
 
 
 def get_tile(test_client: TestClient, style: str, key: str):
+    params = {"key": key}
+    if style == "predictor":
+        params.update({"minimum": 100, "maximum": 150})
     return test_client.get(
         f"/v1/tiles/{style}/0/0/0.png",
-        params={"key": key},
+        params=params,
         headers={"x-tile-secret": SECRET},
     )
 
@@ -133,6 +136,29 @@ def test_point_sampling_reads_predictor_value(monkeypatch, raster_fixtures) -> N
     )
     assert response.status_code == 200
     assert response.json()["values"][0] == pytest.approx(123.25)
+
+
+def test_point_sampling_returns_null_for_nodata(monkeypatch, raster_fixtures) -> None:
+    response = client(monkeypatch).get(
+        "/v1/point",
+        params={
+            "key": raster_fixtures["suitability"],
+            "longitude": -175,
+            "latitude": 80,
+        },
+        headers={"x-tile-secret": SECRET},
+    )
+    assert response.status_code == 200
+    assert response.json()["values"][0] is None
+
+
+def test_predictor_requires_server_controlled_range(monkeypatch, raster_fixtures) -> None:
+    response = client(monkeypatch).get(
+        "/v1/tiles/predictor/0/0/0.png",
+        params={"key": raster_fixtures["predictor"]},
+        headers={"x-tile-secret": SECRET},
+    )
+    assert response.status_code == 400
 
 
 def test_terrain_rgb_encodes_elevation(monkeypatch, raster_fixtures) -> None:

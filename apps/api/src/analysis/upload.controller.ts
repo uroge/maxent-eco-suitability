@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import type {
   CompleteUploadRequest,
+  CompleteAnalysisInputsRequest,
   CreateUploadDatasetRequest,
   CreateUploadFileRequest,
   IdempotencyKey,
@@ -24,6 +25,7 @@ import type {
 import {
   analysisIdSchema,
   completeUploadRequestSchema,
+  completeAnalysisInputsRequestSchema,
   createUploadDatasetRequestSchema,
   createUploadFileRequestSchema,
   idempotencyKeySchema,
@@ -37,13 +39,17 @@ import type { AuthenticatedRequest } from '../platform/auth/authenticated-reques
 import { AuthenticatedRateLimitGuard } from '../platform/rate-limit/authenticated-rate-limit.guard';
 import { ZodValidationPipe } from '../platform/validation/zod-validation.pipe';
 import { UploadService } from './upload.service';
+import { OperationIdempotencyService } from './operation-idempotency.service';
 
 const idempotencyKeyPipe = new ZodValidationPipe(idempotencyKeySchema);
 
 @Controller('analyses/:analysisId/upload-datasets')
 @UseGuards(AuthenticationGuard, AuthenticatedRateLimitGuard)
 export class UploadController {
-  public constructor(private readonly uploadService: UploadService) {}
+  public constructor(
+    private readonly uploadService: UploadService,
+    private readonly operations: OperationIdempotencyService,
+  ) {}
 
   @Post()
   public async create(
@@ -72,15 +78,27 @@ export class UploadController {
     analysisId: string,
     @Param('datasetId', new ZodValidationPipe(uploadDatasetIdSchema))
     datasetId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
     @Body(new ZodValidationPipe(createUploadFileRequestSchema))
     body: CreateUploadFileRequest,
   ): Promise<{ file: UploadFileResponse }> {
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
     return {
-      file: await this.uploadService.addFile(
+      file: await this.operations.execute(
         request.principal!,
         analysisId,
-        datasetId,
-        body,
+        key,
+        'create-upload-file',
+        { datasetId, ...body },
+        () =>
+          this.uploadService.addFile(
+            request.principal!,
+            analysisId,
+            datasetId,
+            body,
+          ),
       ),
     };
   }
@@ -116,15 +134,29 @@ export class UploadController {
     @Param('datasetId', new ZodValidationPipe(uploadDatasetIdSchema))
     datasetId: string,
     @Param('uploadId', new ZodValidationPipe(uploadIdSchema)) uploadId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
     @Body(new ZodValidationPipe(completeUploadRequestSchema))
     body: CompleteUploadRequest,
   ): Promise<void> {
-    await this.uploadService.completeFile(
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
+    await this.operations.execute(
       request.principal!,
       analysisId,
-      datasetId,
-      uploadId,
-      body,
+      key,
+      'complete-upload-file',
+      { datasetId, uploadId, ...body },
+      async () => {
+        await this.uploadService.completeFile(
+          request.principal!,
+          analysisId,
+          datasetId,
+          uploadId,
+          body,
+        );
+        return null;
+      },
     );
   }
 
@@ -152,11 +184,26 @@ export class UploadController {
     @Req() request: AuthenticatedRequest,
     @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
     analysisId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+    @Body(new ZodValidationPipe(completeAnalysisInputsRequestSchema))
+    body: CompleteAnalysisInputsRequest,
   ): Promise<AnalysisResponse> {
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
     return {
-      analysis: await this.uploadService.completeInputs(
+      analysis: await this.operations.execute(
         request.principal!,
         analysisId,
+        key,
+        'complete-inputs',
+        body,
+        () =>
+          this.uploadService.completeInputs(
+            request.principal!,
+            analysisId,
+            body.expectedInputRevision,
+          ),
       ),
     };
   }
@@ -168,12 +215,24 @@ export class UploadController {
     analysisId: string,
     @Param('datasetId', new ZodValidationPipe(uploadDatasetIdSchema))
     datasetId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
   ): Promise<UploadDatasetResponse> {
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
     return {
-      dataset: await this.uploadService.completeDataset(
+      dataset: await this.operations.execute(
         request.principal!,
         analysisId,
-        datasetId,
+        key,
+        'complete-upload-dataset',
+        { datasetId },
+        () =>
+          this.uploadService.completeDataset(
+            request.principal!,
+            analysisId,
+            datasetId,
+          ),
       ),
     };
   }
@@ -186,11 +245,25 @@ export class UploadController {
     analysisId: string,
     @Param('datasetId', new ZodValidationPipe(uploadDatasetIdSchema))
     datasetId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
   ): Promise<void> {
-    await this.uploadService.abortDataset(
+    const key = idempotencyKeyPipe.transform(
+      rawIdempotencyKey,
+    ) as IdempotencyKey;
+    await this.operations.execute(
       request.principal!,
       analysisId,
-      datasetId,
+      key,
+      'abort-upload-dataset',
+      { datasetId },
+      async () => {
+        await this.uploadService.abortDataset(
+          request.principal!,
+          analysisId,
+          datasetId,
+        );
+        return null;
+      },
     );
   }
 }

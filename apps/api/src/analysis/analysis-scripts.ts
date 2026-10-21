@@ -41,3 +41,9 @@ export const UpdateConfigurationScript = readScript('update-configuration.lua');
 export const UpdateValidationStateScript = readScript(
   'update-validation-state.lua',
 );
+
+export const ClaimOperationScript = readScript('claim-operation.lua');
+
+export const CompleteOperationScript = readScript('complete-operation.lua');
+
+export const ReleaseOperationScript = readScript('release-operation.lua');

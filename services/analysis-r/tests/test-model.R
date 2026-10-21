@@ -120,6 +120,17 @@ expected_files <- c(
 if (!all(file.exists(file.path(result_a$outputDirectory, expected_files)))) {
   stop("The model did not generate the complete artifact set.", call. = FALSE)
 }
+occurrence_output <- sf::st_read(
+  file.path(result_a$outputDirectory, "occurrences.geojson"),
+  quiet = TRUE
+)
+background_output <- sf::st_read(
+  file.path(result_a$outputDirectory, "background.geojson"),
+  quiet = TRUE
+)
+if (sf::st_crs(occurrence_output)$epsg != 4326L || sf::st_crs(background_output)$epsg != 4326L) {
+  stop("Published map vectors must use EPSG:4326.", call. = FALSE)
+}
 if (length(result_a$mapAssets) != 1L || !isTRUE(result_a$mapAssets[[1L]]$raster$cog)) {
   stop("The model did not publish a verified predictor COG.", call. = FALSE)
 }

@@ -150,6 +150,40 @@ export const analysisValidationJobPayloadSchema = analysisJobPayloadSchema.exten
 
 export type AnalysisValidationJobPayload = z.infer<typeof analysisValidationJobPayloadSchema>;
 
+export const requestInputProfileSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type RequestInputProfile = z.infer<typeof requestInputProfileSchema>;
+
+export const completeAnalysisInputsRequestSchema = z
+  .object({
+    expectedInputRevision: z.number().int().positive(),
+  })
+  .strict();
+
+export type CompleteAnalysisInputsRequest = z.infer<typeof completeAnalysisInputsRequestSchema>;
+
+export const requestPreflightSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+    expectedConfigurationRevision: z.number().int().nonnegative(),
+    configurationFingerprint: z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/),
+  })
+  .strict();
+
+export type RequestPreflight = z.infer<typeof requestPreflightSchema>;
+
+export const cancelAnalysisRequestSchema = z
+  .object({
+    expectedStatus: analysisStatusSchema,
+  })
+  .strict();
+
+export type CancelAnalysisRequest = z.infer<typeof cancelAnalysisRequestSchema>;
+
 export const sha256VerificationSchema = z.enum(['client-declared', 'worker-verified']);
 
 export type Sha256Verification = z.infer<typeof sha256VerificationSchema>;
@@ -992,6 +1026,7 @@ export const mapBasemapSchema = z
     id: z.enum(['light', 'satellite', 'terrain']),
     label: z.string().min(1).max(64),
     styleUrl: z.string().url(),
+    darkStyleUrl: z.string().url().nullable(),
     attribution: z.string().min(1).max(512),
   })
   .strict();

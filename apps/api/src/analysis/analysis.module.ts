@@ -25,6 +25,7 @@ import { ValidationController } from './validation.controller';
 import { ValidationService } from './validation.service';
 import { MapController } from './map.controller';
 import { MapService } from './map.service';
+import { OperationIdempotencyService } from './operation-idempotency.service';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { MapService } from './map.service';
     ConfigurationService,
     ValidationService,
     MapService,
+    OperationIdempotencyService,
   ],
   exports: [AnalysisService],
 })

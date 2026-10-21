@@ -6,14 +6,17 @@ import { serverApi } from '@/lib/server-api';
 export default async function NewAnalysisPage({
   searchParams,
 }: {
-  searchParams: Promise<{ example?: string }>;
+  searchParams: Promise<{ example?: string; intent?: string }>;
 }) {
-  const { example } = await searchParams;
+  const { example, intent } = await searchParams;
+  if (!intent) {
+    redirect(`/analyses/new?intent=${randomUUID()}${example === '1' ? '&example=1' : ''}`);
+  }
   const result = await serverApi('/v1/analyses', analysisResponseSchema, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Idempotency-Key': `draft-${randomUUID()}`,
+      'Idempotency-Key': `draft-${intent}`,
     },
     body: JSON.stringify({}),
   });

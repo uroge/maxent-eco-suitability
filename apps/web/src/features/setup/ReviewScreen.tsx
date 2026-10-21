@@ -29,9 +29,19 @@ export const ReviewScreen: React.FC<{ analysisId: string }> = ({ analysisId }) =
     queryKey: analysisKeys.preflight(analysisId),
     queryFn: async () => {
       const response = await api.request(`/v1/analyses/${analysisId}/preflight`);
-      if (response.status === 404) {
+      if (response.status === 404 && profile.data && configuration.data?.fingerprint) {
+        const body = {
+          expectedInputRevision: profile.data.profile.inputRevision,
+          expectedConfigurationRevision: configuration.data.revision,
+          configurationFingerprint: configuration.data.fingerprint,
+        };
         const queued = await api.request(`/v1/analyses/${analysisId}/preflight`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey('preflight', analysisId, body),
+          },
+          body: JSON.stringify(body),
         });
         if (!queued.ok) throw new Error('REQUEST_FAILED');
         return analysisPreflightResponseSchema.parse(await queued.json());
@@ -39,23 +49,25 @@ export const ReviewScreen: React.FC<{ analysisId: string }> = ({ analysisId }) =
       if (!response.ok) throw new Error('REQUEST_FAILED');
       return analysisPreflightResponseSchema.parse(await response.json());
     },
+    enabled: Boolean(profile.data && configuration.data?.fingerprint),
     refetchInterval: (query) =>
       ['queued', 'running'].includes(query.state.data?.preflight.status ?? '') ? 1_500 : false,
   });
   const value = preflight.data?.preflight;
   const queue = async (): Promise<void> => {
     if (!value || value.status !== 'passed') return;
+    const body = {
+      expectedInputRevision: value.inputRevision,
+      expectedConfigurationRevision: value.configurationRevision,
+      configurationFingerprint: value.configurationFingerprint,
+    };
     const response = await api.request(`/v1/analyses/${analysisId}/queue`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey('queue', analysisId),
+        'Idempotency-Key': idempotencyKey('queue', analysisId, body),
       },
-      body: JSON.stringify({
-        expectedInputRevision: value.inputRevision,
-        expectedConfigurationRevision: value.configurationRevision,
-        configurationFingerprint: value.configurationFingerprint,
-      }),
+      body: JSON.stringify(body),
     });
     if (response.ok) router.push(`/analyses/${analysisId}/run`);
   };

@@ -60,6 +60,7 @@ const createService = () => {
   };
 
   return {
+    analysis,
     repository,
     storage,
     service: new UploadService(
@@ -72,7 +73,7 @@ const createService = () => {
 
 describe('UploadService', () => {
   it('creates a dataset with scoped idempotency', async () => {
-    const { repository, service } = createService();
+    const { analysis, repository, service } = createService();
 
     await expect(
       service.createDataset(principal, dataset.analysisId, 'dataset-key-123', {
@@ -84,6 +85,7 @@ describe('UploadService', () => {
       replayed: false,
     });
     expect(repository.create).toHaveBeenCalledOnce();
+    expect(analysis.find).not.toHaveBeenCalled();
   });
 
   it('rejects invalid dataset kind and format combinations', async () => {
@@ -225,7 +227,7 @@ describe('UploadService', () => {
     });
 
     await expect(
-      service.completeInputs(principal, dataset.analysisId),
+      service.completeInputs(principal, dataset.analysisId, 2),
     ).resolves.toMatchObject({ status: 'ready' });
   });
 
@@ -234,7 +236,7 @@ describe('UploadService', () => {
     repository.markReady.mockResolvedValue('incomplete');
 
     await expect(
-      service.completeInputs(principal, dataset.analysisId),
+      service.completeInputs(principal, dataset.analysisId, 2),
     ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
   });
 

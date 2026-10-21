@@ -49,7 +49,6 @@ for _, uploadId in ipairs(dataset.uploadIds) do
   redis.call('DEL', KEYS[6] .. uploadId)
 end
 redis.call('DEL', KEYS[1])
-redis.call('DEL', KEYS[4])
 redis.call('ZREM', KEYS[5], dataset.id)
 redis.call('SREM', KEYS[7], dataset.id)
 return { 'attached', cjson.encode(attached.dataset) }

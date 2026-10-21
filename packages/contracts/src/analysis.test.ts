@@ -13,6 +13,10 @@ import {
   mapCapabilitiesSchema,
   rGeneratedMapAssetSchema,
   rValidationEventsPageSchema,
+  requestInputProfileSchema,
+  requestPreflightSchema,
+  cancelAnalysisRequestSchema,
+  completeAnalysisInputsRequestSchema,
 } from './analysis';
 
 describe('analysis contracts', () => {
@@ -38,6 +42,25 @@ describe('analysis contracts', () => {
     expect(analysisIdSchema.safeParse('analysis-123').success).toBe(false);
     expect(idempotencyKeySchema.safeParse('request-key-123').success).toBe(true);
     expect(idempotencyKeySchema.safeParse('short').success).toBe(false);
+  });
+
+  it('binds validation and cancellation intents to explicit lifecycle state', () => {
+    expect(
+      completeAnalysisInputsRequestSchema.safeParse({ expectedInputRevision: 2 }).success
+    ).toBe(true);
+    expect(requestInputProfileSchema.safeParse({ expectedInputRevision: 2 }).success).toBe(true);
+    expect(
+      requestPreflightSchema.safeParse({
+        expectedInputRevision: 2,
+        expectedConfigurationRevision: 3,
+        configurationFingerprint: `jcs-sha256-v1:${'a'.repeat(64)}`,
+      }).success
+    ).toBe(true);
+    expect(cancelAnalysisRequestSchema.safeParse({ expectedStatus: 'running' }).success).toBe(true);
+    expect(requestInputProfileSchema.safeParse({ expectedInputRevision: -1 }).success).toBe(false);
+    expect(
+      completeAnalysisInputsRequestSchema.safeParse({ expectedInputRevision: 0 }).success
+    ).toBe(false);
   });
 
   it('strips no unknown create fields', () => {

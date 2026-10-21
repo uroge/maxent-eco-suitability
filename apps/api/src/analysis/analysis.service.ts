@@ -110,6 +110,7 @@ export class AnalysisService {
   public async cancel(
     principal: Principal,
     analysisId: string,
+    expectedStatus?: AnalysisStatus,
   ): Promise<Analysis> {
     const existing = await this.repository.findOwned(
       analysisId,
@@ -122,6 +123,14 @@ export class AnalysisService {
 
     if (existing.status === 'cancelled' || existing.status === 'cancelling') {
       return this.publicAnalysis(existing);
+    }
+
+    if (expectedStatus && existing.status !== expectedStatus) {
+      throw new ApiException(
+        409,
+        'CONFLICT',
+        'The analysis state changed. Reload before cancelling.',
+      );
     }
 
     const result = await this.repository.cancel(analysisId, principal.userId);
