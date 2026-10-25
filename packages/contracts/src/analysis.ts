@@ -358,6 +358,8 @@ export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
 
 export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
 
+export const canonicalFingerprintSchema = z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/);
+
 export const scientificArtifactKinds = [
   'execution-summary',
   'metrics',
@@ -426,13 +428,25 @@ export const analysisArtifactSchema = z.object({
   kind: analysisArtifactKindSchema,
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1).max(128),
-  size: z.number().int().nonnegative(),
+  size: z.number().int().positive(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/i),
   sha256Verification: workerSha256VerificationSchema,
   createdAt: z.string().datetime(),
 });
 
 export type AnalysisArtifact = z.infer<typeof analysisArtifactSchema>;
+
+export const analysisReproducibilitySchema = z
+  .object({
+    inputRevision: z.number().int().nonnegative(),
+    configurationRevision: z.number().int().positive(),
+    inputFingerprint: canonicalFingerprintSchema,
+    configurationFingerprint: canonicalFingerprintSchema,
+    seed: z.number().int(),
+  })
+  .strict();
+
+export type AnalysisReproducibility = z.infer<typeof analysisReproducibilitySchema>;
 
 const completeArtifactSet = <T extends { kind: AnalysisArtifactKind }>(artifacts: T[]): boolean =>
   artifacts.length === analysisArtifactKinds.length &&
@@ -444,6 +458,7 @@ export const analysisResultManifestSchema = z
     analysisId: analysisIdSchema,
     completedAt: z.string().datetime(),
     resultExpiresAt: z.string().datetime(),
+    reproducibility: analysisReproducibilitySchema,
     artifacts: z.array(analysisArtifactSchema).length(analysisArtifactKinds.length),
   })
   .superRefine((value, context) => {
@@ -451,6 +466,30 @@ export const analysisResultManifestSchema = z
       context.addIssue({
         code: 'custom',
         message: 'Result manifest must contain every artifact once.',
+      });
+    }
+    for (const artifact of value.artifacts) {
+      const specification = analysisArtifactSpecifications.find(
+        (candidate) => candidate.kind === artifact.kind
+      );
+      if (
+        !specification ||
+        artifact.filename !== specification.filename ||
+        artifact.contentType !== specification.contentType
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['artifacts'],
+          message: 'Result artifact metadata does not match its authoritative specification.',
+        });
+        break;
+      }
+    }
+    if (new Date(value.resultExpiresAt).getTime() <= new Date(value.completedAt).getTime()) {
+      context.addIssue({
+        code: 'custom',
+        path: ['resultExpiresAt'],
+        message: 'Result expiry must be later than completion.',
       });
     }
   });
@@ -471,6 +510,52 @@ export const analysisArtifactDownloadResponseSchema = z.object({
 export type AnalysisArtifactDownloadResponse = z.infer<
   typeof analysisArtifactDownloadResponseSchema
 >;
+
+export const bundleManifestArtifactSchema = analysisArtifactSchema
+  .extend({ kind: scientificArtifactKindSchema })
+  .strict();
+
+export const analysisBundleManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    analysisId: analysisIdSchema,
+    completedAt: z.string().datetime(),
+    reproducibility: analysisReproducibilitySchema,
+    artifacts: z.array(bundleManifestArtifactSchema).length(scientificArtifactKinds.length),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const kinds = new Set(value.artifacts.map((artifact) => artifact.kind));
+    if (
+      kinds.size !== scientificArtifactKinds.length ||
+      scientificArtifactKinds.some((kind) => !kinds.has(kind))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['artifacts'],
+        message: 'Bundle manifest must contain every scientific artifact once.',
+      });
+    }
+    for (const artifact of value.artifacts) {
+      const specification = scientificArtifactSpecifications.find(
+        (candidate) => candidate.kind === artifact.kind
+      );
+      if (
+        !specification ||
+        artifact.filename !== specification.filename ||
+        artifact.contentType !== specification.contentType
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['artifacts'],
+          message: 'Bundle artifact metadata does not match its authoritative specification.',
+        });
+        break;
+      }
+    }
+  });
+
+export type AnalysisBundleManifest = z.infer<typeof analysisBundleManifestSchema>;
 
 const normalizedText = z
   .string()
@@ -683,8 +768,6 @@ export const rasterMetadataSchema = z
   .strict();
 
 export type RasterMetadata = z.infer<typeof rasterMetadataSchema>;
-
-export const canonicalFingerprintSchema = z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/);
 
 const spatialPreviewSchema = z
   .object({

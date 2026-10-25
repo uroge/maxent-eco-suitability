@@ -61,13 +61,21 @@ export class ResultService {
       maxDownloadTtlSeconds,
       Math.floor(remainingMs / 1_000),
     );
-    return {
-      downloadUrl: await this.storage.presignGet(
-        artifact.storageKey,
-        expiresIn,
-      ),
-      expiresAt: new Date(Date.now() + expiresIn * 1_000).toISOString(),
-    };
+    try {
+      return {
+        downloadUrl: await this.storage.presignGet(
+          artifact.storageKey,
+          expiresIn,
+        ),
+        expiresAt: new Date(Date.now() + expiresIn * 1_000).toISOString(),
+      };
+    } catch {
+      throw new ApiException(
+        503,
+        'DEPENDENCY_UNAVAILABLE',
+        'The download link could not be created. Retry the request.',
+      );
+    }
   }
 
   public async overview(
@@ -137,6 +145,12 @@ export class ResultService {
       principal.userId,
     );
     if (analysis?.status !== 'succeeded' || !analysis.resultManifest) {
+      throw this.notFound();
+    }
+
+    if (
+      new Date(analysis.resultManifest.resultExpiresAt).getTime() <= Date.now()
+    ) {
       throw this.notFound();
     }
 

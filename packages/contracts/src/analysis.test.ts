@@ -7,6 +7,7 @@ import {
   analysisConfigurationSchema,
   analysisArtifactSpecifications,
   analysisResultManifestSchema,
+  analysisBundleManifestSchema,
   analysisMetricsArtifactSchema,
   analysisInputProfileSchema,
   analysisPreflightSchema,
@@ -193,6 +194,13 @@ describe('analysis contracts', () => {
       analysisId: 'an_0123456789abcdef0123456789abcdef',
       completedAt: '2026-09-02T12:30:00.000Z',
       resultExpiresAt: '2026-09-04T12:30:00.000Z',
+      reproducibility: {
+        inputRevision: 2,
+        configurationRevision: 1,
+        inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
+        configurationFingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
+        seed: 42,
+      },
       artifacts,
     };
 
@@ -204,6 +212,48 @@ describe('analysis contracts', () => {
           ...artifact,
           kind: 'execution-summary' as const,
         })),
+      }).success
+    ).toBe(false);
+  });
+
+  it('validates a non-recursive checksum-bearing bundle manifest', () => {
+    const artifacts = analysisArtifactSpecifications
+      .filter((definition) => definition.kind !== 'result-bundle')
+      .map((definition, index) => ({
+        id: `ar_${String(index).padStart(32, '0')}`,
+        ...definition,
+        size: index + 1,
+        sha256: 'a'.repeat(64),
+        sha256Verification: 'worker-verified' as const,
+        createdAt: '2026-09-02T12:30:00.000Z',
+      }));
+    const manifest = {
+      schemaVersion: 1,
+      analysisId: 'an_0123456789abcdef0123456789abcdef',
+      completedAt: '2026-09-02T12:30:00.000Z',
+      reproducibility: {
+        inputRevision: 2,
+        configurationRevision: 1,
+        inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
+        configurationFingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
+        seed: 42,
+      },
+      artifacts,
+    };
+
+    expect(analysisBundleManifestSchema.safeParse(manifest).success).toBe(true);
+    expect(
+      analysisBundleManifestSchema.safeParse({
+        ...manifest,
+        artifacts: [
+          ...artifacts.slice(0, -1),
+          {
+            ...artifacts[0],
+            kind: 'result-bundle',
+            filename: 'ecosuitability-results.zip',
+            contentType: 'application/zip',
+          },
+        ],
       }).success
     ).toBe(false);
   });

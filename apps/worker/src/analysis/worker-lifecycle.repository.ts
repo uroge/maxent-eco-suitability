@@ -67,6 +67,35 @@ export class WorkerLifecycleRepository {
     return analysis.executionSnapshot;
   }
 
+  public async mapAssetsReady(analysisId: string): Promise<boolean> {
+    const payload = await this.redis
+      .getClient()
+      .get(this.analysisKey(analysisId));
+    if (!payload) {
+      return false;
+    }
+    const analysis = JSON.parse(payload) as {
+      executionSnapshot?: {
+        configuration?: { predictors?: Array<{ datasetId?: unknown }> };
+      };
+      mapAssets?: Array<{ datasetId?: unknown }>;
+    };
+    const predictorIds =
+      analysis.executionSnapshot?.configuration?.predictors?.map(
+        (predictor) => predictor.datasetId,
+      ) ?? [];
+    const assetIds = analysis.mapAssets?.map((asset) => asset.datasetId) ?? [];
+    return (
+      predictorIds.length > 0 &&
+      assetIds.length === predictorIds.length &&
+      new Set(assetIds).size === predictorIds.length &&
+      predictorIds.every(
+        (datasetId) =>
+          typeof datasetId === 'string' && assetIds.includes(datasetId),
+      )
+    );
+  }
+
   public async updateValidation(
     analysisId: string,
     jobId: string,

@@ -241,11 +241,13 @@ Depending on the supplied inputs and analysis configuration, a completed analysi
 - `variable-importance.json`
 - `response-curves.json`
 - `occurrences.geojson`
-- `background-points.geojson`
+- `background.geojson`
 - `suitability.tif`
-- `suitable-habitat.tif`
+- `suitability-threshold.tif`
 - `run.log.txt`
-- `result-bundle.zip`, containing the nine scientific files plus `bundle-manifest.json`
+- `ecosuitability-results.zip`, containing the nine scientific files plus `bundle-manifest.json`
+
+Every row is driven by the published result manifest and includes the worker-verified SHA-256 checksum. The download screen requests a new signed URL for each attempt, displays the frozen input and configuration revisions, fingerprints, and random seed, and disables downloads after the result expires. See [Result artifacts and bundles](docs/result-artifacts.md) for the publication and recovery guarantees.
 
 GIS artifacts that depend on spatial raster prediction are generated only when the required spatial predictor data is available.
 
@@ -497,7 +499,7 @@ The NestJS API does not implement or need to understand the underlying scientifi
 
 R writes structured JSON lines to stdout during execution.
 
-Example:
+Example (artifact entries abbreviated):
 
 ```json
 {"stage":"validation","progress":10}
@@ -552,28 +554,16 @@ Example:
 
 ```json
 {
-  "model": {
-    "type": "maxnet",
-    "auc": 0.89,
-    "threshold": 0.54
-  },
-
-  "variables": [
-    {
-      "name": "temperature",
-      "importance": 42
-    },
-    {
-      "name": "rainfall",
-      "importance": 31
-    },
-    {
-      "name": "elevation",
-      "importance": 18
-    }
-  ],
-
+  "analysisId": "an_abc123",
   "completedAt": "2026-10-17T12:00:00.000Z",
+  "resultExpiresAt": "2026-10-19T12:00:00.000Z",
+  "reproducibility": {
+    "inputRevision": 3,
+    "configurationRevision": 2,
+    "inputFingerprint": "jcs-sha256-v1:…",
+    "configurationFingerprint": "jcs-sha256-v1:…",
+    "seed": 42
+  },
   "artifacts": [
     { "kind": "execution-summary", "filename": "execution-summary.json" },
     { "kind": "metrics", "filename": "metrics.json" },
@@ -667,9 +657,9 @@ analyses/an_abc123/
     execution-summary.json
     metrics.json
     suitability.tif
-    suitable-habitat.tif
+    suitability-threshold.tif
     occurrences.geojson
-    background-points.geojson
+    background.geojson
     variable-importance.json
     response-curves.json
     run.log.txt

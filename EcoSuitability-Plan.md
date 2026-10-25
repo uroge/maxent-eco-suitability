@@ -227,9 +227,9 @@ analyses/an_abc123/
     ├── execution-summary.json
     ├── metrics.json
     ├── suitability.tif
-    ├── suitable-habitat.tif
+    ├── suitability-threshold.tif
     ├── occurrences.geojson
-    ├── background-points.geojson
+    ├── background.geojson
     ├── variable-importance.json
     ├── response-curves.json
     ├── run.log.txt
@@ -815,11 +815,11 @@ metrics.json
 variable-importance.json
 response-curves.json
 occurrences.geojson
-background-points.geojson
+background.geojson
 suitability.tif
-suitable-habitat.tif
+suitability-threshold.tif
 run.log.txt
-result-bundle.zip
+ecosuitability-results.zip
 ```
 
 Use short-lived signed R2 URLs.

@@ -109,15 +109,20 @@ response to an incidental runtime failure.
 `draft`, `uploading`, and `ready` can become `cancelled` or `expired`.
 
 Successful deterministic runs create a crash-safe provisional result record
-before writing output. The worker produces `execution-summary.json` and
-`run.log.txt`, verifies their size, content metadata, and worker-generated
-SHA-256 values with storage, then atomically publishes a result manifest and
-marks the analysis succeeded. A failed publication is retried by BullMQ using
-the same artifact IDs, keys, and completion timestamp; ordinary reconciliation
-only cleans abandoned provisional records. Result manifests are available only
-to the owning user at `GET /v1/analyses/:analysisId/results`. The download
-endpoint issues a direct storage URL with a maximum five-minute lifetime,
-bounded by result expiry, and never returns URLs from the manifest response.
+before writing output. The worker verifies the size, content metadata, and
+worker-generated SHA-256 of all nine scientific artifacts, then reads and
+hashes every stored byte again while staging `ecosuitability-results.zip`.
+That ZIP contains the nine files and a validated, non-recursive
+`bundle-manifest.json` with their checksums and the frozen revisions,
+fingerprints, and seed. The ZIP is verified and published as the tenth artifact
+before the analysis atomically becomes `succeeded`. A failed publication is
+retried by BullMQ using the same artifact IDs, keys, and completion timestamp;
+when all scientific artifacts and map assets are already present, recovery
+rebuilds only a missing ZIP rather than rerunning R. Result manifests are
+available only to the owning user at `GET /v1/analyses/:analysisId/results`.
+The download endpoint issues a fresh direct-storage URL with a maximum
+five-minute lifetime bounded by result expiry, never returns storage keys, and
+returns no signed URLs in the manifest response.
 
 Input preparation has an explicit 48-hour deadline starting at creation. Queue
 submission establishes a separate 48-hour processing deadline for `queued` and

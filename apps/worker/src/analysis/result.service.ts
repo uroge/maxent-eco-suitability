@@ -4,13 +4,18 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import archiver from 'archiver';
 import {
   analysisArtifactSpecifications,
+  analysisBundleManifestSchema,
+  analysisReproducibilitySchema,
+  analysisResultManifestSchema,
   scientificArtifactSpecifications,
   type AnalysisArtifact,
   type AnalysisJobPayload,
+  type AnalysisReproducibility,
   type AnalysisResultManifest,
   type RGeneratedArtifact,
   type RGeneratedMapAsset,
@@ -133,6 +138,7 @@ export class ResultService {
     if (!job.id || !provisional.candidateCompletedAt) {
       return 'stale_attempt';
     }
+    this.assertCompletePublication(provisional);
     if (!(await this.artifactsExist(provisional))) {
       throw new Error('Result artifact storage verification failed.');
     }
@@ -144,11 +150,13 @@ export class ResultService {
     if (typeof verified === 'string') {
       return verified === 'cancelled' ? 'cancelled' : 'stale_attempt';
     }
+    this.assertCompletePublication(verified);
+    const manifest = await this.manifest(job.data.analysisId, verified);
     return this.lifecycle.publishResult(
       job.data.analysisId,
       job.id,
       attempt,
-      this.manifest(job.data.analysisId, verified),
+      manifest,
       verified.artifacts,
     );
   }
@@ -167,6 +175,7 @@ export class ResultService {
     if (existing) {
       return provisional;
     }
+    this.assertScientificArtifacts(provisional.artifacts);
     const definition = analysisArtifactSpecifications.find(
       (artifact) => artifact.kind === 'result-bundle',
     );
@@ -174,42 +183,73 @@ export class ResultService {
       throw new Error('Result bundle definition is missing.');
     }
     const artifact = this.artifact(job.data.analysisId, definition);
+    const reproducibility = await this.reproducibility(job.data.analysisId);
+    const bundleManifest = analysisBundleManifestSchema.parse({
+      schemaVersion: 1,
+      analysisId: job.data.analysisId,
+      completedAt: provisional.candidateCompletedAt,
+      reproducibility,
+      artifacts: provisional.artifacts.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        filename: item.filename,
+        contentType: item.contentType,
+        size: item.size,
+        sha256: item.sha256,
+        sha256Verification: item.sha256Verification,
+        createdAt: item.createdAt,
+      })),
+    });
     const directory = await mkdtemp(join(tmpdir(), 'ecosuitability-bundle-'));
     const archivePath = join(directory, definition.filename);
     try {
+      const stagedArtifacts: Array<{
+        source: ProvisionalArtifact;
+        stagedPath: string;
+      }> = [];
+      for (const [index, source] of provisional.artifacts.entries()) {
+        const stagedPath = join(directory, `artifact-${index}`);
+        await this.stageVerifiedArtifact(source, stagedPath);
+        stagedArtifacts.push({ source, stagedPath });
+      }
       const archive = archiver('zip', { zlib: { level: 6 } });
       const output = createWriteStream(archivePath, { mode: 0o600 });
       const completion = pipeline(archive, output);
-      for (const source of provisional.artifacts) {
-        archive.append(await this.storage.getStream(source.storageKey), {
+      const archivedEntries: string[] = [];
+      const entryDate = new Date(provisional.candidateCompletedAt);
+      archive.on('entry', (entry) => archivedEntries.push(entry.name));
+      archive.on('warning', (error) => archive.destroy(error));
+      for (const { source, stagedPath } of stagedArtifacts) {
+        archive.file(stagedPath, {
           name: source.filename,
+          date: entryDate,
+          mode: 0o644,
         });
       }
-      archive.append(
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            analysisId: job.data.analysisId,
-            completedAt: provisional.candidateCompletedAt,
-            artifacts: provisional.artifacts.map((item) => ({
-              id: item.id,
-              kind: item.kind,
-              filename: item.filename,
-              contentType: item.contentType,
-              size: item.size,
-              sha256: item.sha256,
-              sha256Verification: item.sha256Verification,
-              createdAt: item.createdAt,
-            })),
-          },
-          null,
-          2,
-        ),
-        { name: 'bundle-manifest.json' },
-      );
+      archive.append(`${JSON.stringify(bundleManifest, null, 2)}\n`, {
+        name: 'bundle-manifest.json',
+        date: entryDate,
+        mode: 0o644,
+        store: true,
+      });
       await archive.finalize();
       await completion;
+      const expectedEntries = [
+        ...provisional.artifacts.map((item) => item.filename),
+        'bundle-manifest.json',
+      ];
+      if (
+        archivedEntries.length !== expectedEntries.length ||
+        new Set(archivedEntries).size !== expectedEntries.length ||
+        expectedEntries.some((entry) => !archivedEntries.includes(entry)) ||
+        archivedEntries.includes(definition.filename)
+      ) {
+        throw new Error('Result bundle contains an invalid artifact set.');
+      }
       const metadata = await stat(archivePath);
+      if (!metadata.isFile() || metadata.size < 1) {
+        throw new Error('Result bundle was not created.');
+      }
       const sha256 = await this.hashFile(archivePath);
       const completedArtifact: ProvisionalArtifact = {
         ...artifact,
@@ -224,16 +264,23 @@ export class ResultService {
         completedArtifact.contentDisposition,
         completedArtifact.sha256,
       );
-      const updated = await this.lifecycle.appendBundle(
-        job.data.analysisId,
-        job.id,
-        attempt,
-        completedArtifact,
-      );
-      if (typeof updated === 'string') {
-        throw new ResultLifecycleError(updated);
+      try {
+        const updated = await this.lifecycle.appendBundle(
+          job.data.analysisId,
+          job.id,
+          attempt,
+          completedArtifact,
+        );
+        if (typeof updated === 'string') {
+          throw new ResultLifecycleError(updated);
+        }
+        return updated;
+      } catch (error) {
+        await this.storage
+          .delete(completedArtifact.storageKey)
+          .catch(() => undefined);
+        throw error;
       }
-      return updated;
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -373,18 +420,27 @@ export class ResultService {
     | 'stale_attempt'
     | 'terminal'
   > {
-    const provisional = await this.provision(job, attempt);
+    let provisional = await this.provision(job, attempt);
     if (typeof provisional === 'string') {
       return provisional;
     }
     if (
       provisional.publicationState === 'provisioned' ||
-      !provisional.candidateCompletedAt ||
-      !provisional.artifacts.some(
-        (artifact) => artifact.kind === 'result-bundle',
-      )
+      !provisional.candidateCompletedAt
     ) {
       return 'not-ready';
+    }
+    const hasBundle = provisional.artifacts.some(
+      (artifact) => artifact.kind === 'result-bundle',
+    );
+    if (!hasBundle) {
+      if (
+        !(await this.lifecycle.mapAssetsReady(job.data.analysisId)) ||
+        !(await this.artifactsExist(provisional))
+      ) {
+        return 'not-ready';
+      }
+      provisional = await this.createBundle(job, attempt, provisional);
     }
     if (!(await this.artifactsExist(provisional))) {
       return 'not-ready';
@@ -435,20 +491,51 @@ export class ResultService {
     }
   }
 
-  private manifest(
+  private assertScientificArtifacts(artifacts: ProvisionalArtifact[]): void {
+    const kinds = new Set(artifacts.map((artifact) => artifact.kind));
+    if (
+      artifacts.length !== scientificArtifactSpecifications.length ||
+      kinds.size !== scientificArtifactSpecifications.length ||
+      scientificArtifactSpecifications.some(
+        (definition) => !kinds.has(definition.kind),
+      )
+    ) {
+      throw new Error(
+        'Result bundle requires the complete scientific artifact set.',
+      );
+    }
+  }
+
+  private assertCompletePublication(provisional: ProvisionalResult): void {
+    const kinds = new Set(
+      provisional.artifacts.map((artifact) => artifact.kind),
+    );
+    if (
+      provisional.artifacts.length !== analysisArtifactSpecifications.length ||
+      kinds.size !== analysisArtifactSpecifications.length ||
+      analysisArtifactSpecifications.some(
+        (definition) => !kinds.has(definition.kind),
+      )
+    ) {
+      throw new Error('Result publication requires all ten artifacts.');
+    }
+  }
+
+  private async manifest(
     analysisId: string,
     provisional: ProvisionalResult,
-  ): AnalysisResultManifest {
+  ): Promise<AnalysisResultManifest> {
     if (!provisional.candidateCompletedAt) {
       throw new Error('Result publication requires a completion timestamp.');
     }
-    return {
+    return analysisResultManifestSchema.parse({
       analysisId,
       completedAt: provisional.candidateCompletedAt,
       resultExpiresAt: new Date(
         new Date(provisional.candidateCompletedAt).getTime() +
           resultRetentionMs,
       ).toISOString(),
+      reproducibility: await this.reproducibility(analysisId),
       artifacts: provisional.artifacts.map((artifact) => ({
         id: artifact.id,
         kind: artifact.kind,
@@ -459,7 +546,63 @@ export class ResultService {
         sha256Verification: artifact.sha256Verification,
         createdAt: artifact.createdAt,
       })),
-    };
+    });
+  }
+
+  private async reproducibility(
+    analysisId: string,
+  ): Promise<AnalysisReproducibility> {
+    const snapshot = (await this.lifecycle.executionSnapshot(analysisId)) as
+      | {
+          inputRevision?: unknown;
+          configurationRevision?: unknown;
+          inputFingerprint?: unknown;
+          fingerprint?: unknown;
+          seed?: unknown;
+        }
+      | undefined;
+    return analysisReproducibilitySchema.parse({
+      inputRevision: snapshot?.inputRevision,
+      configurationRevision: snapshot?.configurationRevision,
+      inputFingerprint: snapshot?.inputFingerprint,
+      configurationFingerprint: snapshot?.fingerprint,
+      seed: snapshot?.seed,
+    });
+  }
+
+  private async stageVerifiedArtifact(
+    artifact: ProvisionalArtifact,
+    targetPath: string,
+  ): Promise<void> {
+    const source = await this.storage.getStream(artifact.storageKey);
+    const hash = createHash('sha256');
+    let size = 0;
+    const verifier = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        size += chunk.byteLength;
+        hash.update(chunk);
+        callback(null, chunk);
+      },
+      flush(callback) {
+        if (
+          size !== artifact.size ||
+          hash.digest('hex').toLowerCase() !== artifact.sha256.toLowerCase()
+        ) {
+          callback(
+            new Error(
+              `Stored artifact ${artifact.filename} failed bundle verification.`,
+            ),
+          );
+          return;
+        }
+        callback();
+      },
+    });
+    await pipeline(
+      source,
+      verifier,
+      createWriteStream(targetPath, { mode: 0o600 }),
+    );
   }
 
   private provisional(

@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createClient, type RedisClientType } from 'redis';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
-import { scientificArtifactSpecifications } from '@ecosuitability/contracts';
+import {
+  analysisArtifactSpecifications,
+  scientificArtifactSpecifications,
+} from '@ecosuitability/contracts';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 import { ResultService } from './result.service';
 
@@ -36,6 +39,7 @@ describe.runIf(integrationEnabled)(
 
     it('publishes uploaded artifacts after a worker crash without rerunning the model', async () => {
       const analysisId = 'an_cccccccccccccccccccccccccccccccc';
+      const candidateCompletedAt = new Date().toISOString();
       const job = { id: analysisId, data: { analysisId, ownerId: 'user_123' } };
       await client.set(
         `${analysisKeyPrefix}${analysisId}`,
@@ -45,6 +49,13 @@ describe.runIf(integrationEnabled)(
           expiresAt: '2026-09-04T12:00:00.000Z',
           failure: null,
           execution: { jobId: analysisId, attempt: 1 },
+          executionSnapshot: {
+            inputRevision: 2,
+            configurationRevision: 1,
+            inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
+            fingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
+            seed: 42,
+          },
         }),
       );
       const storageState = new Map<
@@ -74,7 +85,7 @@ describe.runIf(integrationEnabled)(
         1,
         provisional,
         generated,
-        '2026-09-02T12:30:00.000Z',
+        candidateCompletedAt,
       );
       for (const artifact of uploading.artifacts) {
         storageState.set(artifact.storageKey, {
@@ -84,6 +95,28 @@ describe.runIf(integrationEnabled)(
           sha256: artifact.sha256,
         });
       }
+      const bundleDefinition = analysisArtifactSpecifications.find(
+        (artifact) => artifact.kind === 'result-bundle',
+      )!;
+      const bundleArtifact = {
+        id: `ar_${'f'.repeat(32)}`,
+        ...bundleDefinition,
+        storageKey: `analyses/${analysisId}/results/bundle/${bundleDefinition.filename}`,
+        contentDisposition: `attachment; filename="${bundleDefinition.filename}"`,
+        size: 4096,
+        sha256: 'f'.repeat(64),
+        sha256Verification: 'worker-verified' as const,
+        createdAt: uploading.candidateCompletedAt!,
+      };
+      await expect(
+        repository.appendBundle(analysisId, analysisId, 1, bundleArtifact),
+      ).resolves.toMatchObject({ artifacts: expect.any(Array) });
+      storageState.set(bundleArtifact.storageKey, {
+        size: bundleArtifact.size,
+        contentType: bundleArtifact.contentType,
+        contentDisposition: bundleArtifact.contentDisposition,
+        sha256: bundleArtifact.sha256,
+      });
 
       await expect(repository.claim(analysisId, analysisId, 2)).resolves.toBe(
         'claimed',
@@ -100,12 +133,15 @@ describe.runIf(integrationEnabled)(
         resultManifest: { artifacts: Array<{ storageKey: string }> };
       };
       expect(stored.status).toBe('succeeded');
-      expect(stored.resultManifest.artifacts).toHaveLength(9);
+      expect(stored.resultManifest.artifacts).toHaveLength(10);
       expect(
         stored.resultManifest.artifacts.every(
           (artifact) => artifact.storageKey,
         ),
       ).toBe(true);
+      expect(
+        await client.pTTL(`${analysisKeyPrefix}${analysisId}`),
+      ).toBeGreaterThan(47 * 60 * 60 * 1000);
     }, 30_000);
   },
 );
