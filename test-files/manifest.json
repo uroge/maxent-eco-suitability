@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "label": "Synthetic example dataset",
+  "scientificUse": false,
+  "generator": "scripts/generate-example-dataset.py",
+  "files": [
+    {
+      "filename": "synthetic-occurrences.csv",
+      "size": 747,
+      "sha256": "5e1c705a30b84bbd70c684aa9305f83b2e7be230a3aa47478524b86c733b6c35"
+    },
+    {
+      "filename": "synthetic-elevation.tif",
+      "size": 651,
+      "sha256": "b0f0dfad99af2d36025dba7c27f462f497114e189fcb961e7078b49843bc9d42"
+    }
+  ]
+}

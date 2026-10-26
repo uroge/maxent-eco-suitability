@@ -1,14 +1,14 @@
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
+import { AnalysisModule } from './analysis/analysis.module';
 import { validateEnvironment } from './env';
 import { OperationsController } from './platform/operations.controller';
 import { OperationsExceptionFilter } from './platform/operations-exception.filter';
 import { LifecycleMiddleware } from './platform/lifecycle.middleware';
 import { LifecycleService } from './platform/lifecycle.service';
+import { RedisModule } from './platform/redis.module';
 import { RequestIdMiddleware } from './platform/request-id.middleware';
-import { RedisService } from './platform/redis.service';
-import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
   imports: [
@@ -34,11 +34,11 @@ import { AnalysisModule } from './analysis/analysis.module';
         },
       },
     }),
+    RedisModule,
     AnalysisModule,
   ],
   controllers: [OperationsController],
   providers: [
-    RedisService,
     OperationsExceptionFilter,
     LifecycleService,
     LifecycleMiddleware,

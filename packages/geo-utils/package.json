@@ -2,10 +2,23 @@
   "name": "@ecosuitability/geo-utils",
   "private": true,
   "version": "0.0.0",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
+    "build": "rimraf dist && tsc --project tsconfig.build.json",
+    "dev": "tsc --project tsconfig.build.json --watch --preserveWatchOutput",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"

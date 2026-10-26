@@ -6,6 +6,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "predev": "turbo build --filter=@ecosuitability/contracts --filter=@ecosuitability/geo-utils",
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",

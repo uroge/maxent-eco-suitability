@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import type { ZodType } from 'zod';
+import { serverEnvironment } from '../server-env';
 import { responseError } from './api-error';
 
 export const serverApi = async <T>(
@@ -9,7 +10,7 @@ export const serverApi = async <T>(
 ): Promise<T> => {
   const session = await auth();
   const token = await session.getToken();
-  const response = await fetch(new URL(path, process.env.NEXT_PUBLIC_API_URL), {
+  const response = await fetch(new URL(path, serverEnvironment.API_INTERNAL_URL), {
     ...options,
     cache: 'no-store',
     headers: {

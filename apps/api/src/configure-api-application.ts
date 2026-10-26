@@ -25,8 +25,13 @@ export const configureApiApplication = async (
   app.use(helmet());
   app.enableCors({
     origin: config.getOrThrow('API_CORS_ORIGINS'),
-    methods: ['GET', 'HEAD', 'OPTIONS', 'POST'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-ID'],
+    methods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Idempotency-Key',
+      'X-Request-ID',
+    ],
     credentials: false,
     maxAge: 600,
   });

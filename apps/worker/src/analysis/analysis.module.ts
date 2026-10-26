@@ -6,6 +6,7 @@ import {
   analysisQueuePrefix,
 } from '@ecosuitability/contracts';
 import type { WorkerEnvironment } from '../env';
+import { RedisModule } from '../platform/redis.module';
 import { WorkerStorageModule } from '../storage/worker-storage.module';
 import { AnalysisProcessor } from './analysis.processor';
 import { RValidationClient } from './r-validation.client';
@@ -15,6 +16,7 @@ import { ValidationJobService } from './validation-job.service';
 
 @Module({
   imports: [
+    RedisModule,
     WorkerStorageModule,
     BullModule.forRootAsync({
       inject: [ConfigService],

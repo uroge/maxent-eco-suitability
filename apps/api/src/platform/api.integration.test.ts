@@ -114,10 +114,20 @@ describe.runIf(integrationEnabled)('API platform HTTP contracts', () => {
       .options('/v1/analyses')
       .set('Origin', productionOrigin)
       .set('Access-Control-Request-Method', 'POST')
-      .set('Access-Control-Request-Headers', 'authorization,content-type')
+      .set(
+        'Access-Control-Request-Headers',
+        'authorization,content-type,idempotency-key',
+      )
       .expect(204)
       .expect('access-control-allow-origin', productionOrigin)
-      .expect('access-control-max-age', '600');
+      .expect('access-control-max-age', '600')
+      .expect(({ headers }) => {
+        expect(headers['access-control-allow-headers']).toContain(
+          'Idempotency-Key',
+        );
+        expect(headers['access-control-allow-methods']).toContain('DELETE');
+        expect(headers['access-control-allow-methods']).toContain('PUT');
+      });
 
     await request(app.getHttpServer())
       .options('/v1/analyses')

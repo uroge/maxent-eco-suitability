@@ -2,6 +2,8 @@ packages:
   - apps/*
   - packages/*
 injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   '@scarf/scarf': false
   cpu-features: false
