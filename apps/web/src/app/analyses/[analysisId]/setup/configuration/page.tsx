@@ -8,7 +8,7 @@ export default async function ConfigurationPage({
   params: Promise<{ analysisId: string }>;
 }) {
   const { analysisId } = await params;
-  return (await analysisRoute(analysisId, 'setup')) ? (
+  return (await analysisRoute(analysisId, { area: 'setup', step: 'configuration' })) ? (
     <ConfigurationScreen analysisId={analysisId} />
   ) : (
     <AnalysisUnavailable />

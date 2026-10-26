@@ -13,7 +13,7 @@ if not analysisPayload then
   return { 'missing' }
 end
 local analysis = cjson.decode(analysisPayload)
-if analysis.status ~= 'uploading' then
+if analysis.status ~= 'uploading' and not (analysis.status == 'ready' and dataset.replaceDatasetId and dataset.replaceDatasetId ~= cjson.null) then
   return { 'invalid_analysis' }
 end
 

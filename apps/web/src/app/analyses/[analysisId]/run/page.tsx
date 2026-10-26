@@ -4,7 +4,7 @@ import { analysisRoute } from '@/lib/analysis-route';
 
 export default async function RunPage({ params }: { params: Promise<{ analysisId: string }> }) {
   const { analysisId } = await params;
-  return (await analysisRoute(analysisId, 'run')) ? (
+  return (await analysisRoute(analysisId, { area: 'run' })) ? (
     <RunScreen analysisId={analysisId} />
   ) : (
     <AnalysisUnavailable />

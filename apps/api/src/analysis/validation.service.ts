@@ -70,6 +70,7 @@ export class ValidationService {
         recordCount: null,
         duplicateCoordinateCount: null,
         crs: null,
+        sources: [],
       },
       rasters: [],
       spatialPreview: null,

@@ -1,6 +1,16 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { cn } from '@ecosuitability/ui';
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+  SheetContent,
+  cn,
+} from '@ecosuitability/ui';
+import { ChevronDown, X } from 'lucide-react';
 
 const steps = [
   ['data', 'Data'],
@@ -28,7 +38,7 @@ export const SetupShell: React.FC<SetupShellProps> = ({
     <div className="border-b border-border bg-surface">
       <div className="mx-auto max-w-6xl px-5 py-5 sm:px-8">
         <p className="font-mono text-xs text-muted-foreground">{analysisId}</p>
-        <nav aria-label="Analysis setup" className="mt-4 grid grid-cols-4 gap-1 sm:gap-3">
+        <nav aria-label="Analysis setup" className="mt-4 hidden grid-cols-4 gap-3 sm:grid">
           {steps.map(([key, label], index) => (
             <Link
               key={key}
@@ -44,6 +54,39 @@ export const SetupShell: React.FC<SetupShellProps> = ({
             </Link>
           ))}
         </nav>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button className="mt-4 w-full justify-between sm:hidden" variant="secondary">
+              <span>{steps.find(([key]) => key === current)?.[1]}</span>
+              <ChevronDown size={16} />
+            </Button>
+          </DialogTrigger>
+          <SheetContent>
+            <DialogTitle className="text-lg font-semibold">Analysis setup</DialogTitle>
+            <DialogDescription className="mt-1 text-sm text-muted-foreground">
+              Current step: {steps.find(([key]) => key === current)?.[1]}
+            </DialogDescription>
+            <DialogClose className="absolute right-3 top-3" aria-label="Close setup navigation">
+              <X />
+            </DialogClose>
+            <nav aria-label="Mobile analysis setup" className="mt-6 grid gap-2">
+              {steps.map(([key, label], index) => (
+                <DialogClose asChild key={key}>
+                  <Link
+                    href={`/analyses/${analysisId}/setup/${key}`}
+                    aria-current={current === key ? 'step' : undefined}
+                    className={cn(
+                      'flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-muted-foreground',
+                      current === key && 'bg-primary text-primary-foreground'
+                    )}
+                  >
+                    {index + 1}. {label}
+                  </Link>
+                </DialogClose>
+              ))}
+            </nav>
+          </SheetContent>
+        </Dialog>
       </div>
     </div>
     <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-10">

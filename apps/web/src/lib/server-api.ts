@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import type { ZodType } from 'zod';
+import { responseError } from './api-error';
 
 export const serverApi = async <T>(
   path: string,
@@ -17,7 +18,7 @@ export const serverApi = async <T>(
     },
   });
   if (!response.ok) {
-    throw new Error(response.status === 404 ? 'NOT_FOUND' : 'API_UNAVAILABLE');
+    throw await responseError(response);
   }
   return schema.parse(await response.json());
 };

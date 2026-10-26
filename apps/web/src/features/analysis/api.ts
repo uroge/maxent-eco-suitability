@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
 import type { ZodType } from 'zod';
 import { createApiClient } from '@/lib/api-client';
+import { responseError } from '@/lib/api-error';
 
 export const analysisKeys = {
   analysis: (id: string) => ['analysis', id] as const,
@@ -26,7 +27,7 @@ export const useAnalysisApi = () => {
       json: async <T>(path: string, schema: ZodType<T>, options: RequestInit = {}): Promise<T> => {
         const response = await client.request(path, options);
         if (!response.ok) {
-          throw new Error(response.status === 404 ? 'NOT_FOUND' : 'REQUEST_FAILED');
+          throw await responseError(response);
         }
         return schema.parse(await response.json());
       },

@@ -18,6 +18,7 @@ import {
   requestPreflightSchema,
   cancelAnalysisRequestSchema,
   completeAnalysisInputsRequestSchema,
+  activeUploadDatasetsResponseSchema,
 } from './analysis';
 
 describe('analysis contracts', () => {
@@ -43,6 +44,38 @@ describe('analysis contracts', () => {
     expect(analysisIdSchema.safeParse('analysis-123').success).toBe(false);
     expect(idempotencyKeySchema.safeParse('request-key-123').success).toBe(true);
     expect(idempotencyKeySchema.safeParse('short').success).toBe(false);
+  });
+
+  it('parses sanitized resumable upload metadata', () => {
+    const result = activeUploadDatasetsResponseSchema.parse({
+      uploads: [
+        {
+          id: 'ds_0123456789abcdef0123456789abcdef',
+          analysisId: 'an_0123456789abcdef0123456789abcdef',
+          kind: 'predictor',
+          format: 'geotiff',
+          status: 'collecting',
+          createdAt: '2026-10-17T12:00:00.000Z',
+          expiresAt: '2026-10-17T13:00:00.000Z',
+          replaceDatasetId: null,
+          files: [
+            {
+              id: 'up_0123456789abcdef0123456789abcdef',
+              originalName: 'bio1.tif',
+              size: 100,
+              sha256: 'a'.repeat(64),
+              contentType: 'image/tiff',
+              component: null,
+              multipart: false,
+              partSizeBytes: null,
+              status: 'pending',
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.uploads[0]?.files[0]?.originalName).toBe('bio1.tif');
+    expect(result.uploads[0]?.files[0]).not.toHaveProperty('storageKey');
   });
 
   it('binds validation and cancellation intents to explicit lifecycle state', () => {
@@ -389,6 +422,7 @@ describe('analysis contracts', () => {
         recordCount: 12,
         duplicateCoordinateCount: 1,
         crs: 'EPSG:4326',
+        sources: [],
       },
       rasters: [
         {

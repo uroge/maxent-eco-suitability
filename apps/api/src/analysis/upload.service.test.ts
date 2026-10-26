@@ -50,6 +50,7 @@ const createService = () => {
     deleteDataset: vi.fn(),
     deleteUpload: vi.fn(),
     due: vi.fn(),
+    sessions: vi.fn(async () => []),
   };
   const storage = {
     createMultipart: vi.fn(),
@@ -114,6 +115,51 @@ describe('UploadService', () => {
         format: 'geotiff-zip',
       }),
     ).resolves.toMatchObject({ dataset: { format: 'geotiff-zip' } });
+  });
+
+  it('passes an attached replacement target into the atomic dataset reservation', async () => {
+    const { repository, service } = createService();
+    await service.createDataset(
+      principal,
+      dataset.analysisId,
+      'replacement-key-123',
+      {
+        kind: 'occurrence',
+        format: 'csv',
+        replaceDatasetId: dataset.id,
+      },
+    );
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ replaceDatasetId: dataset.id }),
+      expect.any(Number),
+    );
+  });
+
+  it('returns sanitized active upload metadata without storage capabilities', async () => {
+    const { repository, service } = createService();
+    repository.sessions.mockResolvedValue([
+      { ...dataset, replaceDatasetId: null },
+    ] as never);
+    repository.uploads.mockResolvedValue([
+      {
+        id: 'up_0123456789abcdef0123456789abcdef',
+        originalName: 'occurrences.csv',
+        size: 1024,
+        sha256: 'a'.repeat(64),
+        contentType: 'text/csv',
+        component: undefined,
+        multipartUploadId: undefined,
+        objectKey: 'private/object/key',
+        status: 'pending',
+      },
+    ] as never);
+    const result = await service.activeUploads(principal, dataset.analysisId);
+    expect(result[0]).toMatchObject({
+      id: dataset.id,
+      files: [{ originalName: 'occurrences.csv' }],
+    });
+    expect(result[0]).not.toHaveProperty('objectKey');
+    expect(result[0]?.files[0]).not.toHaveProperty('objectKey');
   });
 
   it('requires a declared Shapefile component matching the file extension', async () => {

@@ -246,6 +246,7 @@ export const createUploadDatasetRequestSchema = z
   .object({
     kind: uploadDatasetKindSchema,
     format: uploadDatasetFormatSchema,
+    replaceDatasetId: uploadDatasetIdSchema.optional(),
   })
   .strict();
 
@@ -281,6 +282,7 @@ export type UploadPartRequest = z.infer<typeof uploadPartRequestSchema>;
 export const uploadFileResponseSchema = z.object({
   id: uploadIdSchema,
   multipart: z.boolean(),
+  status: uploadFileStatusSchema,
   uploadUrl: z.string().url().nullable(),
   partSizeBytes: z.number().int().positive().nullable(),
 });
@@ -304,6 +306,35 @@ export const uploadDatasetResponseSchema = z.object({
 });
 
 export type UploadDatasetResponse = z.infer<typeof uploadDatasetResponseSchema>;
+
+export const activeUploadFileSchema = z
+  .object({
+    id: uploadIdSchema,
+    originalName: z.string().min(1).max(255),
+    size: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    contentType: z.string().max(128).nullable(),
+    component: shapefileComponentSchema.nullable(),
+    multipart: z.boolean(),
+    partSizeBytes: z.number().int().positive().nullable(),
+    status: uploadFileStatusSchema,
+  })
+  .strict();
+
+export const activeUploadDatasetSchema = uploadDatasetSchema
+  .extend({
+    replaceDatasetId: uploadDatasetIdSchema.nullable(),
+    files: z.array(activeUploadFileSchema).max(5),
+  })
+  .strict();
+
+export const activeUploadDatasetsResponseSchema = z
+  .object({ uploads: z.array(activeUploadDatasetSchema) })
+  .strict();
+
+export type ActiveUploadDataset = z.infer<typeof activeUploadDatasetSchema>;
+
+export type ActiveUploadDatasetsResponse = z.infer<typeof activeUploadDatasetsResponseSchema>;
 
 export const analysisInputFileSchema = z.object({
   uploadId: uploadIdSchema,
@@ -776,6 +807,20 @@ const spatialPreviewSchema = z
   })
   .strict();
 
+export const occurrenceSourceProfileSchema = z
+  .object({
+    source: z.string().min(1).max(255).nullable(),
+    columns: z.array(z.string().min(1).max(255)),
+    longitudeCandidates: z.array(z.string().min(1).max(255)),
+    latitudeCandidates: z.array(z.string().min(1).max(255)),
+    speciesCandidates: z.array(z.string().min(1).max(255)),
+    recordCount: z.number().int().nonnegative().nullable(),
+    geometryType: z.string().min(1).max(64).nullable(),
+  })
+  .strict();
+
+export type OccurrenceSourceProfile = z.infer<typeof occurrenceSourceProfileSchema>;
+
 export const analysisInputProfileSchema = z
   .object({
     analysisId: analysisIdSchema,
@@ -797,6 +842,7 @@ export const analysisInputProfileSchema = z
         recordCount: z.number().int().nonnegative().nullable(),
         duplicateCoordinateCount: z.number().int().nonnegative().nullable(),
         crs: z.string().min(1).max(4096).nullable(),
+        sources: z.array(occurrenceSourceProfileSchema).default([]),
       })
       .strict(),
     rasters: z.array(rasterMetadataSchema),
@@ -1090,20 +1136,6 @@ export const analysisResultOverviewResponseSchema = z.object({
 
 export type AnalysisResultOverviewResponse = z.infer<typeof analysisResultOverviewResponseSchema>;
 
-export const analysisDiagnosticsSchema = z
-  .object({
-    metrics: analysisMetricsArtifactSchema,
-    importance: z.unknown(),
-    responseCurves: z.unknown(),
-  })
-  .strict();
-
-export const analysisDiagnosticsResponseSchema = z.object({
-  diagnostics: analysisDiagnosticsSchema,
-});
-
-export type AnalysisDiagnosticsResponse = z.infer<typeof analysisDiagnosticsResponseSchema>;
-
 export const mapBasemapSchema = z
   .object({
     id: z.enum(['light', 'satellite', 'terrain']),
@@ -1220,6 +1252,22 @@ export const analysisResponseCurvesArtifactSchema = z
     ),
   })
   .strict();
+
+export const analysisDiagnosticsSchema = z
+  .object({
+    metrics: analysisMetricsArtifactSchema,
+    importance: analysisVariableImportanceArtifactSchema,
+    responseCurves: analysisResponseCurvesArtifactSchema,
+  })
+  .strict();
+
+export type AnalysisDiagnostics = z.infer<typeof analysisDiagnosticsSchema>;
+
+export const analysisDiagnosticsResponseSchema = z.object({
+  diagnostics: analysisDiagnosticsSchema,
+});
+
+export type AnalysisDiagnosticsResponse = z.infer<typeof analysisDiagnosticsResponseSchema>;
 
 export const analysisExecutionSummaryArtifactSchema = z
   .object({

@@ -19,11 +19,22 @@ end
 if analysis.status == 'draft' then
   analysis.status = 'uploading'
   analysis.updatedAt = ARGV[7]
-elseif analysis.status ~= 'uploading' then
+elseif analysis.status ~= 'uploading' and not (analysis.status == 'ready' and ARGV[9] ~= '') then
   return { 'invalid_analysis' }
 end
 
-if ARGV[8] == 'occurrence' then
+if ARGV[9] ~= '' then
+  local manifestPayload = redis.call('GET', KEYS[6])
+  if not manifestPayload then return { 'replacement_missing' } end
+  local manifest = cjson.decode(manifestPayload)
+  local replacement = nil
+  for _, attached in ipairs(manifest.datasets) do
+    if attached.dataset.id == ARGV[9] then replacement = attached end
+  end
+  if replacement == nil or replacement.dataset.kind ~= ARGV[8] then
+    return { 'replacement_missing' }
+  end
+elseif ARGV[8] == 'occurrence' then
   if type(analysis.occurrenceDatasetId) == 'string' and analysis.occurrenceDatasetId ~= ARGV[1] then
     return { 'occurrence_reserved' }
   end

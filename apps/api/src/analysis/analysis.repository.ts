@@ -5,6 +5,7 @@ import type {
   AnalysisInputDataset,
   AnalysisInputProfile,
   AnalysisPreflight,
+  OccurrenceSourceProfile,
   QueueAnalysisRequest,
 } from '@ecosuitability/contracts';
 import { RedisService } from '../platform/redis/redis.service';
@@ -553,6 +554,15 @@ export class AnalysisRepository {
               speciesCandidates: redisArray(
                 profile.occurrence.speciesCandidates,
               ),
+              sources: redisArray<OccurrenceSourceProfile>(
+                profile.occurrence.sources,
+              ).map((source) => ({
+                ...source,
+                columns: redisArray(source.columns),
+                longitudeCandidates: redisArray(source.longitudeCandidates),
+                latitudeCandidates: redisArray(source.latitudeCandidates),
+                speciesCandidates: redisArray(source.speciesCandidates),
+              })),
             },
             rasters: redisArray(profile.rasters),
             spatialPreview: profile.spatialPreview

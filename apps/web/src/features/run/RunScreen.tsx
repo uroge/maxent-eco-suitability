@@ -16,6 +16,7 @@ import {
   Progress,
 } from '@ecosuitability/ui';
 import { Clock3 } from 'lucide-react';
+import { QueryStateAlert } from '../analysis/QueryStateAlert';
 import { useAnalysis } from '../analysis/useAnalysis';
 import { idempotencyKey, useAnalysisApi } from '../analysis/api';
 
@@ -25,14 +26,22 @@ export const RunScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
   const router = useRouter();
   const analysis = useAnalysis(analysisId, true);
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(Date.now);
+  const [cancelError, setCancelError] = useState<string>();
+  const [cancelling, setCancelling] = useState(false);
+  const status = analysis.data?.analysis.status;
   useEffect(() => {
+    if (!status || !active.has(status)) {
+      return;
+    }
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [status]);
   useEffect(() => {
-    if (analysis.data?.analysis.status === 'succeeded') router.replace(`/analyses/${analysisId}`);
-  }, [analysis.data, analysisId, router]);
+    if (status === 'succeeded') {
+      router.replace(`/analyses/${analysisId}`);
+    }
+  }, [analysisId, router, status]);
   const value = analysis.data?.analysis;
   const start = value?.startedAt ?? value?.queuedAt;
   const elapsed = start ? Math.max(0, Math.floor((now - new Date(start).getTime()) / 1000)) : 0;
@@ -40,31 +49,69 @@ export const RunScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
     if (!value) {
       return;
     }
-    const body = { expectedStatus: value.status };
-    await api.request(`/v1/analyses/${analysisId}/cancel`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey('cancel', analysisId, body),
-      },
-      body: JSON.stringify(body),
-    });
-    await analysis.refetch();
+    setCancelling(true);
+    setCancelError(undefined);
+    try {
+      const body = { expectedStatus: value.status };
+      const response = await api.request(`/v1/analyses/${analysisId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey('cancel', analysisId, body),
+        },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        throw new Error('Cancellation could not be requested. The run is still being monitored.');
+      }
+      await analysis.refetch();
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : 'Cancellation failed.');
+    } finally {
+      setCancelling(false);
+    }
   };
+  const guidanceTarget =
+    value?.failure?.code.startsWith('OCCURRENCE') || value?.failure?.code.startsWith('PREDICTOR')
+      ? 'data'
+      : 'configuration';
+  const statusTitle =
+    value?.status === 'queued'
+      ? 'Waiting for the analysis worker'
+      : value?.status === 'cancelling'
+        ? 'Cancellation requested'
+        : value?.progress?.stage === 'retrying'
+          ? 'Recovering and retrying'
+          : value?.status === 'running'
+            ? 'Scientific analysis in progress'
+            : value?.status === 'succeeded'
+              ? 'Analysis complete'
+              : value?.status === 'failed'
+                ? 'Analysis failed'
+                : value?.status === 'cancelled'
+                  ? 'Analysis cancelled'
+                  : 'Loading analysis state';
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
       <p className="font-mono text-xs text-muted-foreground">{analysisId}</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Analysis execution</h1>
-      <Card className="mt-8 p-7">
+      {analysis.isError ? (
+        <div className="mt-8">
+          <QueryStateAlert
+            title="Execution state unavailable"
+            message="The run may still be active. Retry to resume monitoring."
+            onRetry={() => void analysis.refetch()}
+          />
+        </div>
+      ) : null}
+      <Card className="mt-8 p-7" aria-live="polite">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               {value?.status ?? 'Loading'}
             </p>
             <h2 className="mt-2 text-xl font-semibold">
-              {value?.progress?.message ??
-                value?.progress?.stage?.replaceAll('-', ' ') ??
-                'Preparing lifecycle state'}
+              {value?.progress?.message ?? statusTitle}
             </h2>
           </div>
           <span className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
@@ -78,16 +125,25 @@ export const RunScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
           <span>Attempt {value?.progress?.attempt ?? '—'}</span>
         </div>
       </Card>
+      {cancelError ? (
+        <Alert className="mt-6" variant="destructive">
+          {cancelError}
+        </Alert>
+      ) : null}
       {value?.status === 'failed' ? (
         <Alert className="mt-6" variant="destructive">
-          <strong>Execution failed.</strong>{' '}
+          <strong>{statusTitle}.</strong>{' '}
           {value.failure?.message ??
-            'Review the input and configuration guidance before retrying with a new draft.'}
+            'Review the input and configuration guidance before starting a new draft.'}{' '}
+          This frozen run cannot be edited. In a new draft, revisit the{' '}
+          {guidanceTarget === 'data' ? 'uploaded files and source mapping' : 'model configuration'}{' '}
+          before queueing again.
         </Alert>
       ) : null}
       {value?.status === 'cancelled' ? (
         <Alert className="mt-6" variant="warning">
-          The analysis was cancelled. Temporary files will be removed by lifecycle cleanup.
+          The analysis was cancelled and is immutable. Temporary files will be removed by lifecycle
+          cleanup; recovery requires a new draft and re-upload.
         </Alert>
       ) : null}
       <div className="mt-8 flex justify-end gap-3">
@@ -105,7 +161,7 @@ export const RunScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
                 <DialogClose asChild>
                   <Button variant="secondary">Keep running</Button>
                 </DialogClose>
-                <Button variant="destructive" onClick={cancel}>
+                <Button loading={cancelling} variant="destructive" onClick={cancel}>
                   Confirm cancellation
                 </Button>
               </div>

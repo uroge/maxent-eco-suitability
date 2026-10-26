@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { CompletedPart } from '@aws-sdk/client-s3';
 import type {
   Analysis,
+  ActiveUploadDataset,
   AnalysisInputDataset,
   AnalysisInputManifest,
   CompleteUploadRequest,
@@ -64,6 +65,7 @@ export class UploadService {
       fingerprint: this.fingerprint(request),
       kind: request.kind,
       format: request.format,
+      replaceDatasetId: request.replaceDatasetId,
       status: 'collecting',
       shapefileBasename: undefined,
       uploadIds: [],
@@ -85,6 +87,12 @@ export class UploadService {
       throw this.conflict('The analysis already has an occurrence dataset.');
     }
 
+    if (result === 'replacement_missing') {
+      throw this.conflict(
+        'The dataset selected for replacement is no longer attached.',
+      );
+    }
+
     if (result === 'missing') {
       throw this.notFound();
     }
@@ -99,6 +107,34 @@ export class UploadService {
       dataset: this.repository.publicDataset(result.dataset),
       replayed: result.replayed,
     };
+  }
+
+  public async activeUploads(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<ActiveUploadDataset[]> {
+    await this.analysisService.find(principal, analysisId);
+    const datasets = await this.repository.sessions(
+      analysisId,
+      principal.userId,
+    );
+    return Promise.all(
+      datasets.map(async (dataset) => ({
+        ...this.repository.publicDataset(dataset),
+        replaceDatasetId: dataset.replaceDatasetId ?? null,
+        files: (await this.repository.uploads(dataset)).map((upload) => ({
+          id: upload.id,
+          originalName: upload.originalName,
+          size: upload.size,
+          sha256: upload.sha256,
+          contentType: upload.contentType ?? null,
+          component: upload.component ?? null,
+          multipart: Boolean(upload.multipartUploadId),
+          partSizeBytes: upload.multipartUploadId ? partSizeBytes : null,
+          status: upload.status,
+        })),
+      })),
+    );
   }
 
   public async addFile(
@@ -134,6 +170,7 @@ export class UploadService {
       return {
         id: existingUpload.id,
         multipart,
+        status: existingUpload.status,
         uploadUrl:
           multipart || existingUpload.status !== 'pending'
             ? null
@@ -203,6 +240,7 @@ export class UploadService {
     return {
       id: result.id,
       multipart,
+      status: result.status,
       uploadUrl: multipart
         ? null
         : await this.storage.presignPut(result.objectKey, result.contentType),
@@ -412,7 +450,9 @@ export class UploadService {
       }
 
       throw this.conflict(
-        'The dataset cannot be completed in its current state.',
+        attachedResult === 'replacement_stale'
+          ? 'The dataset selected for replacement changed. Reload and try again.'
+          : 'The dataset cannot be completed in its current state.',
       );
     }
 

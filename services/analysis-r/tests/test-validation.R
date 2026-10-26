@@ -52,6 +52,7 @@ write_minimal_xlsx <- function(path, rows) {
       '<Default Extension="xml" ContentType="application/xml"/>',
       '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
       '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+      '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
       '</Types>'
     ),
     file.path(root, "[Content_Types].xml")
@@ -69,7 +70,7 @@ write_minimal_xlsx <- function(path, rows) {
     c(
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
-      '<sheets><sheet name="Occurrences" sheetId="1" r:id="rId1"/></sheets>',
+      '<sheets><sheet name="Occurrences" sheetId="1" r:id="rId1"/><sheet name="Alternative" sheetId="2" r:id="rId2"/></sheets>',
       '</workbook>'
     ),
     file.path(root, "xl", "workbook.xml")
@@ -79,6 +80,7 @@ write_minimal_xlsx <- function(path, rows) {
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>',
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>',
       '</Relationships>'
     ),
     file.path(root, "xl", "_rels", "workbook.xml.rels")
@@ -110,6 +112,16 @@ write_minimal_xlsx <- function(path, rows) {
       '</sheetData></worksheet>'
     ),
     file.path(root, "xl", "worksheets", "sheet1.xml")
+  )
+  writeLines(
+    c(
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>',
+      headers,
+      body,
+      '</sheetData></worksheet>'
+    ),
+    file.path(root, "xl", "worksheets", "sheet2.xml")
   )
   previous <- setwd(root)
   on.exit(setwd(previous), add = TRUE)
@@ -389,7 +401,12 @@ if (
 }
 
 xlsx_profile <- profile_tabular_occurrence(xlsx_path, "xlsx")
-if (xlsx_profile$layers[[1L]] != "Occurrences" || xlsx_profile$recordCount != 10L) {
+if (
+  xlsx_profile$layers[[1L]] != "Occurrences" ||
+    xlsx_profile$recordCount != 10L ||
+    length(xlsx_profile$sources) != 2L ||
+    xlsx_profile$sources[[2L]]$source != "Alternative"
+) {
   stop("XLSX profiling did not detect worksheets and records.", call. = FALSE)
 }
 
@@ -399,7 +416,7 @@ if (geojson_profile$recordCount != 10L || !identical(geojson_profile$crs, "EPSG:
 }
 
 gpkg_profile <- profile_vector_occurrence(gpkg_path, "gpkg", list())
-if (length(gpkg_profile$layers) != 2L) {
+if (length(gpkg_profile$layers) != 2L || length(gpkg_profile$sources) != 2L) {
   stop("GeoPackage profiling did not enumerate layers.", call. = FALSE)
 }
 

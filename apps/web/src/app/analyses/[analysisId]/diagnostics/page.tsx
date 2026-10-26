@@ -12,7 +12,7 @@ export default async function DiagnosticsPage({
   const { analysisId } = await params;
   const { tab } = await searchParams;
   const selected = tab === 'importance' || tab === 'responses' ? tab : 'evaluation';
-  return (await analysisRoute(analysisId, 'results')) ? (
+  return (await analysisRoute(analysisId, { area: 'results' })) ? (
     <DiagnosticsScreen analysisId={analysisId} tab={selected} />
   ) : (
     <AnalysisUnavailable />

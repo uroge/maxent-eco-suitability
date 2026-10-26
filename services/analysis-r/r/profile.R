@@ -35,18 +35,15 @@ profile_preview <- function(coordinates, crs = "EPSG:4326") {
   )
 }
 
-profile_tabular_occurrence <- function(path, format) {
-  sheets <- list()
-  if (identical(format, "csv")) {
-    table <- tryCatch(
-      readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()), n_max = 501L, progress = FALSE),
-      error = function(error) NULL
-    )
-  } else {
-    sheets <- tryCatch(as.list(readxl::excel_sheets(path)), error = function(error) NULL)
-    if (is.null(sheets) || length(sheets) == 0L) return(NULL)
-    table <- tryCatch(readxl::read_excel(path, sheet = sheets[[1L]], col_types = "text", n_max = 501L), error = function(error) NULL)
-  }
+profile_tabular_source <- function(path, format, source = NULL) {
+  table <- tryCatch(
+    if (identical(format, "csv")) {
+      readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()), n_max = 501L, progress = FALSE)
+    } else {
+      readxl::read_excel(path, sheet = source, col_types = "text", n_max = 501L)
+    },
+    error = function(error) NULL
+  )
   if (is.null(table) || ncol(table) > 100L) return(NULL)
   columns <- names(table)
   longitude <- profile_candidate_columns(columns, c("longitude", "lon", "lng", "long", "x"))
@@ -62,20 +59,44 @@ profile_tabular_occurrence <- function(path, format) {
     duplicates <- sum(duplicated(data.frame(x = coordinates[, 1L], y = coordinates[, 2L])))
   }
   list(
+    source = source,
     columns = as.list(columns),
-    layers = sheets,
     longitudeCandidates = as.list(longitude),
     latitudeCandidates = as.list(latitude),
     speciesCandidates = as.list(species),
     recordCount = nrow(table),
     duplicateCoordinateCount = duplicates,
     crs = "EPSG:4326",
+    geometryType = NULL,
     coordinates = coordinates
   )
 }
 
+profile_tabular_occurrence <- function(path, format) {
+  sheets <- if (identical(format, "xlsx")) {
+    tryCatch(as.list(readxl::excel_sheets(path)), error = function(error) NULL)
+  } else {
+    list()
+  }
+  if (is.null(sheets) || (identical(format, "xlsx") && length(sheets) == 0L)) return(NULL)
+  sources <- if (identical(format, "csv")) {
+    list(profile_tabular_source(path, format))
+  } else {
+    lapply(sheets, function(sheet) profile_tabular_source(path, format, sheet))
+  }
+  if (any(vapply(sources, is.null, logical(1)))) return(NULL)
+  selected <- sources[[1L]]
+  selected$layers <- sheets
+  selected$sources <- lapply(sources, function(source) source[c(
+    "source", "columns", "longitudeCandidates", "latitudeCandidates",
+    "speciesCandidates", "recordCount", "geometryType"
+  )])
+  selected
+}
+
 profile_vector_occurrence <- function(path, format, files) {
   layers <- list()
+  sources <- list()
   selected <- NULL
   mapping_ambiguous <- FALSE
   if (identical(format, "gpkg")) {
@@ -83,6 +104,21 @@ profile_vector_occurrence <- function(path, format, files) {
     if (is.null(metadata)) return(NULL)
     layers <- as.list(metadata$name)
     point_layers <- metadata$name[!is.na(metadata$geomtype) & grepl("^POINT", metadata$geomtype, ignore.case = TRUE)]
+    sources <- lapply(point_layers, function(layer) {
+      candidate <- tryCatch(sf::st_read(path, layer = layer, quiet = TRUE), error = function(error) NULL)
+      if (is.null(candidate)) return(NULL)
+      columns <- setdiff(names(candidate), attr(candidate, "sf_column"))
+      list(
+        source = layer,
+        columns = as.list(columns),
+        longitudeCandidates = list(),
+        latitudeCandidates = list(),
+        speciesCandidates = as.list(profile_candidate_columns(columns, c("species", "speciesname", "scientificname", "taxon"))),
+        recordCount = nrow(candidate),
+        geometryType = as.character(unique(sf::st_geometry_type(candidate))[[1L]])
+      )
+    })
+    sources <- Filter(Negate(is.null), sources)
     if (length(point_layers) > 0L) selected <- point_layers[[1L]]
     mapping_ambiguous <- length(point_layers) != 1L
   }
@@ -98,6 +134,18 @@ profile_vector_occurrence <- function(path, format, files) {
   )
   if (is.null(shape) || any(sf::st_geometry_type(shape) != "POINT")) return(NULL)
   coordinates <- sf::st_coordinates(shape)[, 1:2, drop = FALSE]
+  if (length(sources) == 0L) {
+    columns <- setdiff(names(shape), attr(shape, "sf_column"))
+    sources <- list(list(
+      source = NULL,
+      columns = as.list(columns),
+      longitudeCandidates = list(),
+      latitudeCandidates = list(),
+      speciesCandidates = as.list(profile_candidate_columns(columns, c("species", "speciesname", "scientificname", "taxon"))),
+      recordCount = nrow(shape),
+      geometryType = as.character(unique(sf::st_geometry_type(shape))[[1L]])
+    ))
+  }
   list(
     columns = as.list(setdiff(names(shape), attr(shape, "sf_column"))),
     layers = layers,
@@ -108,6 +156,7 @@ profile_vector_occurrence <- function(path, format, files) {
     duplicateCoordinateCount = sum(duplicated(data.frame(x = coordinates[, 1L], y = coordinates[, 2L]))),
     crs = profile_crs(shape),
     mappingAmbiguous = mapping_ambiguous,
+    sources = sources,
     coordinates = coordinates
   )
 }
@@ -210,7 +259,7 @@ profile_inputs <- function(request, capabilities, workspace, emit, capability_pa
   if (is.null(occurrence)) {
     blockers[[length(blockers) + 1L]] <- "The occurrence dataset could not be profiled."
     checks[[length(checks) + 1L]] <- list(id = "occurrence.schema.readable", label = "Occurrence structure", status = "blocked", message = "The occurrence file or its point geometry could not be read.")
-    occurrence <- list(columns = list(), layers = list(), longitudeCandidates = list(), latitudeCandidates = list(), speciesCandidates = list(), recordCount = NULL, duplicateCoordinateCount = NULL, crs = NULL, coordinates = NULL)
+    occurrence <- list(columns = list(), layers = list(), longitudeCandidates = list(), latitudeCandidates = list(), speciesCandidates = list(), recordCount = NULL, duplicateCoordinateCount = NULL, crs = NULL, sources = list(), coordinates = NULL)
   } else {
     checks[[length(checks) + 1L]] <- list(id = "occurrence.schema.readable", label = "Occurrence structure", status = "passed", message = sprintf("%d occurrence records were detected.", occurrence$recordCount))
     over_limit <- occurrence$recordCount > 500L
@@ -261,7 +310,7 @@ profile_inputs <- function(request, capabilities, workspace, emit, capability_pa
     checks = checks,
     warnings = warnings,
     blockers = blockers,
-    occurrence = occurrence[c("columns", "layers", "longitudeCandidates", "latitudeCandidates", "speciesCandidates", "recordCount", "duplicateCoordinateCount", "crs")],
+    occurrence = occurrence[c("columns", "layers", "longitudeCandidates", "latitudeCandidates", "speciesCandidates", "recordCount", "duplicateCoordinateCount", "crs", "sources")],
     rasters = rasters,
     spatialPreview = profile_preview(occurrence$coordinates, if (is.null(occurrence$crs)) "EPSG:4326" else occurrence$crs),
     createdAt = request$createdAt,
@@ -281,7 +330,7 @@ profile_failure_result <- function(request, failure_code) {
     checks = list(list(id = "inputs.scientific.profile", label = "Scientific input profile", status = "blocked", message = message)),
     warnings = list(),
     blockers = list(message),
-    occurrence = list(columns = list(), layers = list(), longitudeCandidates = list(), latitudeCandidates = list(), speciesCandidates = list(), recordCount = NULL, duplicateCoordinateCount = NULL, crs = NULL),
+    occurrence = list(columns = list(), layers = list(), longitudeCandidates = list(), latitudeCandidates = list(), speciesCandidates = list(), recordCount = NULL, duplicateCoordinateCount = NULL, crs = NULL, sources = list()),
     rasters = list(),
     spatialPreview = NULL,
     createdAt = request$createdAt,

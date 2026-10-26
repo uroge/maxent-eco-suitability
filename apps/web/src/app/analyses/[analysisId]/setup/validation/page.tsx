@@ -8,7 +8,7 @@ export default async function ValidationPage({
   params: Promise<{ analysisId: string }>;
 }) {
   const { analysisId } = await params;
-  return (await analysisRoute(analysisId, 'setup')) ? (
+  return (await analysisRoute(analysisId, { area: 'setup', step: 'validation' })) ? (
     <ValidationScreen analysisId={analysisId} />
   ) : (
     <AnalysisUnavailable />

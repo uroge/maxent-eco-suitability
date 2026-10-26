@@ -11,7 +11,7 @@ export default async function DataPage({
 }) {
   const { analysisId } = await params;
   const { example } = await searchParams;
-  return (await analysisRoute(analysisId, 'setup')) ? (
+  return (await analysisRoute(analysisId, { area: 'setup', step: 'data' })) ? (
     <DataScreen analysisId={analysisId} example={example === '1'} />
   ) : (
     <AnalysisUnavailable />

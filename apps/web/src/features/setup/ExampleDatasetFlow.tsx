@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Card, Progress } from '@ecosuitability/ui';
 import { uploadDataset } from '@/lib/direct-upload';
@@ -13,12 +13,9 @@ import {
 export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
   const router = useRouter();
-  const started = useRef(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string>();
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -26,8 +23,9 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           fetch('/example/synthetic-occurrences.csv', { signal: controller.signal }),
           fetch('/example/synthetic-elevation.tif', { signal: controller.signal }),
         ]);
-        if (!occurrenceResponse.ok || !predictorResponse.ok)
+        if (!occurrenceResponse.ok || !predictorResponse.ok) {
           throw new Error('Example assets are unavailable.');
+        }
         const occurrence = new File(
           [await occurrenceResponse.blob()],
           'synthetic-occurrences.csv',
@@ -59,7 +57,9 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           },
           body: JSON.stringify(completeBody),
         });
-        if (!completed.ok) throw new Error('The example inputs could not be completed.');
+        if (!completed.ok) {
+          throw new Error('The example inputs could not be completed.');
+        }
         const completedAnalysis = analysisResponseSchema.parse(await completed.json());
         setProgress(90);
         const profileBody = {
@@ -73,14 +73,18 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           },
           body: JSON.stringify(profileBody),
         });
-        if (!profile.ok) throw new Error('The example profile could not be queued.');
+        if (!profile.ok) {
+          throw new Error('The example profile could not be queued.');
+        }
         setProgress(100);
         router.replace(`/analyses/${analysisId}/setup/validation`);
       } catch (reason) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           setError(reason instanceof Error ? reason.message : 'Example setup failed.');
+        }
       }
     })();
+    return () => controller.abort();
   }, [analysisId, api, router]);
   return (
     <Card className="p-8">

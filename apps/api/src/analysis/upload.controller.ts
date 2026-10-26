@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
@@ -21,6 +22,7 @@ import type {
   UploadFileResponse,
   UploadPartRequest,
   AnalysisResponse,
+  ActiveUploadDatasetsResponse,
 } from '@ecosuitability/contracts';
 import {
   analysisIdSchema,
@@ -50,6 +52,20 @@ export class UploadController {
     private readonly uploadService: UploadService,
     private readonly operations: OperationIdempotencyService,
   ) {}
+
+  @Get()
+  public async activeUploads(
+    @Req() request: AuthenticatedRequest,
+    @Param('analysisId', new ZodValidationPipe(analysisIdSchema))
+    analysisId: string,
+  ): Promise<ActiveUploadDatasetsResponse> {
+    return {
+      uploads: await this.uploadService.activeUploads(
+        request.principal!,
+        analysisId,
+      ),
+    };
+  }
 
   @Post()
   public async create(

@@ -1,6 +1,16 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { cn } from '@ecosuitability/ui';
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+  Button,
+  SheetContent,
+  cn,
+} from '@ecosuitability/ui';
+import { Menu, X } from 'lucide-react';
 
 const sections = [
   ['', 'Overview'],
@@ -23,7 +33,7 @@ export const ResultsShell: React.FC<{
           </p>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{analysisId}</p>
         </div>
-        <nav aria-label="Result sections" className="flex overflow-x-auto">
+        <nav aria-label="Result sections" className="hidden overflow-x-auto sm:flex">
           {sections.map(([suffix, label]) => (
             <Link
               key={label}
@@ -37,6 +47,39 @@ export const ResultsShell: React.FC<{
             </Link>
           ))}
         </nav>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button className="sm:hidden" variant="secondary">
+              <Menu size={16} />
+              {sections.find(([, label]) => label.toLowerCase() === current)?.[1] ?? 'Results'}
+            </Button>
+          </DialogTrigger>
+          <SheetContent>
+            <DialogTitle className="text-lg font-semibold">Result sections</DialogTitle>
+            <DialogDescription className="mt-1 text-sm text-muted-foreground">
+              Choose a result view.
+            </DialogDescription>
+            <DialogClose className="absolute right-3 top-3" aria-label="Close result navigation">
+              <X />
+            </DialogClose>
+            <nav aria-label="Mobile result sections" className="mt-6 grid gap-2">
+              {sections.map(([suffix, label]) => (
+                <DialogClose asChild key={label}>
+                  <Link
+                    href={`/analyses/${analysisId}${suffix}`}
+                    aria-current={current === label.toLowerCase() ? 'page' : undefined}
+                    className={cn(
+                      'flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-muted-foreground',
+                      current === label.toLowerCase() && 'bg-primary text-primary-foreground'
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </DialogClose>
+              ))}
+            </nav>
+          </SheetContent>
+        </Dialog>
       </div>
     </div>
     {children}

@@ -9,20 +9,11 @@ import {
   type MapCapabilities,
   type MapInspection,
 } from '@ecosuitability/contracts';
-import {
-  Button,
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogTitle,
-  DialogTrigger,
-  SheetContent,
-} from '@ecosuitability/ui';
-import { Crosshair, Focus, Layers3, LocateFixed, PanelRightClose, X } from 'lucide-react';
+import { Skeleton } from '@ecosuitability/ui';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
 import { ResultsShell } from '../results/ResultsShell';
-import { MapInspector } from './MapInspector';
-import { MapLayerPanel } from './MapLayerPanel';
+import { QueryStateAlert } from '../analysis/QueryStateAlert';
+import { MapViewport } from './MapViewport';
 
 type Coordinates = { longitude: number; latitude: number };
 
@@ -51,39 +42,71 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const activeRef = useRef<Set<string>>(new Set());
   const opacityRef = useRef(0.85);
   const terrainRef = useRef(false);
-  const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
+  const inspectionRequest = useRef<AbortController | undefined>(undefined);
+  const [layerSelection, setLayerSelection] = useState<Set<string>>();
   const [opacity, setOpacity] = useState(0.85);
   const [terrainEnabled, setTerrainEnabled] = useState(false);
   const [inspection, setInspection] = useState<MapInspection>();
   const [coordinates, setCoordinates] = useState<Coordinates>();
+  const [inspectionCoordinates, setInspectionCoordinates] = useState<Coordinates>();
   const [selectedBasemap, setSelectedBasemap] = useState<string>();
-  const [themeRevision, setThemeRevision] = useState(0);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [mapLoading, setMapLoading] = useState(true);
+  const [mapError, setMapError] = useState<string>();
+  const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [inspectionError, setInspectionError] = useState<string>();
   const capabilities = useQuery({
     queryKey: analysisKeys.map(analysisId),
     queryFn: () =>
       api.json(`/v1/analyses/${analysisId}/map/capabilities`, mapCapabilitiesResponseSchema),
   });
   const value = capabilities.data?.capabilities;
+  const defaultLayers = useMemo(
+    () =>
+      new Set(
+        value?.layers
+          .filter((layer) => layer.kind === 'suitability' || layer.kind === 'occurrences')
+          .map((layer) => layer.id) ?? []
+      ),
+    [value]
+  );
+  const activeLayers = layerSelection ?? defaultLayers;
   const basemap = useMemo(
     () => value?.basemaps.find((item) => item.id === selectedBasemap) ?? value?.basemaps[0],
     [selectedBasemap, value]
   );
+  const basemapStyleUrl = basemap?.styleUrl;
+  const basemapDarkStyleUrl = basemap?.darkStyleUrl;
 
-  useEffect(() => {
-    activeRef.current = activeLayers;
-    opacityRef.current = opacity;
-    terrainRef.current = terrainEnabled;
-  }, [activeLayers, opacity, terrainEnabled]);
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => setThemeRevision((revision) => revision + 1));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme'],
-    });
-    return () => observer.disconnect();
-  }, []);
+  const inspectPoint = useCallback(
+    (selected: Coordinates) => {
+      inspectionRequest.current?.abort();
+      const controller = new AbortController();
+      inspectionRequest.current = controller;
+      setInspectionLoading(true);
+      setInspectionError(undefined);
+      void api
+        .json(
+          `/v1/analyses/${analysisId}/map/inspect?longitude=${selected.longitude}&latitude=${selected.latitude}`,
+          mapInspectionResponseSchema,
+          { signal: controller.signal }
+        )
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          setInspection(result.inspection);
+          if (window.matchMedia('(max-width: 1023px)').matches) setInspectorOpen(true);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) {
+            setInspectionError(error instanceof Error ? error.message : 'Inspection failed.');
+          }
+        })
+        .finally(() => {
+          if (inspectionRequest.current === controller) setInspectionLoading(false);
+        });
+    },
+    [analysisId, api]
+  );
 
   const installLayers = useCallback(
     (map: import('maplibre-gl').Map, data: MapCapabilities) => {
@@ -149,14 +172,7 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
     if (!container.current || !value || mapRef.current) {
       return;
     }
-    const defaults = new Set(
-      value.layers
-        .filter((layer) => layer.kind === 'suitability' || layer.kind === 'occurrences')
-        .map((layer) => layer.id)
-    );
-    activeRef.current = defaults;
-    setActiveLayers(defaults);
-    setSelectedBasemap(value.basemaps[0]?.id);
+    activeRef.current = defaultLayers;
     let disposed = false;
     void (async () => {
       const [maplibregl, token] = await Promise.all([import('maplibre-gl'), getToken()]);
@@ -177,53 +193,58 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
             : { url },
       });
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-      map.on('style.load', () => installLayers(map, value));
+      map.on('style.load', () => {
+        installLayers(map, value);
+        setMapLoading(false);
+      });
+      map.on('error', () => setMapError('A map source or style failed to load.'));
       map.on('mousemove', (event) => {
         setCoordinates({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
       });
       map.on('click', (event) => {
         const selected = { longitude: event.lngLat.lng, latitude: event.lngLat.lat };
         setCoordinates(selected);
-        void api
-          .json(
-            `/v1/analyses/${analysisId}/map/inspect?longitude=${selected.longitude}&latitude=${selected.latitude}`,
-            mapInspectionResponseSchema
-          )
-          .then((result) => {
-            setInspection(result.inspection);
-            if (window.matchMedia('(max-width: 1023px)').matches) {
-              setInspectorOpen(true);
-            }
-          });
+        setInspectionCoordinates(selected);
+        inspectPoint(selected);
       });
       mapRef.current = map;
-    })();
+    })().catch((error) => {
+      if (!disposed) {
+        setMapLoading(false);
+        setMapError(error instanceof Error ? error.message : 'The map could not be loaded.');
+      }
+    });
     return () => {
       disposed = true;
+      inspectionRequest.current?.abort();
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [analysisId, api, getToken, installLayers, value]);
+  }, [analysisId, defaultLayers, getToken, inspectPoint, installLayers, value]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !value) {
+    if (!map) {
       return;
     }
     const dark = document.documentElement.dataset.theme === 'dark';
-    map.setStyle((dark ? basemap?.darkStyleUrl : null) ?? basemap?.styleUrl ?? fallbackStyle());
-  }, [basemap, themeRevision, value]);
+    map.setStyle((dark ? basemapDarkStyleUrl : null) ?? basemapStyleUrl ?? fallbackStyle());
+  }, [basemapDarkStyleUrl, basemapStyleUrl]);
 
   useEffect(() => {
-    if (!value) {
-      return;
-    }
-    for (const layer of value.layers.filter((item) => item.dataType === 'raster')) {
-      if (mapRef.current?.getLayer(layer.id)) {
-        mapRef.current.setPaintProperty(layer.id, 'raster-opacity', opacity);
+    const observer = new MutationObserver(() => {
+      const map = mapRef.current;
+      if (map) {
+        const dark = document.documentElement.dataset.theme === 'dark';
+        map.setStyle((dark ? basemapDarkStyleUrl : null) ?? basemapStyleUrl ?? fallbackStyle());
       }
-    }
-  }, [opacity, value]);
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    return () => observer.disconnect();
+  }, [basemapDarkStyleUrl, basemapStyleUrl]);
 
   const toggle = (layerId: string, enabled: boolean): void => {
     const next = new Set(activeRef.current);
@@ -233,7 +254,7 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
       next.delete(layerId);
     }
     activeRef.current = next;
-    setActiveLayers(next);
+    setLayerSelection(next);
     if (mapRef.current?.getLayer(layerId)) {
       mapRef.current.setLayoutProperty(layerId, 'visibility', enabled ? 'visible' : 'none');
     }
@@ -241,6 +262,7 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
 
   const toggleTerrain = (): void => {
     const enabled = !terrainEnabled;
+    terrainRef.current = enabled;
     mapRef.current?.setTerrain(enabled ? { source: 'terrain-dem', exaggeration: 1.2 } : null);
     mapRef.current?.easeTo({ pitch: enabled ? 55 : 0, duration: 500 });
     setTerrainEnabled(enabled);
@@ -251,6 +273,7 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
       return;
     }
     if (resetBearing) {
+      terrainRef.current = false;
       setTerrainEnabled(false);
       mapRef.current?.setTerrain(null);
     }
@@ -261,106 +284,57 @@ export const MapScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
     });
   };
 
+  const changeOpacity = (nextOpacity: number): void => {
+    opacityRef.current = nextOpacity;
+    setOpacity(nextOpacity);
+    if (!value) {
+      return;
+    }
+    for (const layer of value.layers.filter((item) => item.dataType === 'raster')) {
+      if (mapRef.current?.getLayer(layer.id)) {
+        mapRef.current.setPaintProperty(layer.id, 'raster-opacity', nextOpacity);
+      }
+    }
+  };
+
   return (
     <ResultsShell analysisId={analysisId} current="map">
-      <div className="grid min-h-[calc(100vh-9rem)] lg:grid-cols-[18rem_1fr_20rem]">
-        <aside className="hidden border-r border-border bg-surface p-5 lg:block">
-          <MapLayerPanel
-            capabilities={value}
-            selectedBasemap={selectedBasemap}
-            activeLayers={activeLayers}
-            opacity={opacity}
-            terrainEnabled={terrainEnabled}
-            onBasemapChange={setSelectedBasemap}
-            onLayerChange={toggle}
-            onOpacityChange={setOpacity}
-            onTerrainToggle={toggleTerrain}
+      {capabilities.isError ? (
+        <div className="mx-auto max-w-4xl p-6">
+          <QueryStateAlert
+            error={capabilities.error}
+            title="Map capabilities unavailable"
+            onRetry={() => void capabilities.refetch()}
           />
-        </aside>
-        <div className="relative min-h-[65vh] bg-muted lg:min-h-0">
-          <div ref={container} className="absolute inset-0" />
-          <div className="absolute left-3 top-3 flex gap-2 lg:hidden">
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="secondary">
-                  <Layers3 size={16} />
-                  Layers
-                </Button>
-              </DialogTrigger>
-              <SheetContent className="left-0 right-auto border-l-0 border-r">
-                <DialogTitle className="sr-only">Map layers</DialogTitle>
-                <DialogDescription className="sr-only">
-                  Select basemap, layers, opacity, and terrain.
-                </DialogDescription>
-                <DialogClose className="absolute right-3 top-3" aria-label="Close layers">
-                  <X />
-                </DialogClose>
-                <MapLayerPanel
-                  capabilities={value}
-                  selectedBasemap={selectedBasemap}
-                  activeLayers={activeLayers}
-                  opacity={opacity}
-                  terrainEnabled={terrainEnabled}
-                  onBasemapChange={setSelectedBasemap}
-                  onLayerChange={toggle}
-                  onOpacityChange={setOpacity}
-                  onTerrainToggle={toggleTerrain}
-                />
-              </SheetContent>
-            </Dialog>
-            <Dialog open={inspectorOpen} onOpenChange={setInspectorOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="secondary">
-                  <PanelRightClose size={16} />
-                  Inspect
-                </Button>
-              </DialogTrigger>
-              <SheetContent>
-                <DialogTitle className="sr-only">Point inspector</DialogTitle>
-                <DialogDescription className="sr-only">
-                  Values sampled at the selected coordinate.
-                </DialogDescription>
-                <DialogClose className="absolute right-3 top-3" aria-label="Close inspector">
-                  <X />
-                </DialogClose>
-                <MapInspector inspection={inspection} />
-              </SheetContent>
-            </Dialog>
-          </div>
-          <div className="absolute left-3 top-14 flex gap-2 lg:left-auto lg:right-12 lg:top-3">
-            <Button
-              aria-label="Fit analysis extent"
-              size="sm"
-              variant="secondary"
-              onClick={() => reset(false)}
-            >
-              <Focus size={16} />
-            </Button>
-            <Button
-              aria-label="Reset map view"
-              size="sm"
-              variant="secondary"
-              onClick={() => reset(true)}
-            >
-              <LocateFixed size={16} />
-            </Button>
-          </div>
-          <div className="pointer-events-none absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 rounded bg-surface/90 px-2 py-1 text-[11px] text-muted-foreground shadow">
-            <Crosshair className="mr-1 inline" size={12} />
-            {coordinates
-              ? `${coordinates.longitude.toFixed(5)}, ${coordinates.latitude.toFixed(5)}`
-              : 'Select the map to inspect a pixel'}
-          </div>
-          {basemap ? (
-            <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 max-w-[50%] rounded bg-surface/90 px-2 py-1 text-right text-[10px] text-muted-foreground">
-              {basemap.attribution}
-            </div>
-          ) : null}
         </div>
-        <aside className="hidden border-l border-border bg-surface p-5 lg:block">
-          <MapInspector inspection={inspection} />
-        </aside>
-      </div>
+      ) : null}
+      {capabilities.isPending ? <Skeleton className="m-6 h-[60vh]" /> : null}
+      {value ? (
+        <MapViewport
+          container={container}
+          capabilities={value}
+          basemap={basemap}
+          selectedBasemap={selectedBasemap}
+          activeLayers={activeLayers}
+          opacity={opacity}
+          terrainEnabled={terrainEnabled}
+          inspection={inspection}
+          coordinates={coordinates}
+          inspectionCoordinates={inspectionCoordinates}
+          inspectorOpen={inspectorOpen}
+          mapLoading={mapLoading}
+          mapError={mapError}
+          inspectionLoading={inspectionLoading}
+          inspectionError={inspectionError}
+          onBasemapChange={setSelectedBasemap}
+          onLayerChange={toggle}
+          onOpacityChange={changeOpacity}
+          onTerrainToggle={toggleTerrain}
+          onInspectorOpenChange={setInspectorOpen}
+          onInspectRetry={inspectPoint}
+          onReset={reset}
+        />
+      ) : null}
     </ResultsShell>
   );
 };

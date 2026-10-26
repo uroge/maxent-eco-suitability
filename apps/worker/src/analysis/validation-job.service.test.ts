@@ -60,6 +60,7 @@ const profile = {
     recordCount: null,
     duplicateCoordinateCount: null,
     crs: null,
+    sources: [],
   },
   rasters: [],
   spatialPreview: null,

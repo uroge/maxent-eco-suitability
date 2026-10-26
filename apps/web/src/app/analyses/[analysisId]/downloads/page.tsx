@@ -8,7 +8,7 @@ export default async function DownloadsPage({
   params: Promise<{ analysisId: string }>;
 }) {
   const { analysisId } = await params;
-  return (await analysisRoute(analysisId, 'results')) ? (
+  return (await analysisRoute(analysisId, { area: 'results' })) ? (
     <DownloadsScreen analysisId={analysisId} />
   ) : (
     <AnalysisUnavailable />

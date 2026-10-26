@@ -30,6 +30,10 @@ const analysisInputsKeyPrefix = 'ecosuitability:analysis-inputs:';
 
 const analysisSessionsKeyPrefix = 'ecosuitability:analysis-upload-sessions:';
 
+const cleanupKeyPrefix = 'ecosuitability:analysis-cleanup:';
+
+const cleanupIndexKey = 'ecosuitability:analysis-cleanup:index';
+
 type CreateResult = { dataset: DatasetSession; replayed: boolean } | 'conflict';
 
 @Injectable()
@@ -40,7 +44,11 @@ export class DatasetRepository {
     dataset: DatasetSession,
     ttlSeconds: number,
   ): Promise<
-    CreateResult | 'missing' | 'invalid_analysis' | 'occurrence_reserved'
+    | CreateResult
+    | 'missing'
+    | 'invalid_analysis'
+    | 'occurrence_reserved'
+    | 'replacement_missing'
   > {
     const result = (await this.redis.getClient().eval(CreateDatasetScript, {
       keys: [
@@ -53,6 +61,7 @@ export class DatasetRepository {
         expiryIndexKey,
         this.analysisKey(dataset.analysisId),
         this.analysisSessionsKey(dataset.analysisId),
+        this.analysisInputsKey(dataset.analysisId),
       ],
       arguments: [
         dataset.id,
@@ -63,6 +72,7 @@ export class DatasetRepository {
         dataset.ownerId,
         new Date().toISOString(),
         dataset.kind,
+        dataset.replaceDatasetId ?? '',
       ],
     })) as string[];
 
@@ -70,7 +80,8 @@ export class DatasetRepository {
       result[0] === 'conflict' ||
       result[0] === 'missing' ||
       result[0] === 'invalid_analysis' ||
-      result[0] === 'occurrence_reserved'
+      result[0] === 'occurrence_reserved' ||
+      result[0] === 'replacement_missing'
     ) {
       return result[0];
     }
@@ -214,6 +225,7 @@ export class DatasetRepository {
     | 'invalid'
     | 'invalid_analysis'
     | 'occurrence_taken'
+    | 'replacement_stale'
   > {
     const result = (await this.redis.getClient().eval(AttachDatasetScript, {
       keys: [
@@ -228,21 +240,46 @@ export class DatasetRepository {
         expiryIndexKey,
         uploadKeyPrefix,
         this.analysisSessionsKey(dataset.analysisId),
+        cleanupKeyPrefix,
+        cleanupIndexKey,
       ],
       arguments: [
         dataset.ownerId,
         dataset.analysisId,
         claimId,
         JSON.stringify(attached),
+        new Date().toISOString(),
+        String(Date.now()),
       ],
     })) as string[];
 
     if (result[0] !== 'attached') {
       return result[0] as
-        'missing' | 'invalid' | 'invalid_analysis' | 'occurrence_taken';
+        | 'missing'
+        | 'invalid'
+        | 'invalid_analysis'
+        | 'occurrence_taken'
+        | 'replacement_stale';
     }
 
     return JSON.parse(result[1]) as UploadDataset;
+  }
+
+  public async sessions(
+    analysisId: string,
+    ownerId: string,
+  ): Promise<DatasetSession[]> {
+    const ids = await this.redis
+      .getClient()
+      .sMembers(this.analysisSessionsKey(analysisId));
+    const records = await Promise.all(ids.map(async (id) => this.get(id)));
+    return records.filter((record): record is DatasetSession =>
+      Boolean(
+        record &&
+        record.analysisId === analysisId &&
+        record.ownerId === ownerId,
+      ),
+    );
   }
 
   public async abortDataset(

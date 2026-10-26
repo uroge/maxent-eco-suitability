@@ -272,6 +272,7 @@ describe.runIf(integrationEnabled)(
           recordCount: null,
           duplicateCoordinateCount: null,
           crs: null,
+          sources: [],
         },
         rasters: [],
         spatialPreview: { type: 'FeatureCollection' as const, features: [] },

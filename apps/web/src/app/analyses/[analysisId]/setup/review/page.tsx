@@ -4,7 +4,7 @@ import { analysisRoute } from '@/lib/analysis-route';
 
 export default async function ReviewPage({ params }: { params: Promise<{ analysisId: string }> }) {
   const { analysisId } = await params;
-  return (await analysisRoute(analysisId, 'setup')) ? (
+  return (await analysisRoute(analysisId, { area: 'setup', step: 'review' })) ? (
     <ReviewScreen analysisId={analysisId} />
   ) : (
     <AnalysisUnavailable />

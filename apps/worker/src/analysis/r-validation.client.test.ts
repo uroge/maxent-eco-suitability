@@ -407,6 +407,7 @@ describe('RValidationClient', () => {
         recordCount: 10,
         duplicateCoordinateCount: 0,
         crs: 'EPSG:4326',
+        sources: [],
       },
       rasters: [],
       spatialPreview: { type: 'FeatureCollection', features: [] },

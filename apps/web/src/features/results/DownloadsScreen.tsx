@@ -7,10 +7,11 @@ import {
   analysisResultManifestResponseSchema,
   type AnalysisArtifact,
 } from '@ecosuitability/contracts';
-import { Alert, Button, Card, Skeleton } from '@ecosuitability/ui';
+import { Alert, Card, Skeleton } from '@ecosuitability/ui';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
 import { DownloadArtifactRow } from './DownloadArtifactRow';
 import { ResultsShell } from './ResultsShell';
+import { QueryStateAlert } from '../analysis/QueryStateAlert';
 
 export const DownloadsScreen: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
@@ -67,12 +68,13 @@ export const DownloadsScreen: React.FC<{ analysisId: string }> = ({ analysisId }
         </p>
         {result.isPending ? <Skeleton className="mt-6 h-80 w-full" /> : null}
         {result.isError ? (
-          <Alert className="mt-6" variant="destructive">
-            <p>The result manifest could not be loaded.</p>
-            <Button className="mt-3" size="sm" variant="secondary" onClick={() => result.refetch()}>
-              Retry
-            </Button>
-          </Alert>
+          <div className="mt-6">
+            <QueryStateAlert
+              error={result.error}
+              title="Result manifest unavailable"
+              onRetry={() => void result.refetch()}
+            />
+          </div>
         ) : null}
         {manifest ? (
           <>
