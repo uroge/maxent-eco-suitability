@@ -81,13 +81,15 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
           />
           <div className="mt-8 flex justify-end">
             <Button
-              loading={uploads.finishing}
-              disabled={uploads.tasks.some((task) => task.status === 'uploading')}
+              loading={uploads.starting || uploads.finishing}
+              disabled={uploads.hasUnresolvedTasks}
               onClick={() => void uploads.startSelected()}
             >
-              {uploads.occurrenceFiles.length || uploads.predictorFiles.length
-                ? 'Upload and profile'
-                : 'Complete inputs and profile'}
+              {uploads.hasUnresolvedTasks
+                ? 'Resolve uploads above'
+                : uploads.occurrenceFiles.length || uploads.predictorFiles.length
+                  ? 'Upload and profile'
+                  : 'Complete inputs and profile'}
             </Button>
           </div>
         </>

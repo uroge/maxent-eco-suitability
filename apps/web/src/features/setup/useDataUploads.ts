@@ -25,12 +25,14 @@ export const useDataUploads = (analysisId: string) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const controllers = useRef(new Map<string, AbortController>());
+  const startInFlight = useRef(false);
   const [format, setFormat] = useState<OccurrenceFormat>('csv');
   const [occurrenceFiles, setOccurrenceFiles] = useState<File[]>([]);
   const [predictorFiles, setPredictorFiles] = useState<File[]>([]);
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [message, setMessage] = useState<string>();
   const [finishing, setFinishing] = useState(false);
+  const [starting, setStarting] = useState(false);
   const inputs = useQuery({
     queryKey: analysisKeys.inputs(analysisId),
     queryFn: () =>
@@ -47,6 +49,10 @@ export const useDataUploads = (analysisId: string) => {
   };
 
   const runTask = async (task: UploadTask): Promise<boolean> => {
+    if (controllers.current.has(task.key)) {
+      return false;
+    }
+
     const controller = new AbortController();
     controllers.current.set(task.key, controller);
     patchTask(task.key, { status: 'uploading', message: undefined });
@@ -139,37 +145,51 @@ export const useDataUploads = (analysisId: string) => {
   };
 
   const startSelected = async (): Promise<void> => {
-    const created: UploadTask[] = [];
-    if (occurrenceFiles.length) {
-      created.push({
-        key: crypto.randomUUID(),
-        kind: 'occurrence',
-        format,
-        files: occurrenceFiles,
-        progress: 0,
-        status: 'waiting',
-        resume: { completedParts: new Map() },
-      });
-    }
-    for (const file of predictorFiles) {
-      created.push({
-        key: crypto.randomUUID(),
-        kind: 'predictor',
-        format: file.name.toLowerCase().endsWith('.zip') ? 'geotiff-zip' : 'geotiff',
-        files: [file],
-        progress: 0,
-        status: 'waiting',
-        resume: { completedParts: new Map() },
-      });
-    }
-    if (!created.length) {
-      await finishInputs();
+    if (startInFlight.current) {
       return;
     }
-    setTasks((current) => [...current, ...created]);
-    const results = await Promise.all(created.map(runTask));
-    if (results.every(Boolean)) {
-      await finishInputs();
+
+    startInFlight.current = true;
+    setStarting(true);
+    const created: UploadTask[] = [];
+    try {
+      if (occurrenceFiles.length) {
+        created.push({
+          key: crypto.randomUUID(),
+          kind: 'occurrence',
+          format,
+          files: occurrenceFiles,
+          progress: 0,
+          status: 'waiting',
+          resume: { completedParts: new Map() },
+        });
+      }
+      for (const file of predictorFiles) {
+        created.push({
+          key: crypto.randomUUID(),
+          kind: 'predictor',
+          format: file.name.toLowerCase().endsWith('.zip') ? 'geotiff-zip' : 'geotiff',
+          files: [file],
+          progress: 0,
+          status: 'waiting',
+          resume: { completedParts: new Map() },
+        });
+      }
+      if (!created.length) {
+        await finishInputs();
+        return;
+      }
+
+      setOccurrenceFiles([]);
+      setPredictorFiles([]);
+      setTasks((current) => [...current, ...created]);
+      const results = await Promise.all(created.map(runTask));
+      if (results.every(Boolean)) {
+        await finishInputs();
+      }
+    } finally {
+      startInFlight.current = false;
+      setStarting(false);
     }
   };
 
@@ -279,6 +299,8 @@ export const useDataUploads = (analysisId: string) => {
     tasks,
     message,
     finishing,
+    starting,
+    hasUnresolvedTasks: tasks.some((task) => task.status !== 'complete'),
     hasOccurrence: Boolean(
       inputs.data?.inputs.datasets.some((entry) => entry.dataset.kind === 'occurrence')
     ),

@@ -18,7 +18,7 @@ const BrandMark = () => {
 
 export const AppHeader = () => {
   return (
-    <header className="border-b border-border bg-surface">
+    <header className="shrink-0 border-b border-border bg-surface">
       <div className="flex min-h-header items-center justify-between gap-4 px-5 sm:px-8">
         <Link aria-label="EcoSuitability home" className="flex min-w-0 items-center gap-3" href="/">
           <BrandMark />

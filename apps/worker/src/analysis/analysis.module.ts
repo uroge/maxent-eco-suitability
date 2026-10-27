@@ -6,6 +6,7 @@ import {
   analysisQueuePrefix,
 } from '@ecosuitability/contracts';
 import type { WorkerEnvironment } from '../env';
+import { LifecycleModule } from '../platform/lifecycle.module';
 import { RedisModule } from '../platform/redis.module';
 import { WorkerStorageModule } from '../storage/worker-storage.module';
 import { AnalysisProcessor } from './analysis.processor';
@@ -36,6 +37,7 @@ import { ValidationJobService } from './validation-job.service';
       },
     }),
     BullModule.registerQueue({ name: analysisQueueName }),
+    LifecycleModule,
   ],
   providers: [
     WorkerLifecycleRepository,

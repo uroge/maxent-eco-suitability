@@ -7,8 +7,10 @@ export default async function AnalysesLayout({ children }: { children: ReactNode
   await auth.protect();
   return (
     <AnalysisProviders>
-      <AppHeader />
-      {children}
+      <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
+        <AppHeader />
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </div>
     </AnalysisProviders>
   );
 }

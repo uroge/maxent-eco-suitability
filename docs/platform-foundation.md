@@ -46,8 +46,9 @@ The worker reports progress, retries up to three total attempts with five-second
 exponential backoff, and has global queue concurrency one. Input profiling,
 configuration preflight, and model execution all call the private `analysis-r`
 service through the same recoverable run protocol.
-`analysis-r` has one replica, no public port, no Redis/Clerk/object-storage
-credentials, a read-only root filesystem, a small control-only tmpfs, and a
+`analysis-r` has one replica, no production public port, no
+Redis/Clerk/object-storage credentials, a read-only root filesystem, a small
+control-only tmpfs, and a
 dedicated disk-backed workspace volume. The worker passes only short-lived
 signed GET capabilities for frozen input objects. The runtime uses
 HMAC-authenticated requests and sequenced polling; it has no callback endpoint.

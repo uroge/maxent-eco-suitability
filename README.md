@@ -19,7 +19,8 @@ cp apps/worker/.env.example apps/worker/.env
 cp infrastructure/docker/.env.example infrastructure/docker/.env.local
 ```
 
-- `apps/web/.env.local` contains browser-safe `NEXT_PUBLIC_*` values only.
+- `apps/web/.env.local` contains browser-visible `NEXT_PUBLIC_*` values plus
+  server-only Next.js values such as `API_INTERNAL_URL` and `CLERK_SECRET_KEY`.
 - `apps/api/.env` and `apps/worker/.env` contain their own runtime configuration.
 - `infrastructure/docker/.env.local` supplies Docker Compose values. Use `pnpm docker:up` after creating it.
 - Production values belong in the hosting provider's secret manager, separately for each deployed service.
@@ -27,6 +28,28 @@ cp infrastructure/docker/.env.example infrastructure/docker/.env.local
 `NEXT_PUBLIC_*` values are embedded when the Next.js image is built. Set the
 production public API URL before building; it cannot be changed by a runtime
 container environment variable.
+
+### Host-based development
+
+For fast application development, run only Redis, SeaweedFS, the R runtime,
+and TiTiler in Docker:
+
+```sh
+pnpm docker:infra
+pnpm dev
+```
+
+The local Compose file binds Redis and SeaweedFS plus the private runtime
+health/API ports to loopback only. The host-run API uses TiTiler at
+`http://localhost:8081`; the host-run worker uses the R runtime at
+`http://localhost:8080`. Production Compose does not publish either internal
+service.
+
+Copy all four environment examples before starting. Keep the storage access
+key and secret, `R_RUNTIME_SHARED_SECRET`, and
+`TILE_INTERNAL_SHARED_SECRET` identical between the application environment
+files and `infrastructure/docker/.env.local`. Replace the Clerk placeholders
+with credentials from the same Clerk development instance.
 
 ## Design System
 

@@ -37,5 +37,5 @@ end
 
 analysis.status = 'ready'
 analysis.updatedAt = ARGV[2]
-redis.call('SET', KEYS[1], cjson.encode(analysis))
+redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 return { 'ready', cjson.encode(analysis) }

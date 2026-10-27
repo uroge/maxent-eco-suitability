@@ -21,7 +21,7 @@ if analysisPayload then
   if analysis.occurrenceDatasetId == dataset.id then
     analysis.occurrenceDatasetId = cjson.null
     analysis.updatedAt = ARGV[3]
-    redis.call('SET', KEYS[2], cjson.encode(analysis))
+    redis.call('SET', KEYS[2], cjson.encode(analysis), 'KEEPTTL')
   end
 end
 return { 'aborted', cjson.encode(dataset) }

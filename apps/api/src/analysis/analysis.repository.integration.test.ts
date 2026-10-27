@@ -9,6 +9,7 @@ import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { AnalysisQueueService } from './analysis-queue.service';
 import { ConfigurationService } from './configuration.service';
 import { AnalysisRepository } from './analysis.repository';
+import { DatasetRepository } from './dataset.repository';
 import type { StoredAnalysis } from './analysis.types';
 
 const integrationEnabled = process.env.RUN_REDIS_INTEGRATION === 'true';
@@ -130,6 +131,8 @@ describe.runIf(integrationEnabled)(
 
     let repository: AnalysisRepository;
 
+    let datasets: DatasetRepository;
+
     let queue: Queue;
 
     const withPassedPreflight = (
@@ -164,6 +167,7 @@ describe.runIf(integrationEnabled)(
       });
       await client.connect();
       repository = new AnalysisRepository({ getClient: () => client } as never);
+      datasets = new DatasetRepository({ getClient: () => client } as never);
       queue = new Queue(analysisQueueName, {
         connection: {
           host: container.getHost(),
@@ -214,6 +218,38 @@ describe.runIf(integrationEnabled)(
         analysis: { id: first.id },
       });
       expect(conflict).toBe('conflict');
+    });
+
+    it('preserves the analysis TTL when an upload dataset is reserved', async () => {
+      const analysis = createAnalysis(
+        'an_44444444444444444444444444444444',
+        'request-key-dataset-ttl',
+      );
+      await repository.create({ analysis, fingerprint: 'fingerprint-ttl' }, 3600);
+
+      await datasets.create(
+        {
+          id: 'ds_44444444444444444444444444444444',
+          analysisId: analysis.id,
+          ownerId: analysis.ownerId,
+          idempotencyKey: 'dataset-key-ttl',
+          fingerprint: 'dataset-fingerprint-ttl',
+          kind: 'occurrence',
+          format: 'csv',
+          status: 'collecting',
+          shapefileBasename: undefined,
+          uploadIds: [],
+          createdAt: '2026-08-31T12:00:00.000Z',
+          expiresAt: '2026-08-31T13:00:00.000Z',
+          completionClaimId: undefined,
+          completionClaimExpiresAt: undefined,
+        },
+        3600,
+      );
+
+      const ttl = await client.ttl(`ecosuitability:analysis:${analysis.id}`);
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(3600);
     });
 
     it('creates an expired tombstone and removes its idempotency key', async () => {

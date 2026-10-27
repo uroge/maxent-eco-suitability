@@ -92,6 +92,6 @@ if ARGV[6] == 'expired' then
   redis.call('DEL', KEYS[6] .. analysis.ownerId .. ':' .. analysis.idempotencyKey)
   redis.call('ZREM', KEYS[5], analysis.id)
 else
-  redis.call('SET', KEYS[1], cjson.encode(analysis))
+  redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 end
 return { 'scheduled', cjson.encode(analysis) }

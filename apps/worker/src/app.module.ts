@@ -5,8 +5,8 @@ import { AnalysisModule } from './analysis/analysis.module';
 import { validateEnvironment } from './env';
 import { OperationsController } from './platform/operations.controller';
 import { OperationsExceptionFilter } from './platform/operations-exception.filter';
+import { LifecycleModule } from './platform/lifecycle.module';
 import { LifecycleMiddleware } from './platform/lifecycle.middleware';
-import { LifecycleService } from './platform/lifecycle.service';
 import { RedisModule } from './platform/redis.module';
 import { RequestIdMiddleware } from './platform/request-id.middleware';
 
@@ -34,13 +34,13 @@ import { RequestIdMiddleware } from './platform/request-id.middleware';
         },
       },
     }),
+    LifecycleModule,
     RedisModule,
     AnalysisModule,
   ],
   controllers: [OperationsController],
   providers: [
     OperationsExceptionFilter,
-    LifecycleService,
     LifecycleMiddleware,
     RequestIdMiddleware,
   ],

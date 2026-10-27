@@ -48,15 +48,15 @@ pnpm dev
 pnpm check
 pnpm build
 pnpm test:e2e
+pnpm docker:infra
 pnpm docker:up
 pnpm docker:down
 ```
 
-`pnpm dev` starts web, API, and worker. Start Redis and SeaweedFS separately for host-based development:
+`pnpm dev` starts web, API, and worker. Start their four supporting services separately for host-based development:
 
 ```sh
-docker compose --env-file infrastructure/docker/.env.local \
-  -f infrastructure/docker/compose.yaml up redis seaweedfs
+pnpm docker:infra
 ```
 
 ## Validation

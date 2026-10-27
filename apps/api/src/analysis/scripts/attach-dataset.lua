@@ -49,6 +49,8 @@ local attached = cjson.decode(ARGV[4])
 retained[#retained + 1] = attached
 manifest.datasets = retained
 redis.call('SET', KEYS[3], cjson.encode(manifest))
+local analysisTtl = redis.call('PTTL', KEYS[2])
+if analysisTtl > 0 then redis.call('PEXPIRE', KEYS[3], analysisTtl) end
 analysis.status = 'uploading'
 analysis.inputRevision = (analysis.inputRevision or 0) + 1
 analysis.configuration = nil

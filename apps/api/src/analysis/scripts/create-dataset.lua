@@ -48,5 +48,5 @@ if analysisTtl > 0 then
 end
 redis.call('ZADD', KEYS[3], ARGV[5], ARGV[1])
 redis.call('SADD', KEYS[5], ARGV[1])
-redis.call('SET', KEYS[4], cjson.encode(analysis))
+redis.call('SET', KEYS[4], cjson.encode(analysis), 'KEEPTTL')
 return { 'created', ARGV[3] }
