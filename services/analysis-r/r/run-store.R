@@ -1,3 +1,11 @@
+r_child_environment <- function() {
+  c(
+    TMPDIR = Sys.getenv("TMPDIR", "/run/analysis-r"),
+    R_MAX_VSIZE = Sys.getenv("R_RUNTIME_CHILD_MEMORY_BYTES", "2147483648"),
+    R_RUNTIME_WORKSPACE_QUOTA_BYTES = Sys.getenv("R_RUNTIME_WORKSPACE_QUOTA_BYTES", "6442450944")
+  )
+}
+
 create_run_store <- function() {
   runs <- new.env(parent = emptyenv())
   workspace_root <- Sys.getenv("R_RUNTIME_WORKSPACE_ROOT", "/workspaces")
@@ -82,7 +90,14 @@ create_run_store <- function() {
     }
     diagnostics <- run$child$read_error_lines()
     if (length(diagnostics) > 0L) {
-      run$diagnosticBytes <- min(8192L, run$diagnosticBytes + sum(nchar(diagnostics, type = "bytes")))
+      remaining <- max(0L, 8192L - run$diagnosticBytes)
+      if (remaining > 0L) {
+        diagnostic <- paste(diagnostics, collapse = "\n")
+        diagnostic <- gsub("https?://[^[:space:]]+", "[redacted-url]", diagnostic)
+        diagnostic <- substr(diagnostic, 1L, remaining)
+        message(sprintf("R child diagnostic for %s: %s", run$request$runId, diagnostic))
+        run$diagnosticBytes <- run$diagnosticBytes + nchar(diagnostic, type = "bytes")
+      }
     }
     lines <- run$child$read_output_lines()
     for (line in lines) {
@@ -143,15 +158,12 @@ create_run_store <- function() {
     jsonlite::write_json(run$request, request_file, auto_unbox = TRUE, null = "null")
     jsonlite::write_json(run$capabilities, capability_file, auto_unbox = TRUE, null = "null")
     run$child <- processx::process$new(
-      "Rscript",
+      file.path(R.home("bin"), "Rscript"),
       c("scripts/validate-run.R", request_file, capability_file, run$workspace),
       stdout = "|",
       stderr = "|",
       cleanup_tree = TRUE,
-      env = c(
-        R_MAX_VSIZE = Sys.getenv("R_RUNTIME_CHILD_MEMORY_BYTES", "2147483648"),
-        R_RUNTIME_WORKSPACE_QUOTA_BYTES = Sys.getenv("R_RUNTIME_WORKSPACE_QUOTA_BYTES", "6442450944")
-      )
+      env = r_child_environment()
     )
     run$deadline <- Sys.time() + as.numeric(Sys.getenv("R_RUNTIME_RUN_TIMEOUT_MS", "1800000")) / 1000
     persist_recovery(run)
@@ -172,7 +184,10 @@ create_run_store <- function() {
     run$semantic <- semantic_request(request)
     run$state <- "accepted"
     recovery <- tryCatch(
-      jsonlite::read_json(file.path(workspace, "recovery.json"), simplifyVector = TRUE),
+      suppressWarnings(jsonlite::read_json(
+        file.path(workspace, "recovery.json"),
+        simplifyVector = TRUE
+      )),
       error = function(error) NULL
     )
     run$generation <- if (is.null(recovery$generation)) 2L else as.integer(recovery$generation) + 1L
@@ -327,15 +342,12 @@ create_run_store <- function() {
       }
       if (is.null(run$child)) {
         run$child <- processx::process$new(
-          "Rscript",
+          file.path(R.home("bin"), "Rscript"),
           c("scripts/upload-recovered.R", run$workspace),
           stdout = "|",
           stderr = "|",
           cleanup_tree = TRUE,
-          env = c(
-            R_MAX_VSIZE = Sys.getenv("R_RUNTIME_CHILD_MEMORY_BYTES", "2147483648"),
-            R_RUNTIME_WORKSPACE_QUOTA_BYTES = Sys.getenv("R_RUNTIME_WORKSPACE_QUOTA_BYTES", "6442450944")
-          )
+          env = r_child_environment()
         )
         run$deadline <- Sys.time() + as.numeric(Sys.getenv("R_RUNTIME_RUN_TIMEOUT_MS", "1800000")) / 1000
       }

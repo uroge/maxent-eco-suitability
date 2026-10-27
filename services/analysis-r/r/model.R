@@ -5,6 +5,18 @@ abort_model <- function(code) {
   ))
 }
 
+r_seed <- function(seed, offset = 0) {
+  value <- suppressWarnings(as.numeric(seed)) + as.numeric(offset)
+  if (length(value) != 1L || !is.finite(value) || value < 0 || value != floor(value)) {
+    abort_model("MODEL_SEED_INVALID")
+  }
+  as.integer(value %% (.Machine$integer.max + 1))
+}
+
+set_model_seed <- function(seed, offset = 0) {
+  set.seed(r_seed(seed, offset))
+}
+
 feature_codes <- function(classes) {
   codes <- c(linear = "l", quadratic = "q", product = "p", hinge = "h", threshold = "t")
   paste0(unname(codes[classes]), collapse = "")
@@ -64,7 +76,7 @@ roc_points <- function(presence, background) {
 }
 
 partition_indices <- function(count, validation, seed) {
-  set.seed(seed)
+  set_model_seed(seed)
   shuffled <- sample.int(count)
   if (identical(validation$method, "train-test-split")) {
     evaluation <- floor(count * validation$testFraction)
@@ -80,7 +92,7 @@ partition_indices <- function(count, validation, seed) {
 }
 
 scan_study_area <- function(stack, predictors, count, seed) {
-  set.seed(seed)
+  set_model_seed(seed)
   block_plan <- terra::blocks(stack)
   predictor_count <- terra::nlyr(stack)
   categorical <- vapply(
@@ -269,7 +281,7 @@ permutation_importance <- function(evaluation, presence, background, study_area,
   labels <- c(rep.int(1L, nrow(presence)), rep.int(0L, nrow(background)))
   baseline <- evaluation$auc
   vapply(seq_len(ncol(test_values)), function(index) {
-    set.seed(seed + evaluation$fold * 1000L + index)
+    set_model_seed(seed, evaluation$fold * 1000L + index)
     permuted <- test_values
     permuted[, index] <- sample(permuted[, index])
     predictions <- predict_values(evaluation$model, permuted, study_area)

@@ -349,7 +349,8 @@ validation_failure_message <- function(code) {
     PREDICTOR_GRID_INCOMPATIBLE = "Selected predictor rasters do not share an aligned grid.",
     PREDICTOR_CRS_INCOMPATIBLE = "Occurrence and predictor coordinate reference systems are incompatible.",
     PREDICTOR_COVERAGE_INSUFFICIENT = "Predictor coverage is incomplete at occurrence locations.",
-    OCCURRENCE_COVERAGE_THRESHOLD_NOT_MET = "Occurrence coverage is below the configured threshold."
+    OCCURRENCE_COVERAGE_THRESHOLD_NOT_MET = "Occurrence coverage is below the configured threshold.",
+    BACKGROUND_CAPACITY_INSUFFICIENT = "The requested background-point count exceeds the usable predictor cells. Reduce the background-point count."
   )
   if (!is.null(messages[[code]])) messages[[code]] else sprintf("Scientific validation failed: %s.", code)
 }

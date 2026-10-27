@@ -17,17 +17,27 @@ import type { Readable } from 'node:stream';
 export class WorkerStorageService {
   private readonly client: S3Client;
 
+  private readonly capabilityClient: S3Client;
+
   private readonly bucket: string;
 
   public constructor(config: ConfigService<WorkerEnvironment, true>) {
-    this.client = new S3Client({
-      endpoint: config.getOrThrow('STORAGE_INTERNAL_ENDPOINT'),
+    const internalEndpoint = config.getOrThrow('STORAGE_INTERNAL_ENDPOINT');
+    const clientOptions = {
       region: config.getOrThrow('STORAGE_REGION'),
       forcePathStyle: config.getOrThrow('STORAGE_FORCE_PATH_STYLE'),
       credentials: {
         accessKeyId: config.getOrThrow('STORAGE_ACCESS_KEY_ID'),
         secretAccessKey: config.getOrThrow('STORAGE_SECRET_ACCESS_KEY'),
       },
+    };
+    this.client = new S3Client({
+      ...clientOptions,
+      endpoint: internalEndpoint,
+    });
+    this.capabilityClient = new S3Client({
+      ...clientOptions,
+      endpoint: config.get('STORAGE_CAPABILITY_ENDPOINT') ?? internalEndpoint,
     });
     this.bucket = config.getOrThrow('STORAGE_BUCKET');
   }
@@ -118,7 +128,7 @@ export class WorkerStorageService {
   }
 
   public async presignGet(key: string, expiresIn: number): Promise<string> {
-    return presignS3Get(this.client, this.bucket, key, expiresIn);
+    return presignS3Get(this.capabilityClient, this.bucket, key, expiresIn);
   }
 
   public async presignPut(
@@ -129,7 +139,7 @@ export class WorkerStorageService {
     sha256: string,
   ): Promise<string> {
     return presignS3Put(
-      this.client,
+      this.capabilityClient,
       this.bucket,
       key,
       expiresIn,

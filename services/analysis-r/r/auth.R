@@ -13,7 +13,8 @@ constant_time_equal <- function(left, right) {
 
 request_path <- function(req) {
   if (is.null(req$QUERY_STRING) || identical(req$QUERY_STRING, "")) return(req$PATH_INFO)
-  paste0(req$PATH_INFO, "?", req$QUERY_STRING)
+  separator <- if (startsWith(req$QUERY_STRING, "?")) "" else "?"
+  paste0(req$PATH_INFO, separator, req$QUERY_STRING)
 }
 
 verify_request <- function(req, res) {

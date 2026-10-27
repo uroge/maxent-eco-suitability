@@ -42,8 +42,10 @@ pnpm dev
 The local Compose file binds Redis and SeaweedFS plus the private runtime
 health/API ports to loopback only. The host-run API uses TiTiler at
 `http://localhost:8081`; the host-run worker uses the R runtime at
-`http://localhost:8080`. Production Compose does not publish either internal
-service.
+`http://localhost:8080`. The worker signs R input capabilities against
+Docker's `http://seaweedfs:8333` service address while retaining
+`http://localhost:8333` for its own storage access. Production Compose does not
+publish either internal service.
 
 Copy all four environment examples before starting. Keep the storage access
 key and secret, `R_RUNTIME_SHARED_SECRET`, and

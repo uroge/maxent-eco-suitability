@@ -42,6 +42,15 @@ const seedFromAnalysisId = (analysisId: string): number => {
   return hash >>> 0;
 };
 
+const defaultBackgroundPointCount = (profile: AnalysisInputProfile): number => {
+  const rasterCells = profile.rasters.map((raster) => raster.width * raster.height);
+  if (!rasterCells.length) {
+    return 10000;
+  }
+  const upperBound = Math.min(...rasterCells);
+  return Math.max(1000, Math.min(10000, upperBound));
+};
+
 export const sourceFallback = (profile: AnalysisInputProfile): OccurrenceSourceProfile => ({
   source: null,
   columns: profile.occurrence.columns,
@@ -111,7 +120,10 @@ export const createDefaultConfiguration = (
       coveragePolicy: 'require-all',
       minimumCoveragePercent: 100,
     },
-    background: { strategy: 'random', pointCount: 10000 },
+    background: {
+      strategy: 'random',
+      pointCount: defaultBackgroundPointCount(profiled),
+    },
     model: {
       featureClasses: ['linear', 'quadratic', 'product', 'hinge'],
       regularizationMultiplier: 1,

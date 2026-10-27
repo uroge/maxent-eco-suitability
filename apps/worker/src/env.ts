@@ -8,6 +8,7 @@ const schema = z.object({
     .url()
     .refine((value) => /^rediss?:/.test(value), 'Use a Redis URL.'),
   STORAGE_INTERNAL_ENDPOINT: z.url(),
+  STORAGE_CAPABILITY_ENDPOINT: z.url().optional(),
   STORAGE_REGION: z.string().min(1).max(64),
   STORAGE_BUCKET: z.string().min(3).max(63),
   STORAGE_ACCESS_KEY_ID: z.string().min(1),

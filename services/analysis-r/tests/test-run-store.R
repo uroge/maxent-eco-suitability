@@ -10,6 +10,26 @@ dir.create(workspace_root)
 on.exit(unlink(workspace_root, recursive = TRUE, force = TRUE), add = TRUE)
 Sys.setenv(R_RUNTIME_WORKSPACE_ROOT = workspace_root)
 
+assert_identical(
+  file.exists(file.path(R.home("bin"), "Rscript")),
+  TRUE,
+  "The authoritative Rscript executable is unavailable."
+)
+
+child_environment <- r_child_environment()
+assert_identical(
+  nzchar(unname(child_environment[["TMPDIR"]])),
+  TRUE,
+  "The child runtime has no writable temporary-directory configuration."
+)
+child_probe <- processx::run(
+  file.path(R.home("bin"), "Rscript"),
+  c("-e", "stopifnot(dir.exists(tempdir())); cat(tempdir())"),
+  env = child_environment,
+  error_on_status = FALSE
+)
+assert_identical(child_probe$status, 0L, "The child runtime cannot create its R temporary directory.")
+
 run_id <- "an_0123456789abcdef0123456789abcdef.execute.1"
 workspace <- file.path(workspace_root, run_id)
 output_directory <- file.path(workspace, "outputs")

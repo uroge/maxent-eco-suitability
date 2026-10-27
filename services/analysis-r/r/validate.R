@@ -245,6 +245,28 @@ extract_geotiff_archive <- function(path, workspace, index) {
   target
 }
 
+valid_study_area_cells <- function(rasters) {
+  stack <- terra::rast(rasters)
+  block_plan <- terra::blocks(stack)
+  predictor_count <- terra::nlyr(stack)
+  valid_cells <- 0
+  terra::readStart(stack)
+  on.exit(terra::readStop(stack), add = TRUE)
+  for (block_index in seq_len(block_plan$n)) {
+    values <- terra::readValues(
+      stack,
+      row = block_plan$row[[block_index]],
+      nrows = block_plan$nrows[[block_index]],
+      mat = TRUE
+    )
+    if (is.null(dim(values))) {
+      values <- matrix(values, ncol = predictor_count)
+    }
+    valid_cells <- valid_cells + sum(rowSums(is.finite(values)) == predictor_count)
+  }
+  valid_cells
+}
+
 validate_predictors <- function(datasets, files_by_dataset, configuration, occurrence_crs, coordinates) {
   predictors <- configuration$predictors
   policy <- input_validation_policy(configuration)
@@ -294,8 +316,14 @@ validate_predictors <- function(datasets, files_by_dataset, configuration, occur
       if (any(values != floor(values)) || length(unique(values)) < 2L || length(unique(values)) > 256L) abort_validation("PREDICTOR_CATEGORICAL_INVALID")
     }
   }
+  study_area_cells <- valid_study_area_cells(raster_list)
+  background_point_count <- configuration$background$pointCount
+  if (!is.null(background_point_count) && study_area_cells < background_point_count) {
+    abort_validation("BACKGROUND_CAPACITY_INSUFFICIENT")
+  }
   attr(raster_list, "occurrence_coverage") <- coverage
   attr(raster_list, "coverage_percent") <- coverage_percent
+  attr(raster_list, "study_area_cells") <- study_area_cells
   raster_list
 }
 

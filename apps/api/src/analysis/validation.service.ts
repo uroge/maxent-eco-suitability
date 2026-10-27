@@ -40,11 +40,14 @@ export class ValidationService {
       )
     ) {
       if (['queued', 'running'].includes(analysis.inputProfile.status)) {
-        await this.queue.enqueueInputProfile({
-          analysisId: analysis.id,
-          ownerId: principal.userId,
-          inputRevision: analysis.inputRevision,
-        });
+        await this.queue.enqueueInputProfile(
+          {
+            analysisId: analysis.id,
+            ownerId: principal.userId,
+            inputRevision: analysis.inputRevision,
+          },
+          analysis.inputProfile.createdAt,
+        );
       }
       return analysis.inputProfile;
     }
@@ -86,11 +89,14 @@ export class ValidationService {
     if (typeof updated === 'string') {
       throw this.conflict('The inputs changed while profiling was requested.');
     }
-    await this.queue.enqueueInputProfile({
-      analysisId: analysis.id,
-      ownerId: principal.userId,
-      inputRevision: analysis.inputRevision,
-    });
+    await this.queue.enqueueInputProfile(
+      {
+        analysisId: analysis.id,
+        ownerId: principal.userId,
+        inputRevision: analysis.inputRevision,
+      },
+      profile.createdAt,
+    );
     return profile;
   }
 
@@ -140,12 +146,15 @@ export class ValidationService {
       )
     ) {
       if (['queued', 'running'].includes(analysis.preflight.status)) {
-        await this.queue.enqueuePreflight({
-          analysisId: analysis.id,
-          ownerId: principal.userId,
-          inputRevision: analysis.inputRevision,
-          configurationRevision: analysis.configurationRevision,
-        });
+        await this.queue.enqueuePreflight(
+          {
+            analysisId: analysis.id,
+            ownerId: principal.userId,
+            inputRevision: analysis.inputRevision,
+            configurationRevision: analysis.configurationRevision,
+          },
+          analysis.preflight.createdAt,
+        );
       }
       return analysis.preflight;
     }
@@ -178,12 +187,15 @@ export class ValidationService {
         'The configuration changed while preflight was requested.',
       );
     }
-    await this.queue.enqueuePreflight({
-      analysisId: analysis.id,
-      ownerId: principal.userId,
-      inputRevision: analysis.inputRevision,
-      configurationRevision: analysis.configurationRevision,
-    });
+    await this.queue.enqueuePreflight(
+      {
+        analysisId: analysis.id,
+        ownerId: principal.userId,
+        inputRevision: analysis.inputRevision,
+        configurationRevision: analysis.configurationRevision,
+      },
+      preflight.createdAt,
+    );
     return preflight;
   }
 
