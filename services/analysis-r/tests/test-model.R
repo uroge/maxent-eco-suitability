@@ -79,6 +79,8 @@ configuration <- list(
   seed = 42L,
   visualization = list(terrain = NULL)
 )
+continuous_with_nodata <- continuous
+terra::values(continuous_with_nodata)[seq_len(40L)] <- NA_real_
 presence_cells <- seq(50L, 1550L, length.out = 20L)
 coordinates <- terra::xyFromCell(continuous, as.integer(presence_cells))
 validated <- list(
@@ -90,7 +92,7 @@ validated <- list(
   ),
   coordinates = coordinates,
   occurrenceCrs = "EPSG:4326",
-  rasters = list(continuous),
+  rasters = list(continuous_with_nodata),
   configuration = configuration,
   configurationFingerprint = paste0("jcs-sha256-v1:", paste(rep("a", 64L), collapse = "")),
   inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("b", 64L), collapse = ""))
@@ -136,6 +138,10 @@ if (length(result_a$mapAssets) != 1L || !isTRUE(result_a$mapAssets[[1L]]$raster$
 }
 verify_cog(file.path(result_a$outputDirectory, "suitability.tif"), 0, 1)
 verify_cog(file.path(result_a$outputDirectory, "suitability-threshold.tif"), 0, 1)
+suitability_output <- terra::rast(file.path(result_a$outputDirectory, "suitability.tif"))
+if (sum(!is.finite(terra::values(suitability_output))) != 40L) {
+  stop("Suitability projection did not preserve predictor nodata cells.", call. = FALSE)
+}
 for (filename in expected_files) {
   hash_a <- digest::digest(
     file = file.path(result_a$outputDirectory, filename),

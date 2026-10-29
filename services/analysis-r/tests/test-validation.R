@@ -400,6 +400,33 @@ if (
   stop("CSV profiling did not detect the occurrence mapping.", call. = FALSE)
 }
 
+tsv_path <- file.path(workspace, "gbif-occurrences.csv")
+utils::write.table(occurrences, tsv_path, sep = "\t", row.names = FALSE, quote = FALSE)
+tsv_profile <- profile_tabular_occurrence(tsv_path, "csv")
+if (
+  tsv_profile$recordCount != 10L ||
+    !identical(tsv_profile$longitudeCandidates[[1L]], "longitude") ||
+    !identical(tsv_profile$latitudeCandidates[[1L]], "latitude")
+) {
+  stop("Tab-delimited CSV profiling did not detect the occurrence mapping.", call. = FALSE)
+}
+
+tsv_result <- read_occurrences(
+  list(dataset = list(format = "csv")),
+  list(tsv_path),
+  list(
+    occurrence = list(
+      format = "csv",
+      longitudeColumn = "longitude",
+      latitudeColumn = "latitude",
+      speciesColumn = "species"
+    )
+  )
+)
+if (nrow(tsv_result$coordinates) != 10L) {
+  stop("Tab-delimited CSV occurrence parsing failed.", call. = FALSE)
+}
+
 xlsx_profile <- profile_tabular_occurrence(xlsx_path, "xlsx")
 if (
   xlsx_profile$layers[[1L]] != "Occurrences" ||

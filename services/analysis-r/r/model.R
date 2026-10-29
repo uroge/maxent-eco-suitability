@@ -199,7 +199,8 @@ fit_model <- function(presence, background, configuration, study_area) {
       values,
       f = formula,
       regmult = configuration$model$regularizationMultiplier,
-      addsamplestobackground = FALSE
+      addsamplestobackground = FALSE,
+      type.logistic = "modified.Newton"
     ),
     error = function(error) NULL
   )
@@ -434,6 +435,7 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
       final_model,
       fun = predict_raster_values,
       study_area = study_area,
+      na.rm = TRUE,
       filename = suitability_source,
       overwrite = TRUE,
       wopt = list(

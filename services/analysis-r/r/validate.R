@@ -156,13 +156,23 @@ vector_records <- function(shape, policy, require_crs = FALSE, wgs84 = FALSE) {
   )
 }
 
+read_delimited_occurrences <- function(path, n_max = Inf) {
+  readr::read_delim(
+    path,
+    delim = NULL,
+    col_types = readr::cols(.default = readr::col_character()),
+    n_max = n_max,
+    progress = FALSE
+  )
+}
+
 read_occurrences <- function(dataset, files, configuration) {
   format <- dataset$dataset$format
   occurrence <- configuration$occurrence
   policy <- input_validation_policy(configuration)
   if (!identical(format, occurrence$format)) abort_validation("OCCURRENCE_FORMAT_INVALID")
   if (identical(format, "csv")) {
-    table <- tryCatch(readr::read_csv(files[[1L]], col_types = readr::cols(.default = readr::col_character()), progress = FALSE), error = function(error) NULL)
+    table <- tryCatch(read_delimited_occurrences(files[[1L]]), error = function(error) NULL)
     if (is.null(table)) abort_validation("OCCURRENCE_FILE_UNREADABLE")
     if (ncol(table) > 100L || nrow(table) > 500L) abort_validation("INPUT_RESOURCE_LIMIT_EXCEEDED")
     longitude <- occurrence$longitudeColumn

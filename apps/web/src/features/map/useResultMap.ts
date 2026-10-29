@@ -52,6 +52,7 @@ export const useResultMap = ({
 }: ResultMapOptions) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const coordinateOutputRef = useRef<HTMLSpanElement>(null);
+  const styleKeyRef = useRef<string | undefined>(undefined);
   const [state, dispatch] = useReducer(reducer, { status: 'loading' });
   const readToken = useEffectEvent(() => getToken());
   const inspect = useEffectEvent(onInspect);
@@ -72,10 +73,13 @@ export const useResultMap = ({
         if (disposed) {
           return;
         }
+        const initialBasemap = capabilities.basemaps[0];
+        const initialStyleKey = resultStyleKey(initialBasemap);
+        styleKeyRef.current = initialStyleKey;
         const map = new maplibregl.Map({
           container,
           style: selectedResultMapStyle(
-            capabilities.basemaps[0],
+            initialBasemap,
             analysisId,
             capabilities,
             activeLayersRef.current,
@@ -92,7 +96,7 @@ export const useResultMap = ({
         mapRef.current = map;
         map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
         const prepareStyle = (): void => {
-          if (disposed) {
+          if (disposed || styleKeyRef.current !== initialStyleKey) {
             return;
           }
           installResultMapLayers(
@@ -115,8 +119,9 @@ export const useResultMap = ({
             }
           });
         };
-        map.on('style.load', prepareStyle);
+        map.once('style.load', prepareStyle);
         if (map.isStyleLoaded()) {
+          map.off('style.load', prepareStyle);
           prepareStyle();
         }
         map.on('error', (event) => {
@@ -162,29 +167,65 @@ export const useResultMap = ({
 
   useEffect(() => {
     const applyStyle = (): void => {
-      if (mapRef.current) {
-        dispatch({ type: 'loading' });
-        mapRef.current.setStyle(
-          selectedResultMapStyle(
-            basemap,
-            analysisId,
-            capabilities,
-            activeLayersRef.current,
-            opacityRef.current
-          )
-        );
+      const map = mapRef.current;
+      const nextKey = resultStyleKey(basemap);
+      if (!map || styleKeyRef.current === nextKey) {
+        return;
       }
+      styleKeyRef.current = nextKey;
+      dispatch({ type: 'loading' });
+      const prepareStyle = (): void => {
+        if (styleKeyRef.current !== nextKey) {
+          return;
+        }
+        installResultMapLayers(
+          map,
+          analysisId,
+          capabilities,
+          activeLayersRef.current,
+          opacityRef.current,
+          terrainRef.current
+        );
+        map.resize();
+        map.triggerRepaint();
+        dispatch({ type: 'ready' });
+      };
+      map.once('style.load', prepareStyle);
+      map.setStyle(
+        selectedResultMapStyle(
+          basemap,
+          analysisId,
+          capabilities,
+          activeLayersRef.current,
+          opacityRef.current
+        )
+      );
     };
-    if (mapRef.current) {
-      applyStyle();
-    }
+    applyStyle();
     const observer = new MutationObserver(applyStyle);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
     });
     return () => observer.disconnect();
-  }, [activeLayersRef, analysisId, basemap, capabilities, mapRef, opacityRef]);
+  }, [
+    activeLayersRef,
+    analysisId,
+    basemap,
+    capabilities,
+    mapRef,
+    opacityRef,
+    terrainRef,
+  ]);
 
   return { containerRef, coordinateOutputRef, state };
+};
+
+const resultStyleKey = (
+  basemap: MapCapabilities['basemaps'][number] | undefined
+): string => {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  return dark
+    ? (basemap?.darkStyleUrl ?? basemap?.styleUrl ?? 'fallback:dark')
+    : (basemap?.styleUrl ?? 'fallback:light');
 };

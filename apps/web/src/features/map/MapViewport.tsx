@@ -81,8 +81,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         onTerrainToggle={onTerrainToggle}
       />
     </aside>
-    <div className="relative min-h-[65vh] bg-muted lg:min-h-0">
-      <div ref={container} className="absolute inset-0" />
+    <div className="relative isolate min-h-[65vh] overflow-hidden bg-muted lg:min-h-0">
+      <div ref={container} className="absolute inset-0 z-0 h-full w-full" />
       {mapLoading ? (
         <div className="absolute inset-0 z-10 grid place-items-center bg-surface/80 text-sm text-muted-foreground">
           Loading authenticated map layers…

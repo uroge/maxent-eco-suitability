@@ -38,7 +38,7 @@ profile_preview <- function(coordinates, crs = "EPSG:4326") {
 profile_tabular_source <- function(path, format, source = NULL) {
   table <- tryCatch(
     if (identical(format, "csv")) {
-      readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()), n_max = 501L, progress = FALSE)
+      read_delimited_occurrences(path, n_max = 501L)
     } else {
       readxl::read_excel(path, sheet = source, col_types = "text", n_max = 501L)
     },
