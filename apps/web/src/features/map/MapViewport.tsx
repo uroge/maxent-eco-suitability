@@ -20,6 +20,7 @@ type Coordinates = { longitude: number; latitude: number };
 
 type MapViewportProps = {
   container: RefObject<HTMLDivElement | null>;
+  coordinateOutputRef: RefObject<HTMLSpanElement | null>;
   capabilities: MapCapabilities;
   basemap?: MapCapabilities['basemaps'][number];
   selectedBasemap?: string;
@@ -27,7 +28,6 @@ type MapViewportProps = {
   opacity: number;
   terrainEnabled: boolean;
   inspection?: MapInspection;
-  coordinates?: Coordinates;
   inspectionCoordinates?: Coordinates;
   inspectorOpen: boolean;
   mapLoading: boolean;
@@ -45,6 +45,7 @@ type MapViewportProps = {
 
 export const MapViewport: React.FC<MapViewportProps> = ({
   container,
+  coordinateOutputRef,
   capabilities,
   basemap,
   selectedBasemap,
@@ -52,7 +53,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   opacity,
   terrainEnabled,
   inspection,
-  coordinates,
   inspectionCoordinates,
   inspectorOpen,
   mapLoading,
@@ -67,7 +67,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   onInspectRetry,
   onReset,
 }) => (
-  <div className="grid min-h-[calc(100vh-9rem)] lg:grid-cols-[18rem_1fr_20rem]">
+  <div className="grid h-full min-h-0 lg:grid-cols-[18rem_1fr_20rem]">
     <aside className="hidden border-r border-border bg-surface p-5 lg:block">
       <MapLayerPanel
         capabilities={capabilities}
@@ -189,9 +189,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       </div>
       <div className="pointer-events-none absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 rounded bg-surface/90 px-2 py-1 text-[11px] text-muted-foreground shadow">
         <Crosshair className="mr-1 inline" size={12} />
-        {coordinates
-          ? `${coordinates.longitude.toFixed(5)}, ${coordinates.latitude.toFixed(5)}`
-          : 'Select the map to inspect a pixel'}
+        <span ref={coordinateOutputRef}>Select the map to inspect a pixel</span>
       </div>
       {basemap ? (
         <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 max-w-[50%] rounded bg-surface/90 px-2 py-1 text-right text-[10px] text-muted-foreground">

@@ -81,7 +81,10 @@ const presignS3Put = (client, bucket, key, expiresIn, contentType, contentDispos
       ContentDisposition: contentDisposition,
       Metadata: { sha256 },
     }),
-    { expiresIn }
+    {
+      expiresIn,
+      unhoistableHeaders: new Set(['x-amz-meta-sha256']),
+    }
   );
 
 const completeOnResponseEnd = (response, complete) => {

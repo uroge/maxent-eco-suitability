@@ -22,10 +22,6 @@ if #generated ~= #provisional.artifacts then
   return { 'invalid' }
 end
 
-if provisional.candidateCompletedAt ~= nil and provisional.candidateCompletedAt ~= cjson.null and provisional.candidateCompletedAt ~= ARGV[3] then
-  return { 'invalid' }
-end
-
 for _, artifact in ipairs(provisional.artifacts) do
   local match = nil
   for _, candidate in ipairs(generated) do
@@ -37,9 +33,6 @@ for _, artifact in ipairs(provisional.artifacts) do
     end
   end
   if not match then
-    return { 'invalid' }
-  end
-  if artifact.size > 0 and (artifact.size ~= match.size or artifact.sha256 ~= match.sha256) then
     return { 'invalid' }
   end
   artifact.size = match.size

@@ -225,7 +225,10 @@ describe.runIf(integrationEnabled)(
         'an_44444444444444444444444444444444',
         'request-key-dataset-ttl',
       );
-      await repository.create({ analysis, fingerprint: 'fingerprint-ttl' }, 3600);
+      await repository.create(
+        { analysis, fingerprint: 'fingerprint-ttl' },
+        3600,
+      );
 
       await datasets.create(
         {
@@ -250,6 +253,49 @@ describe.runIf(integrationEnabled)(
       const ttl = await client.ttl(`ecosuitability:analysis:${analysis.id}`);
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(3600);
+    });
+
+    it('replaces a stale dataset replay after its upload session expires', async () => {
+      const analysis = createAnalysis(
+        'an_55555555555555555555555555555555',
+        'request-key-stale-dataset',
+      );
+      await repository.create(
+        { analysis, fingerprint: 'fingerprint-stale-dataset' },
+        3600,
+      );
+      const first = {
+        id: 'ds_55555555555555555555555555555555',
+        analysisId: analysis.id,
+        ownerId: analysis.ownerId,
+        idempotencyKey: 'dataset-key-stale',
+        fingerprint: 'dataset-fingerprint-stale',
+        kind: 'occurrence' as const,
+        format: 'csv' as const,
+        status: 'collecting' as const,
+        shapefileBasename: undefined,
+        uploadIds: [],
+        createdAt: '2026-08-31T12:00:00.000Z',
+        expiresAt: '2026-08-31T13:00:00.000Z',
+        completionClaimId: undefined,
+        completionClaimExpiresAt: undefined,
+      };
+      await datasets.create(first, 3600);
+      await client.del(`ecosuitability:upload-dataset:${first.id}`);
+
+      const replacement = {
+        ...first,
+        id: 'ds_66666666666666666666666666666666',
+        createdAt: '2026-08-31T13:01:00.000Z',
+        expiresAt: '2026-08-31T14:01:00.000Z',
+      };
+      await expect(datasets.create(replacement, 3600)).resolves.toMatchObject({
+        replayed: false,
+        dataset: { id: replacement.id },
+      });
+      await expect(
+        repository.findOwned(analysis.id, analysis.ownerId),
+      ).resolves.toMatchObject({ occurrenceDatasetId: replacement.id });
     });
 
     it('creates an expired tombstone and removes its idempotency key', async () => {

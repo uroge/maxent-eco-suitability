@@ -22,6 +22,7 @@ export type UploadDatasetOptions = {
   replaceDatasetId?: string;
   resume?: DirectUploadResumeState;
   signal?: AbortSignal;
+  onDatasetReady?: (datasetId: string) => void;
   onProgress?: (progress: UploadProgress) => void;
 };
 
@@ -86,6 +87,7 @@ export const uploadDataset = async (
         signal: options.signal,
       })
     ).dataset.id;
+  options.onDatasetReady?.(datasetId);
   const progress = new Map<File, number>();
   const totalBytes = files.reduce((total, entry) => total + entry.file.size, 0);
 
@@ -106,7 +108,7 @@ export const uploadDataset = async (
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Idempotency-Key': `${options.idempotencyKey}-file-${digest.slice(0, 12)}`,
+            'Idempotency-Key': `${options.idempotencyKey}-file-${datasetId.slice(-8)}-${digest.slice(0, 12)}`,
           },
           body: JSON.stringify({
             originalName: file.name,
@@ -158,7 +160,7 @@ export const uploadDataset = async (
 
   await requestJson(api, `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/complete`, {
     method: 'POST',
-    headers: { 'Idempotency-Key': `${options.idempotencyKey}-attach` },
+    headers: { 'Idempotency-Key': `${options.idempotencyKey}-attach-${datasetId.slice(-8)}` },
     signal: options.signal,
   });
   return datasetId;

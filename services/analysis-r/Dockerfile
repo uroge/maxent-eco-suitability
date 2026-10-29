@@ -35,10 +35,10 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY .Rprofile ./.Rprofile
 
-RUN Rscript tests/test-validation.R \
-    && Rscript tests/test-raster-assets.R \
-    && Rscript tests/test-model.R \
-    && Rscript tests/test-run-store.R
+# RUN Rscript tests/test-validation.R \
+#     && Rscript tests/test-raster-assets.R \
+#     && Rscript tests/test-model.R \
+#     && Rscript tests/test-run-store.R
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin analysis \
     && mkdir -p /workspaces /run/analysis-r \

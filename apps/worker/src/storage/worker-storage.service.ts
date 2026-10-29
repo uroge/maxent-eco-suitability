@@ -34,10 +34,14 @@ export class WorkerStorageService {
     this.client = new S3Client({
       ...clientOptions,
       endpoint: internalEndpoint,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
     this.capabilityClient = new S3Client({
       ...clientOptions,
       endpoint: config.get('STORAGE_CAPABILITY_ENDPOINT') ?? internalEndpoint,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
     this.bucket = config.getOrThrow('STORAGE_BUCKET');
   }

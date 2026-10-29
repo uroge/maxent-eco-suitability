@@ -23,6 +23,10 @@ import { DatasetRepository } from './dataset.repository';
 
 const sessionTtlSeconds = 60 * 60;
 
+const sessionCleanupGraceSeconds = 5 * 60;
+
+const sessionRecordTtlSeconds = sessionTtlSeconds + sessionCleanupGraceSeconds;
+
 const multipartThresholdBytes = 64 * 1024 * 1024;
 
 const partSizeBytes = 16 * 1024 * 1024;
@@ -76,7 +80,10 @@ export class UploadService {
       completionClaimId: undefined,
       completionClaimExpiresAt: undefined,
     };
-    const result = await this.repository.create(dataset, sessionTtlSeconds);
+    const result = await this.repository.create(
+      dataset,
+      sessionRecordTtlSeconds,
+    );
     if (result === 'conflict') {
       throw this.conflict(
         'The idempotency key was already used for a different request.',
@@ -214,7 +221,7 @@ export class UploadService {
       dataset,
       upload,
       component ? this.basename(request.originalName) : undefined,
-      sessionTtlSeconds,
+      sessionRecordTtlSeconds,
     );
     if (typeof result === 'string') {
       await this.storage.cleanupUpload(objectKey, multipartUploadId);

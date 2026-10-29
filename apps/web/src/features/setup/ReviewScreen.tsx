@@ -136,7 +136,6 @@ export const ReviewScreen: React.FC<{ analysisId: string }> = ({ analysisId }) =
       router.push(`/analyses/${analysisId}/run`);
     } catch (error) {
       setQueueError(error instanceof Error ? error.message : 'The analysis could not be queued.');
-    } finally {
       setQueueing(false);
     }
   };
@@ -209,7 +208,7 @@ export const ReviewScreen: React.FC<{ analysisId: string }> = ({ analysisId }) =
           disabled={value?.status !== 'passed' || stale}
           onClick={() => void queue()}
         >
-          Queue analysis
+          {queueing ? 'Opening execution…' : 'Queue analysis'}
         </Button>
       </div>
     </SetupShell>

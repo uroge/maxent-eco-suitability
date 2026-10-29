@@ -8,11 +8,18 @@ from typing import Annotated, Literal
 import numpy
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from rio_tiler.colormap import cmap
+from rio_tiler.errors import PointOutsideBounds, TileOutsideBounds
 from rio_tiler.io import COGReader
 from rio_tiler.utils import render
 
 OBJECT_KEY = re.compile(r"^analyses/an_[a-z0-9]{32}/(?:results|map-assets)/[A-Za-z0-9._/-]+$")
 MAX_TILE_BYTES = 2 * 1024 * 1024
+
+
+def transparent_tile() -> bytes:
+    data = numpy.zeros((1, 256, 256), dtype=numpy.uint8)
+    mask = numpy.zeros((256, 256), dtype=numpy.uint8)
+    return render(data, mask=mask, img_format="PNG")
 
 
 def require_secret(x_tile_secret: Annotated[str | None, Header()] = None) -> None:
@@ -70,8 +77,15 @@ def tile(
 ) -> Response:
     if z < 0 or z > 22 or x < 0 or y < 0 or x >= 2**z or y >= 2**z:
         raise HTTPException(status_code=400, detail="Invalid tile coordinates")
-    with COGReader(source_path(key)) as cog:
-        image = cog.tile(x, y, z, tilesize=256)
+    try:
+        with COGReader(source_path(key)) as cog:
+            image = cog.tile(x, y, z, tilesize=256)
+    except TileOutsideBounds:
+        return Response(
+            transparent_tile(),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=300"},
+        )
     if style == "terrainrgb":
         content = render(terrain_rgb(image.data[0]), mask=image.mask, img_format="PNG")
     elif style == "threshold":
@@ -109,8 +123,12 @@ def point(
     longitude: Annotated[float, Query(ge=-180, le=180)],
     latitude: Annotated[float, Query(ge=-90, le=90)],
 ) -> dict[str, object]:
-    with COGReader(source_path(key)) as cog:
-        value = cog.point(longitude, latitude, coord_crs="epsg:4326")
+    try:
+        with COGReader(source_path(key)) as cog:
+            value = cog.point(longitude, latitude, coord_crs="epsg:4326")
+            nodata = cog.dataset.nodata
+    except PointOutsideBounds:
+        return {"coordinates": [longitude, latitude], "values": [None]}
     data = numpy.asarray(value.data).reshape(-1)
     mask = numpy.asarray(value.mask).reshape(-1)
     values = [
@@ -118,6 +136,7 @@ def point(
         if mask.size > 0
         and bool(mask[index if mask.size > 1 else 0])
         and numpy.isfinite(item)
+        and (nodata is None or not numpy.isclose(item, nodata))
         else None
         for index, item in enumerate(data)
     ]

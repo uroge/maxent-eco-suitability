@@ -18,6 +18,13 @@ type PointResponse = { values?: unknown[] };
 
 type GeoJsonPosition = [number, number];
 
+type GeographicBounds = [number, number, number, number];
+
+const transparentPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 @Injectable()
 export class MapService {
   public constructor(
@@ -164,6 +171,15 @@ export class MapService {
     if (!storageKey || !style) {
       throw this.notFound();
     }
+    const rasterBounds = mapAsset
+      ? mapAsset.raster.bounds
+      : this.outputRasterBounds(analysis);
+    if (
+      rasterBounds &&
+      !this.tileIntersectsBounds(z, x, y, rasterBounds)
+    ) {
+      return { body: transparentPng, contentType: 'image/png' };
+    }
     const url = new URL(
       `/v1/tiles/${style}/${z}/${x}/${y}.png`,
       this.config.getOrThrow('TILE_SERVICE_URL'),
@@ -221,6 +237,9 @@ export class MapService {
     const asset = analysis.mapAssets?.find((item) => item.terrainEligible);
     if (!asset) {
       throw this.notFound();
+    }
+    if (!this.tileIntersectsBounds(z, x, y, asset.raster.bounds)) {
+      return { body: transparentPng, contentType: 'image/png' };
     }
     const url = new URL(
       `/v1/tiles/terrainrgb/${z}/${x}/${y}.png`,
@@ -545,6 +564,52 @@ export class MapService {
         'The requested tile coordinate is invalid.',
       );
     }
+  }
+
+  private outputRasterBounds(
+    analysis: StoredAnalysis,
+  ): GeographicBounds | undefined {
+    const predictorBounds = (analysis.mapAssets ?? []).map(
+      (asset) => asset.raster.bounds,
+    );
+    const bounds =
+      predictorBounds.length > 0
+        ? predictorBounds
+        : (analysis.inputProfile?.rasters ?? []).map((raster) => raster.bounds);
+    if (bounds.length === 0) {
+      return undefined;
+    }
+    const intersection: GeographicBounds = [
+      Math.max(...bounds.map((value) => value[0])),
+      Math.max(...bounds.map((value) => value[1])),
+      Math.min(...bounds.map((value) => value[2])),
+      Math.min(...bounds.map((value) => value[3])),
+    ];
+    return intersection[0] < intersection[2] && intersection[1] < intersection[3]
+      ? intersection
+      : undefined;
+  }
+
+  private tileIntersectsBounds(
+    z: number,
+    x: number,
+    y: number,
+    bounds: GeographicBounds,
+  ): boolean {
+    const tileCount = 2 ** z;
+    const west = (x / tileCount) * 360 - 180;
+    const east = ((x + 1) / tileCount) * 360 - 180;
+    const latitude = (tileY: number): number =>
+      (Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / tileCount))) * 180) /
+      Math.PI;
+    const north = latitude(y);
+    const south = latitude(y + 1);
+    return (
+      east > bounds[0] &&
+      west < bounds[2] &&
+      north > bounds[1] &&
+      south < bounds[3]
+    );
   }
 
   private dependencyUnavailable(message: string): ApiException {

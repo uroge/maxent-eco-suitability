@@ -80,17 +80,27 @@ export const DataScreen: React.FC<{ analysisId: string; example?: boolean }> = (
             onRetry={(task) => void uploads.retry(task)}
           />
           <div className="mt-8 flex justify-end">
-            <Button
-              loading={uploads.starting || uploads.finishing}
-              disabled={uploads.hasUnresolvedTasks}
-              onClick={() => void uploads.startSelected()}
-            >
-              {uploads.hasUnresolvedTasks
-                ? 'Resolve uploads above'
-                : uploads.occurrenceFiles.length || uploads.predictorFiles.length
-                  ? 'Upload and profile'
-                  : 'Complete inputs and profile'}
-            </Button>
+            <div className="max-w-md text-right">
+              <p className="mb-2 text-xs text-muted-foreground">
+                Completing this step starts profiling and opens Validation, where progress and
+                detected metadata are shown.
+              </p>
+              <Button
+                loading={uploads.starting || uploads.finishing}
+                disabled={uploads.hasUnresolvedTasks}
+                onClick={() => void uploads.startSelected()}
+              >
+                {uploads.hasUnresolvedTasks
+                  ? 'Resolve uploads above'
+                  : uploads.starting
+                    ? 'Uploading files…'
+                    : uploads.finishing
+                      ? 'Starting profile…'
+                      : uploads.occurrenceFiles.length || uploads.predictorFiles.length
+                        ? 'Upload and continue to Validation'
+                        : 'Continue to Validation'}
+              </Button>
+            </div>
           </div>
         </>
       ) : null}

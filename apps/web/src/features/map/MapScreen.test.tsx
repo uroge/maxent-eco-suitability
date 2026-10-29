@@ -79,11 +79,14 @@ vi.mock('maplibre-gl', () => ({
     public fitBounds = vi.fn();
     public getLayer = vi.fn().mockReturnValue(undefined);
     public getSource = vi.fn().mockReturnValue(undefined);
+    public isStyleLoaded = vi.fn().mockReturnValue(false);
     public remove = vi.fn();
+    public resize = vi.fn();
     public setLayoutProperty = vi.fn();
     public setPaintProperty = vi.fn();
     public setTerrain = vi.fn();
     public setStyle = setStyle;
+    public triggerRepaint = vi.fn();
     public on = vi.fn((event: string, handler: () => void) => {
       eventHandlers.set(event, handler);
       if (event === 'style.load') {

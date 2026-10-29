@@ -192,6 +192,28 @@ describe('MapService', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it('returns a transparent tile outside the published raster bounds', async () => {
+    const request = vi.fn();
+    vi.stubGlobal('fetch', request);
+    const service = new MapService(
+      { findOwned: vi.fn().mockResolvedValue(analysis) } as never,
+      {} as never,
+      config as never,
+    );
+    const result = await service.tile(
+      principal,
+      analysisId,
+      `ar_${'4'.padStart(32, '0')}`,
+      6,
+      30,
+      22,
+      undefined,
+    );
+    expect(result.contentType).toBe('image/png');
+    expect(Array.from(result.body.subarray(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('turns oversized vector reads into a bounded dependency response', async () => {
     const service = new MapService(
       { findOwned: vi.fn().mockResolvedValue(analysis) } as never,

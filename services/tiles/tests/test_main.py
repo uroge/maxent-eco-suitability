@@ -128,6 +128,37 @@ def test_nodata_is_transparent(monkeypatch, raster_fixtures) -> None:
             assert image.dataset_mask().min() == 0
 
 
+def test_tile_outside_raster_bounds_is_transparent(monkeypatch, tmp_path: Path) -> None:
+    module = importlib.import_module("app.main")
+    source = tmp_path / "local.tif"
+    with rasterio.open(
+        source,
+        "w",
+        driver="GTiff",
+        width=32,
+        height=32,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_bounds(10, 10, 11, 11, 32, 32),
+        nodata=-9999,
+    ) as dataset:
+        dataset.write(numpy.ones((32, 32), dtype="float32"), 1)
+    key = f"analyses/{ANALYSIS_ID}/results/local.tif"
+    monkeypatch.setattr(module, "source_path", lambda candidate: str(source) if candidate == key else "")
+
+    response = client(monkeypatch).get(
+        "/v1/tiles/suitability/2/0/0.png",
+        params={"key": key},
+        headers={"x-tile-secret": SECRET},
+    )
+
+    assert response.status_code == 200
+    with MemoryFile(response.content) as memory:
+        with memory.open() as image:
+            assert image.dataset_mask().max() == 0
+
+
 def test_point_sampling_reads_predictor_value(monkeypatch, raster_fixtures) -> None:
     response = client(monkeypatch).get(
         "/v1/point",

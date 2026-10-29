@@ -6,8 +6,11 @@ import { useQuery } from '@tanstack/react-query';
 import { mapCapabilitiesResponseSchema } from '@ecosuitability/contracts';
 import { QueryStateAlert } from '../analysis/QueryStateAlert';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
-
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+import {
+  installResultMapLayers,
+  mapApiUrl,
+  selectedResultMapStyle,
+} from '../map/result-map-style';
 
 export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
@@ -30,64 +33,32 @@ export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId 
       if (disposed || !container.current) {
         return;
       }
-      const styles = getComputedStyle(document.documentElement);
-      const basemap = value.basemaps[0];
+      const activeLayers = new Set(
+        value.layers
+          .filter((layer) => layer.kind === 'suitability' || layer.kind === 'occurrences')
+          .map((layer) => layer.id)
+      );
       map = new maplibregl.Map({
         container: container.current,
         interactive: false,
         attributionControl: false,
         bounds: value.bounds,
         fitBoundsOptions: { padding: 24 },
-        style: basemap?.styleUrl ?? {
-          version: 8,
-          sources: {},
-          layers: [
-            {
-              id: 'background',
-              type: 'background',
-              paint: { 'background-color': styles.getPropertyValue('--surface-subtle').trim() },
-            },
-          ],
-        },
+        style: selectedResultMapStyle(
+          value.basemaps[0],
+          analysisId,
+          value,
+          activeLayers,
+          0.85
+        ),
         transformRequest: (url) =>
-          url.startsWith(apiUrl) && token
+          url.startsWith(mapApiUrl) && token
             ? { url, headers: { Authorization: `Bearer ${token}` } }
             : { url },
       });
-      map.on('load', () => {
-        for (const layer of value.layers.filter(
-          (item) => item.kind === 'suitability' || item.kind === 'occurrences'
-        )) {
-          const source = `preview-${layer.id}`;
-          if (layer.dataType === 'raster') {
-            map?.addSource(source, {
-              type: 'raster',
-              tiles: [`${apiUrl}/v1/analyses/${analysisId}/map/tiles/${layer.id}/{z}/{x}/{y}`],
-              tileSize: 256,
-            });
-            map?.addLayer({
-              id: source,
-              source,
-              type: 'raster',
-              paint: { 'raster-opacity': 0.85 },
-            });
-          } else {
-            map?.addSource(source, {
-              type: 'geojson',
-              data: `${apiUrl}/v1/analyses/${analysisId}/map/vectors/${layer.id}`,
-            });
-            map?.addLayer({
-              id: source,
-              source,
-              type: 'circle',
-              paint: {
-                'circle-radius': 3,
-                'circle-color': styles.getPropertyValue('--suitability-4').trim(),
-                'circle-stroke-color': styles.getPropertyValue('--foreground').trim(),
-                'circle-stroke-width': 1,
-              },
-            });
-          }
+      map.on('style.load', () => {
+        if (map) {
+          installResultMapLayers(map, analysisId, value, activeLayers, 0.85, false);
         }
       });
     });

@@ -54,6 +54,26 @@ wait_for_output_capabilities <- function(workspace) {
   runtime_error("R_RUNTIME_TIMEOUT")
 }
 
+upload_file <- function(path, capability) {
+  response <- tryCatch(
+    curl::curl_upload(
+      path,
+      capability$url,
+      verbose = FALSE,
+      customrequest = "PUT",
+      httpheader = c(
+        paste0("Content-Type: ", capability$contentType),
+        paste0("Content-Disposition: ", capability$contentDisposition),
+        paste0("x-amz-meta-sha256: ", capability$sha256)
+      )
+    ),
+    error = function(error) runtime_error("R_RUNTIME_UNAVAILABLE")
+  )
+  if (response$status_code < 200L || response$status_code >= 300L) {
+    runtime_error("R_RUNTIME_UNAVAILABLE")
+  }
+}
+
 upload_artifacts <- function(output_directory, workspace, map_assets, capabilities, capability_path = NULL) {
   expected_count <- 9L + length(map_assets)
   if (is.null(capabilities$capabilities) || length(capabilities$capabilities) != expected_count) {
@@ -84,21 +104,7 @@ upload_artifacts <- function(output_directory, workspace, map_assets, capabiliti
     ) {
       runtime_error("R_RUNTIME_PROTOCOL_INVALID")
     }
-    response <- curl::curl_upload(
-      file.path(output_directory, artifact$filename),
-      capability$url,
-      handle = curl::new_handle(
-        customrequest = "PUT",
-        httpheader = c(
-          "Content-Type" = capability$contentType,
-          "Content-Disposition" = capability$contentDisposition,
-          "x-amz-meta-sha256" = artifact$sha256
-        )
-      )
-    )
-    if (response$status_code < 200L || response$status_code >= 300L) {
-      runtime_error("R_RUNTIME_UNAVAILABLE")
-    }
+    upload_file(file.path(output_directory, artifact$filename), capability)
   }
   for (asset in map_assets) {
     if (!is.null(capability_path)) {
@@ -117,21 +123,7 @@ upload_artifacts <- function(output_directory, workspace, map_assets, capabiliti
     ) {
       runtime_error("R_RUNTIME_PROTOCOL_INVALID")
     }
-    response <- curl::curl_upload(
-      file.path(workspace, "map-assets", asset$filename),
-      capability$url,
-      handle = curl::new_handle(
-        customrequest = "PUT",
-        httpheader = c(
-          "Content-Type" = capability$contentType,
-          "Content-Disposition" = capability$contentDisposition,
-          "x-amz-meta-sha256" = asset$sha256
-        )
-      )
-    )
-    if (response$status_code < 200L || response$status_code >= 300L) {
-      runtime_error("R_RUNTIME_UNAVAILABLE")
-    }
+    upload_file(file.path(workspace, "map-assets", asset$filename), capability)
   }
   metadata
 }

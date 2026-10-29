@@ -143,5 +143,77 @@ describe.runIf(integrationEnabled)(
         await client.pTTL(`${analysisKeyPrefix}${analysisId}`),
       ).toBeGreaterThan(47 * 60 * 60 * 1000);
     }, 30_000);
+
+    it('replaces unverified artifact metadata when a retry regenerates outputs', async () => {
+      const analysisId = 'an_dddddddddddddddddddddddddddddddd';
+      const firstCompletedAt = '2026-09-02T12:00:00.000Z';
+      const retryCompletedAt = '2026-09-02T12:05:00.000Z';
+      const job = { id: analysisId, data: { analysisId, ownerId: 'user_123' } };
+      await client.set(
+        `${analysisKeyPrefix}${analysisId}`,
+        JSON.stringify({
+          id: analysisId,
+          status: 'running',
+          expiresAt: '2026-09-04T12:00:00.000Z',
+          failure: null,
+          execution: { jobId: analysisId, attempt: 1 },
+        }),
+      );
+      const service = new ResultService(repository, {} as never);
+      const initial = await service.provision(job, 1);
+      if (typeof initial === 'string') {
+        throw new Error(initial);
+      }
+      const firstGeneration = scientificArtifactSpecifications.map(
+        (definition, index) => ({
+          kind: definition.kind,
+          size: index + 1,
+          sha256: createHash('sha256')
+            .update(`first:${definition.kind}`)
+            .digest('hex'),
+        }),
+      );
+      await service.beginUpload(
+        job,
+        1,
+        initial,
+        firstGeneration,
+        firstCompletedAt,
+      );
+
+      await expect(repository.claim(analysisId, analysisId, 2)).resolves.toBe(
+        'claimed',
+      );
+      const retryProvisional = await service.provision(job, 2);
+      if (typeof retryProvisional === 'string') {
+        throw new Error(retryProvisional);
+      }
+      const retryGeneration = scientificArtifactSpecifications.map(
+        (definition, index) => ({
+          kind: definition.kind,
+          size: index + 101,
+          sha256: createHash('sha256')
+            .update(`retry:${definition.kind}`)
+            .digest('hex'),
+        }),
+      );
+      const uploading = await service.beginUpload(
+        job,
+        2,
+        retryProvisional,
+        retryGeneration,
+        retryCompletedAt,
+      );
+
+      expect(uploading.attempt).toBe(2);
+      expect(uploading.candidateCompletedAt).toBe(retryCompletedAt);
+      expect(
+        uploading.artifacts.map(({ kind, size, sha256 }) => ({
+          kind,
+          size,
+          sha256,
+        })),
+      ).toEqual(retryGeneration);
+    }, 30_000);
   },
 );

@@ -2,9 +2,18 @@ local existing = redis.call('GET', KEYS[2])
 if existing then
   local idempotency = cjson.decode(existing)
   if idempotency.fingerprint == ARGV[2] and idempotency.response then
-    return { 'replay', idempotency.response }
+    local previous = cjson.decode(idempotency.response)
+    if previous.id and redis.call('EXISTS', KEYS[1] .. previous.id) == 1 then
+      return { 'replay', idempotency.response }
+    end
+    if previous.id then
+      redis.call('ZREM', KEYS[3], previous.id)
+      redis.call('SREM', KEYS[5], previous.id)
+    end
+    redis.call('DEL', KEYS[2])
+  else
+    return { 'conflict' }
   end
-  return { 'conflict' }
 end
 
 local analysisPayload = redis.call('GET', KEYS[4])
@@ -36,7 +45,19 @@ if ARGV[9] ~= '' then
   end
 elseif ARGV[8] == 'occurrence' then
   if type(analysis.occurrenceDatasetId) == 'string' and analysis.occurrenceDatasetId ~= ARGV[1] then
-    return { 'occurrence_reserved' }
+    local reservedPayload = redis.call('GET', KEYS[1] .. analysis.occurrenceDatasetId)
+    if reservedPayload then
+      local reserved = cjson.decode(reservedPayload)
+      if reserved.ownerId == ARGV[6] and reserved.analysisId == analysis.id and reserved.status == 'collecting' and reserved.fingerprint == ARGV[2] then
+        local analysisTtl = redis.call('PTTL', KEYS[4])
+        if analysisTtl > 0 then
+          redis.call('SET', KEYS[2], cjson.encode({ fingerprint = ARGV[2], response = reservedPayload }), 'PX', analysisTtl)
+        end
+        return { 'replay', reservedPayload }
+      end
+      return { 'occurrence_reserved' }
+    end
+    analysis.occurrenceDatasetId = cjson.null
   end
   analysis.occurrenceDatasetId = ARGV[1]
 end

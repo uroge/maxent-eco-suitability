@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -111,6 +112,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
   const api = useAnalysisApi();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [navigating, setNavigating] = useState(false);
   const predictors = inputs.inputs.datasets.filter((entry) => entry.dataset.kind === 'predictor');
   const occurrence = inputs.inputs.datasets.find((entry) => entry.dataset.kind === 'occurrence');
   const form = useForm<ConfigurationFormInput, unknown, AnalysisConfiguration>({
@@ -153,6 +155,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
       return;
     }
     await queryClient.invalidateQueries({ queryKey: ['analysis', analysisId] });
+    setNavigating(true);
     router.push(`/analyses/${analysisId}/setup/review`);
   });
 
@@ -179,8 +182,8 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
           <Button asChild variant="secondary">
             <Link href={`/analyses/${analysisId}/setup/validation`}>Back</Link>
           </Button>
-          <Button type="submit" loading={form.formState.isSubmitting}>
-            Save and run preflight
+          <Button type="submit" loading={form.formState.isSubmitting || navigating}>
+            {navigating ? 'Opening Review…' : 'Save and continue to Review'}
           </Button>
         </div>
       </form>

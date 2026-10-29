@@ -77,6 +77,10 @@ export const useDataUploads = (analysisId: string) => {
           replaceDatasetId: task.replaceDatasetId,
           resume: task.resume,
           signal: controller.signal,
+          onDatasetReady: (datasetId) => {
+            task.datasetId = datasetId;
+            patchTask(task.key, { datasetId });
+          },
           onProgress: ({ loadedBytes, totalBytes }) =>
             patchTask(task.key, { progress: Math.round((loadedBytes / totalBytes) * 100) }),
         }
@@ -101,6 +105,10 @@ export const useDataUploads = (analysisId: string) => {
   };
 
   const finishInputs = async (): Promise<void> => {
+    if (finishing) {
+      return;
+    }
+
     setFinishing(true);
     setMessage(undefined);
     try {
@@ -136,10 +144,10 @@ export const useDataUploads = (analysisId: string) => {
         );
       }
       await queryClient.invalidateQueries({ queryKey: ['analysis', analysisId] });
+      setMessage('Profiling started. Opening Validation…');
       router.push(`/analyses/${analysisId}/setup/validation`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Inputs could not be completed.');
-    } finally {
       setFinishing(false);
     }
   };

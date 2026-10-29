@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { S3Client } from '@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
 import runtimeUtils from './index.cjs';
 
@@ -6,6 +7,7 @@ const {
   canonicalizeJson,
   completeOnResponseEnd,
   constantTimeBearerTokenEquals,
+  presignS3Put,
   resolveRequestId,
   withTimeout,
 } = runtimeUtils;
@@ -45,5 +47,44 @@ describe('runtime utils', () => {
     response.emit('close');
 
     expect(completions).toBe(1);
+  });
+
+  it('keeps upload metadata in signed headers without optional checksum parameters', async () => {
+    const client = new S3Client({
+      region: 'us-east-1',
+      endpoint: 'http://storage.internal:8333',
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: 'test-access-key',
+        secretAccessKey: 'test-secret-key',
+      },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+    try {
+      const signed = new URL(
+        await presignS3Put(
+          client,
+          'test-bucket',
+          'results/artifact.bin',
+          300,
+          'application/octet-stream',
+          'attachment; filename="artifact.bin"',
+          'a'.repeat(64)
+        )
+      );
+      const signedHeaders = signed.searchParams
+        .get('X-Amz-SignedHeaders')
+        ?.split(';');
+
+      expect(signedHeaders).toContain('content-disposition');
+      expect(signedHeaders).toContain('x-amz-meta-sha256');
+      expect(signed.searchParams.has('x-amz-meta-sha256')).toBe(false);
+      expect(
+        [...signed.searchParams.keys()].some((key) => key.includes('checksum'))
+      ).toBe(false);
+    } finally {
+      client.destroy();
+    }
   });
 });

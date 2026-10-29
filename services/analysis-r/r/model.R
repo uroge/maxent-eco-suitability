@@ -18,6 +18,7 @@ set_model_seed <- function(seed, offset = 0) {
 }
 
 feature_codes <- function(classes) {
+  classes <- as.character(unlist(classes, use.names = FALSE))
   codes <- c(linear = "l", quadratic = "q", product = "p", hinge = "h", threshold = "t")
   paste0(unname(codes[classes]), collapse = "")
 }
