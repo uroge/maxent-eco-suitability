@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Badge, Button, Card, IconButton } from '@ecosuitability/ui';
 import { describe, expect, it, vi } from 'vitest';
+import Link from 'next/link';
 
 describe('shared UI primitives', () => {
   it('renders button variants and disabled semantics', () => {
@@ -30,7 +31,7 @@ describe('shared UI primitives', () => {
 
     render(
       <Button asChild disabled onClick={onClick}>
-        <a href="/analyses/new">Start analysis</a>
+        <Link href="/analyses/new">Start analysis</Link>
       </Button>
     );
 

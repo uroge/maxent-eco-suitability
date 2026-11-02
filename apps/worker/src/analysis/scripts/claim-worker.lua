@@ -26,7 +26,8 @@ if analysis.status ~= 'queued' and analysis.status ~= 'running' then
 end
 analysis.status = 'running'
 analysis.updatedAt = ARGV[3]
+if analysis.startedAt == cjson.null then analysis.startedAt = ARGV[3] end
 analysis.execution.attempt = attempt
-analysis.progress = { stage = 'preparing', percent = 0, attempt = attempt, updatedAt = ARGV[3] }
+analysis.progress = { stage = 'preparing', percent = 0, attempt = attempt, message = 'Preparing', updatedAt = ARGV[3] }
 redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 return { 'claimed', cjson.encode(analysis) }

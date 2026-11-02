@@ -37,6 +37,11 @@ if type(analysis.resultManifest) == 'table' then
     objectKeys[#objectKeys + 1] = artifact.storageKey
   end
 end
+if type(analysis.mapAssets) == 'table' then
+  for _, asset in ipairs(analysis.mapAssets) do
+    objectKeys[#objectKeys + 1] = asset.storageKey
+  end
+end
 for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
   local datasetPayload = redis.call('GET', KEYS[8] .. datasetId)
   if datasetPayload then
@@ -53,7 +58,6 @@ for _, datasetId in ipairs(redis.call('SMEMBERS', KEYS[7])) do
       end
     end
     redis.call('DEL', KEYS[8] .. datasetId)
-    redis.call('DEL', KEYS[10] .. dataset.ownerId .. ':' .. dataset.analysisId .. ':' .. dataset.idempotencyKey)
     redis.call('ZREM', KEYS[11], datasetId)
   end
 end
@@ -79,11 +83,15 @@ analysis.status = ARGV[6]
 analysis.updatedAt = ARGV[4]
 analysis.failure = cjson.null
 if ARGV[6] == 'expired' then
+  for _, operationKey in ipairs(redis.call('SMEMBERS', KEYS[15])) do
+    redis.call('DEL', operationKey)
+  end
+  redis.call('DEL', KEYS[15])
   analysis.expiredAt = ARGV[4]
   redis.call('SET', KEYS[1], cjson.encode(analysis), 'EX', ARGV[7])
   redis.call('DEL', KEYS[6] .. analysis.ownerId .. ':' .. analysis.idempotencyKey)
   redis.call('ZREM', KEYS[5], analysis.id)
 else
-  redis.call('SET', KEYS[1], cjson.encode(analysis))
+  redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 end
 return { 'scheduled', cjson.encode(analysis) }

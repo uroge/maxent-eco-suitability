@@ -22,12 +22,18 @@ if type(analysis.resultManifest) == 'table' then
     objectKeys[#objectKeys + 1] = artifact.storageKey
   end
 end
+if type(analysis.mapAssets) == 'table' then
+  for _, asset in ipairs(analysis.mapAssets) do
+    objectKeys[#objectKeys + 1] = asset.storageKey
+  end
+end
 local cleanup = { id = ARGV[1], analysisId = analysis.id, objectKeys = objectKeys, multipartUploads = {}, attempt = 0, nextAttemptAt = ARGV[2], createdAt = ARGV[2] }
 redis.call('SET', KEYS[3], cjson.encode(cleanup))
 redis.call('ZADD', KEYS[4], ARGV[3], ARGV[1])
 redis.call('DEL', KEYS[5])
 analysis.status = 'cancelled'
 analysis.updatedAt = ARGV[2]
-analysis.progress = { stage = 'cancelled', percent = 0, attempt = analysis.execution.attempt, updatedAt = ARGV[2] }
+analysis.progress = { stage = 'cancelled', percent = 0, attempt = analysis.execution.attempt, message = 'Cancelled', updatedAt = ARGV[2] }
+analysis.cancelledAt = ARGV[2]
 redis.call('SET', KEYS[1], cjson.encode(analysis), 'KEEPTTL')
 return { 'cancelled' }

@@ -6,6 +6,7 @@ import {
   DeleteObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  GetObjectCommand,
   PutBucketCorsCommand,
   S3Client,
   type CompletedPart,
@@ -130,6 +131,37 @@ export class StorageService implements OnModuleInit {
 
   public async presignGet(key: string, expiresIn: number): Promise<string> {
     return presignS3Get(this.presignClient, this.bucket, key, expiresIn);
+  }
+
+  public async getJson(
+    key: string,
+    maxBytes = 5 * 1024 * 1024,
+  ): Promise<unknown> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!response.Body || (response.ContentLength ?? 0) > maxBytes) {
+      throw new Error('Stored JSON artifact exceeds the response limit.');
+    }
+    const bytes = await response.Body.transformToByteArray();
+    if (bytes.byteLength > maxBytes) {
+      throw new Error('Stored JSON artifact exceeds the response limit.');
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  }
+
+  public async getBytes(key: string, maxBytes: number): Promise<Uint8Array> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!response.Body || (response.ContentLength ?? 0) > maxBytes) {
+      throw new Error('Stored artifact exceeds the response limit.');
+    }
+    const bytes = await response.Body.transformToByteArray();
+    if (bytes.byteLength > maxBytes) {
+      throw new Error('Stored artifact exceeds the response limit.');
+    }
+    return bytes;
   }
 
   public async put(

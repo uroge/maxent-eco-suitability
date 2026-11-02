@@ -23,3 +23,11 @@ export const PublishResultScript = readScript('publish-result.lua');
 export const CleanupProvisionalScript = readScript('cleanup-provisional.lua');
 
 export const UpdateValidationScript = readScript('update-validation.lua');
+
+export const FinishValidationJobScript = readScript(
+  'finish-validation-job.lua',
+);
+
+export const AppendBundleScript = readScript('append-bundle.lua');
+
+export const PublishMapAssetsScript = readScript('publish-map-assets.lua');

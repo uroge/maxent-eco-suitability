@@ -10,18 +10,41 @@ dir.create(workspace_root)
 on.exit(unlink(workspace_root, recursive = TRUE, force = TRUE), add = TRUE)
 Sys.setenv(R_RUNTIME_WORKSPACE_ROOT = workspace_root)
 
-run_id <- "an_0123456789abcdef0123456789abcdef.1"
+assert_identical(
+  file.exists(file.path(R.home("bin"), "Rscript")),
+  TRUE,
+  "The authoritative Rscript executable is unavailable."
+)
+
+child_environment <- r_child_environment()
+assert_identical(
+  nzchar(unname(child_environment[["TMPDIR"]])),
+  TRUE,
+  "The child runtime has no writable temporary-directory configuration."
+)
+child_probe <- processx::run(
+  file.path(R.home("bin"), "Rscript"),
+  c("-e", "stopifnot(dir.exists(tempdir())); cat(tempdir())"),
+  env = child_environment,
+  error_on_status = FALSE
+)
+assert_identical(child_probe$status, 0L, "The child runtime cannot create its R temporary directory.")
+
+run_id <- "an_0123456789abcdef0123456789abcdef.execute.1"
 workspace <- file.path(workspace_root, run_id)
 output_directory <- file.path(workspace, "outputs")
 dir.create(output_directory, recursive = TRUE)
 
 request <- list(
   runId = run_id,
+  mode = "execute",
   analysisId = "an_0123456789abcdef0123456789abcdef",
   jobId = "an_0123456789abcdef0123456789abcdef",
   attempt = 1L,
-  configurationFingerprint = paste(rep("a", 64L), collapse = ""),
-  inputFingerprint = paste(rep("b", 64L), collapse = "")
+  inputRevision = 1L,
+  configurationRevision = 1L,
+  configurationFingerprint = paste0("jcs-sha256-v1:", paste(rep("a", 64L), collapse = "")),
+  inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("b", 64L), collapse = ""))
 )
 jsonlite::write_json(
   request,
@@ -55,6 +78,21 @@ for (definition in artifact_definitions()) {
     writeLines(definition$kind, path)
   }
 }
+map_directory <- file.path(workspace, "map-assets")
+dir.create(map_directory)
+map_path <- file.path(map_directory, "ds_0123456789abcdef0123456789abcdef.tif")
+writeLines("verified-cog-fixture", map_path)
+jsonlite::write_json(
+  list(list(
+    datasetId = "ds_0123456789abcdef0123456789abcdef",
+    filename = basename(map_path),
+    size = as.numeric(file.info(map_path)$size),
+    sha256 = digest::digest(file = map_path, algo = "sha256", serialize = FALSE)
+  )),
+  file.path(workspace, "map-assets.json"),
+  auto_unbox = TRUE,
+  null = "null"
+)
 
 store <- create_run_store()
 recovered <- store$create(request)
@@ -70,6 +108,7 @@ events <- store$events(run_id, 0L, 100L)
 assert_identical(events$status, 200L, "Recovered events were unavailable.")
 assert_identical(events$body$generation, 2L, "Recovered event generation is incorrect.")
 assert_identical(length(events$body$artifacts), 9L, "Recovered artifact metadata is incomplete.")
+assert_identical(length(events$body$mapAssets), 1L, "Recovered map asset metadata is incomplete.")
 assert_identical(
   events$body$candidateCompletedAt,
   completed_at,
@@ -77,9 +116,35 @@ assert_identical(
 )
 
 conflict <- request
-conflict$inputFingerprint <- paste(rep("c", 64L), collapse = "")
+conflict$inputFingerprint <- paste0("jcs-sha256-v1:", paste(rep("c", 64L), collapse = ""))
 conflicted <- store$create(conflict)
 assert_identical(conflicted$status, 409L, "Semantic run identity conflict was accepted.")
 assert_identical(conflicted$body$code, "RUN_ID_CONFLICT", "Conflict code is incorrect.")
+
+profile_run_id <- "an_1123456789abcdef0123456789abcdef.profile.4"
+profile_workspace <- file.path(workspace_root, profile_run_id)
+dir.create(profile_workspace, recursive = TRUE)
+profile_request <- list(
+  runId = profile_run_id,
+  mode = "profile",
+  analysisId = "an_1123456789abcdef0123456789abcdef",
+  jobId = "profile-job",
+  attempt = 1L,
+  inputRevision = 4L,
+  inputFingerprint = paste0("jcs-sha256-v1:", paste(rep("d", 64L), collapse = ""))
+)
+profile_result <- list(
+  analysisId = profile_request$analysisId,
+  inputRevision = 4L,
+  inputFingerprint = profile_request$inputFingerprint,
+  status = "passed"
+)
+jsonlite::write_json(profile_request, file.path(profile_workspace, "request.json"), auto_unbox = TRUE)
+jsonlite::write_json(profile_result, file.path(profile_workspace, "job-result.json"), auto_unbox = TRUE)
+profile_recovered <- store$create(profile_request)
+assert_identical(profile_recovered$body$state, "succeeded", "Profile result was not recovered.")
+profile_events <- store$events(profile_run_id, 0L, 100L)
+assert_identical(profile_events$body$mode, "profile", "Recovered profile mode is incorrect.")
+assert_identical(profile_events$body$result$status, "passed", "Recovered profile result is missing.")
 
 cat("R runtime recovery tests passed.\n")

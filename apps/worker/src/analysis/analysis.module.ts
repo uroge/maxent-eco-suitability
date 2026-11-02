@@ -6,14 +6,18 @@ import {
   analysisQueuePrefix,
 } from '@ecosuitability/contracts';
 import type { WorkerEnvironment } from '../env';
+import { LifecycleModule } from '../platform/lifecycle.module';
+import { RedisModule } from '../platform/redis.module';
 import { WorkerStorageModule } from '../storage/worker-storage.module';
 import { AnalysisProcessor } from './analysis.processor';
 import { RValidationClient } from './r-validation.client';
 import { ResultService } from './result.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
+import { ValidationJobService } from './validation-job.service';
 
 @Module({
   imports: [
+    RedisModule,
     WorkerStorageModule,
     BullModule.forRootAsync({
       inject: [ConfigService],
@@ -33,12 +37,14 @@ import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
       },
     }),
     BullModule.registerQueue({ name: analysisQueueName }),
+    LifecycleModule,
   ],
   providers: [
     WorkerLifecycleRepository,
     ResultService,
     RValidationClient,
     AnalysisProcessor,
+    ValidationJobService,
   ],
   exports: [RValidationClient],
 })

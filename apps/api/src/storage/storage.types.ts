@@ -13,6 +13,7 @@ export type DatasetSession = {
   fingerprint: string;
   kind: UploadDatasetKind;
   format: UploadDatasetFormat;
+  replaceDatasetId?: string;
   status: 'collecting' | 'completing' | 'ready' | 'invalid' | 'aborted';
   shapefileBasename: string | undefined;
   uploadIds: string[];

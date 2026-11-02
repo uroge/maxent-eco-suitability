@@ -9,6 +9,9 @@ import type {
   AnalysisResultManifest,
   AnalysisConfiguration,
   AnalysisInputDataset,
+  AnalysisInputProfile,
+  AnalysisPreflight,
+  RCogValidation,
 } from '@ecosuitability/contracts';
 
 export type StoredResultManifest = Omit<AnalysisResultManifest, 'artifacts'> & {
@@ -23,16 +26,37 @@ export type StoredAnalysis = Analysis & {
   execution: AnalysisExecution | null;
   resultManifest?: StoredResultManifest;
   configuration?: AnalysisConfiguration;
-  configurationRevision?: number;
   configurationFingerprint?: string;
+  inputProfile?: AnalysisInputProfile;
+  preflight?: AnalysisPreflight;
+  mapAssets?: Array<{
+    id: string;
+    datasetId: string;
+    label: string;
+    storageKey: string;
+    terrainEligible: boolean;
+    terrainUnavailableReason?: string | null;
+    raster: RCogValidation;
+  }>;
   executionSnapshot?: {
     configuration: AnalysisConfiguration;
-    revision: number;
+    inputRevision: number;
+    configurationRevision: number;
+    revision?: number;
     fingerprint: string;
     inputManifest: {
       datasets: AnalysisInputDataset[];
     };
     inputFingerprint: string;
+    validationReceipt: Pick<
+      AnalysisPreflight,
+      | 'inputRevision'
+      | 'inputFingerprint'
+      | 'configurationRevision'
+      | 'configurationFingerprint'
+      | 'policyVersion'
+      | 'completedAt'
+    >;
     queuedAt: string;
     processingExpiresAt: string;
     seed: number;

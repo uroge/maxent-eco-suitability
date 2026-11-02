@@ -3,7 +3,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { CompletedPart } from '@aws-sdk/client-s3';
 import type {
   Analysis,
+  ActiveUploadDataset,
   AnalysisInputDataset,
+  AnalysisInputManifest,
   CompleteUploadRequest,
   CreateUploadDatasetRequest,
   CreateUploadFileRequest,
@@ -20,6 +22,10 @@ import { AnalysisService } from './analysis.service';
 import { DatasetRepository } from './dataset.repository';
 
 const sessionTtlSeconds = 60 * 60;
+
+const sessionCleanupGraceSeconds = 5 * 60;
+
+const sessionRecordTtlSeconds = sessionTtlSeconds + sessionCleanupGraceSeconds;
 
 const multipartThresholdBytes = 64 * 1024 * 1024;
 
@@ -53,13 +59,6 @@ export class UploadService {
     idempotencyKey: IdempotencyKey,
     request: CreateUploadDatasetRequest,
   ): Promise<{ dataset: UploadDataset; replayed: boolean }> {
-    const analysis = await this.analysisService.find(principal, analysisId);
-    if (!['draft', 'uploading'].includes(analysis.status)) {
-      throw this.conflict(
-        'The analysis cannot accept uploads in its current state.',
-      );
-    }
-
     this.validateKindAndFormat(request.kind, request.format);
     const now = new Date();
     const dataset: DatasetSession = {
@@ -70,6 +69,7 @@ export class UploadService {
       fingerprint: this.fingerprint(request),
       kind: request.kind,
       format: request.format,
+      replaceDatasetId: request.replaceDatasetId,
       status: 'collecting',
       shapefileBasename: undefined,
       uploadIds: [],
@@ -80,7 +80,10 @@ export class UploadService {
       completionClaimId: undefined,
       completionClaimExpiresAt: undefined,
     };
-    const result = await this.repository.create(dataset, sessionTtlSeconds);
+    const result = await this.repository.create(
+      dataset,
+      sessionRecordTtlSeconds,
+    );
     if (result === 'conflict') {
       throw this.conflict(
         'The idempotency key was already used for a different request.',
@@ -89,6 +92,12 @@ export class UploadService {
 
     if (result === 'occurrence_reserved') {
       throw this.conflict('The analysis already has an occurrence dataset.');
+    }
+
+    if (result === 'replacement_missing') {
+      throw this.conflict(
+        'The dataset selected for replacement is no longer attached.',
+      );
     }
 
     if (result === 'missing') {
@@ -105,6 +114,34 @@ export class UploadService {
       dataset: this.repository.publicDataset(result.dataset),
       replayed: result.replayed,
     };
+  }
+
+  public async activeUploads(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<ActiveUploadDataset[]> {
+    await this.analysisService.find(principal, analysisId);
+    const datasets = await this.repository.sessions(
+      analysisId,
+      principal.userId,
+    );
+    return Promise.all(
+      datasets.map(async (dataset) => ({
+        ...this.repository.publicDataset(dataset),
+        replaceDatasetId: dataset.replaceDatasetId ?? null,
+        files: (await this.repository.uploads(dataset)).map((upload) => ({
+          id: upload.id,
+          originalName: upload.originalName,
+          size: upload.size,
+          sha256: upload.sha256,
+          contentType: upload.contentType ?? null,
+          component: upload.component ?? null,
+          multipart: Boolean(upload.multipartUploadId),
+          partSizeBytes: upload.multipartUploadId ? partSizeBytes : null,
+          status: upload.status,
+        })),
+      })),
+    );
   }
 
   public async addFile(
@@ -128,6 +165,29 @@ export class UploadService {
       throw this.validationError('The GeoTIFF archive exceeds the size limit.');
     }
     const existingUploads = await this.repository.uploads(dataset);
+    const existingUpload = existingUploads.find(
+      (upload) =>
+        upload.originalName === this.safeName(request.originalName) &&
+        upload.size === request.size &&
+        upload.sha256 === request.sha256.toLowerCase() &&
+        upload.component === component,
+    );
+    if (existingUpload) {
+      const multipart = Boolean(existingUpload.multipartUploadId);
+      return {
+        id: existingUpload.id,
+        multipart,
+        status: existingUpload.status,
+        uploadUrl:
+          multipart || existingUpload.status !== 'pending'
+            ? null
+            : await this.storage.presignPut(
+                existingUpload.objectKey,
+                existingUpload.contentType,
+              ),
+        partSizeBytes: multipart ? partSizeBytes : null,
+      };
+    }
     const totalSize =
       existingUploads.reduce((total, upload) => total + upload.size, 0) +
       request.size;
@@ -161,7 +221,7 @@ export class UploadService {
       dataset,
       upload,
       component ? this.basename(request.originalName) : undefined,
-      sessionTtlSeconds,
+      sessionRecordTtlSeconds,
     );
     if (typeof result === 'string') {
       await this.storage.cleanupUpload(objectKey, multipartUploadId);
@@ -187,6 +247,7 @@ export class UploadService {
     return {
       id: result.id,
       multipart,
+      status: result.status,
       uploadUrl: multipart
         ? null
         : await this.storage.presignPut(result.objectKey, result.contentType),
@@ -396,7 +457,9 @@ export class UploadService {
       }
 
       throw this.conflict(
-        'The dataset cannot be completed in its current state.',
+        attachedResult === 'replacement_stale'
+          ? 'The dataset selected for replacement changed. Reload and try again.'
+          : 'The dataset cannot be completed in its current state.',
       );
     }
 
@@ -406,10 +469,12 @@ export class UploadService {
   public async completeInputs(
     principal: Principal,
     analysisId: string,
+    expectedInputRevision: number,
   ): Promise<Analysis> {
     const result = await this.repository.markReady(
       analysisId,
       principal.userId,
+      expectedInputRevision,
     );
     if (result === 'missing') {
       throw this.notFound();
@@ -418,6 +483,12 @@ export class UploadService {
     if (result === 'incomplete') {
       throw this.validationError(
         'One occurrence dataset and at least one predictor dataset are required.',
+      );
+    }
+
+    if (result === 'stale') {
+      throw this.conflict(
+        'The inputs changed. Reload before completing the input step.',
       );
     }
 
@@ -430,13 +501,74 @@ export class UploadService {
     return JSON.parse(result.analysis) as Analysis;
   }
 
+  public async inputs(
+    principal: Principal,
+    analysisId: string,
+  ): Promise<AnalysisInputManifest> {
+    const analysis = await this.analysisService.find(principal, analysisId);
+    const manifest = await this.repository.manifest(analysisId);
+    return {
+      analysisId,
+      inputRevision: analysis.inputRevision,
+      datasets: manifest.datasets.map((entry) => ({
+        dataset: entry.dataset,
+        attachedAt: entry.attachedAt,
+        files: entry.files.map((file) => ({
+          uploadId: file.uploadId,
+          originalName: file.originalName,
+          size: file.size,
+          declaredSha256: file.declaredSha256,
+          sha256Verification: file.sha256Verification,
+          contentType: file.contentType,
+          component: file.component,
+        })),
+      })),
+    };
+  }
+
+  public async removeInput(
+    principal: Principal,
+    analysisId: string,
+    datasetId: string,
+  ): Promise<void> {
+    await this.analysisService.find(principal, analysisId);
+    const manifest = await this.repository.manifest(analysisId);
+    if (!manifest.datasets.some((entry) => entry.dataset.id === datasetId)) {
+      return;
+    }
+    const removed = await this.repository.detach(
+      analysisId,
+      datasetId,
+      principal.userId,
+    );
+    if (removed === 'missing') {
+      throw this.notFound();
+    }
+    if (removed === 'invalid') {
+      throw this.conflict('The analysis inputs are frozen.');
+    }
+    await Promise.all(
+      removed.files.map(async (file) =>
+        this.storage.cleanupUpload(file.storageKey, undefined),
+      ),
+    );
+  }
+
   public async abortDataset(
     principal: Principal,
     analysisId: string,
     datasetId: string,
   ): Promise<void> {
-    const dataset = await this.dataset(principal, analysisId, datasetId);
-    const aborted = await this.repository.abortDataset(dataset);
+    await this.analysisService.find(principal, analysisId);
+    const existing = await this.repository.findOwned(
+      analysisId,
+      datasetId,
+      principal.userId,
+    );
+    if (!existing) {
+      return;
+    }
+    const aborted = await this.repository.abortDataset(existing);
     if (aborted === 'missing') {
       throw this.notFound();
     }

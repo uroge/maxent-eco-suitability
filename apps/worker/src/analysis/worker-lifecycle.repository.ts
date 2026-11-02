@@ -15,6 +15,8 @@ import {
   UpdateWorkerScript,
   UpdateValidationScript,
   VerifyResultScript,
+  AppendBundleScript,
+  PublishMapAssetsScript,
 } from './worker-scripts';
 import type { AnalysisResultManifest } from '@ecosuitability/contracts';
 import type {
@@ -63,6 +65,35 @@ export class WorkerLifecycleRepository {
     }
     const analysis = JSON.parse(payload) as { executionSnapshot?: unknown };
     return analysis.executionSnapshot;
+  }
+
+  public async mapAssetsReady(analysisId: string): Promise<boolean> {
+    const payload = await this.redis
+      .getClient()
+      .get(this.analysisKey(analysisId));
+    if (!payload) {
+      return false;
+    }
+    const analysis = JSON.parse(payload) as {
+      executionSnapshot?: {
+        configuration?: { predictors?: Array<{ datasetId?: unknown }> };
+      };
+      mapAssets?: Array<{ datasetId?: unknown }>;
+    };
+    const predictorIds =
+      analysis.executionSnapshot?.configuration?.predictors?.map(
+        (predictor) => predictor.datasetId,
+      ) ?? [];
+    const assetIds = analysis.mapAssets?.map((asset) => asset.datasetId) ?? [];
+    return (
+      predictorIds.length > 0 &&
+      assetIds.length === predictorIds.length &&
+      new Set(assetIds).size === predictorIds.length &&
+      predictorIds.every(
+        (datasetId) =>
+          typeof datasetId === 'string' && assetIds.includes(datasetId),
+      )
+    );
   }
 
   public async updateValidation(
@@ -212,6 +243,39 @@ export class WorkerLifecycleRepository {
       ? (JSON.parse(result[1]) as ProvisionalResult)
       : (result[0] as
           'cancelled' | 'dependency_unavailable' | 'invalid' | 'stale_attempt');
+  }
+
+  public async appendBundle(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+    artifact: ProvisionalArtifact,
+  ): Promise<ProvisionalResult | 'dependency_unavailable' | 'stale_attempt'> {
+    const result = (await this.redis.getClient().eval(AppendBundleScript, {
+      keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
+      arguments: [jobId, String(attempt), JSON.stringify(artifact)],
+    })) as string[];
+    return result[0] === 'updated'
+      ? (JSON.parse(result[1]) as ProvisionalResult)
+      : (result[0] as 'dependency_unavailable' | 'stale_attempt');
+  }
+
+  public async publishMapAssets(
+    analysisId: string,
+    jobId: string,
+    attempt: number,
+    assets: unknown[],
+  ): Promise<'updated' | 'dependency_unavailable' | 'stale_attempt'> {
+    const result = (await this.redis.getClient().eval(PublishMapAssetsScript, {
+      keys: [this.analysisKey(analysisId)],
+      arguments: [
+        jobId,
+        String(attempt),
+        JSON.stringify(assets),
+        new Date().toISOString(),
+      ],
+    })) as string[];
+    return result[0] as 'updated' | 'dependency_unavailable' | 'stale_attempt';
   }
 
   public async verifyResult(

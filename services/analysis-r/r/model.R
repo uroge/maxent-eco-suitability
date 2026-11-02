@@ -5,7 +5,20 @@ abort_model <- function(code) {
   ))
 }
 
+r_seed <- function(seed, offset = 0) {
+  value <- suppressWarnings(as.numeric(seed)) + as.numeric(offset)
+  if (length(value) != 1L || !is.finite(value) || value < 0 || value != floor(value)) {
+    abort_model("MODEL_SEED_INVALID")
+  }
+  as.integer(value %% (.Machine$integer.max + 1))
+}
+
+set_model_seed <- function(seed, offset = 0) {
+  set.seed(r_seed(seed, offset))
+}
+
 feature_codes <- function(classes) {
+  classes <- as.character(unlist(classes, use.names = FALSE))
   codes <- c(linear = "l", quadratic = "q", product = "p", hinge = "h", threshold = "t")
   paste0(unname(codes[classes]), collapse = "")
 }
@@ -50,8 +63,21 @@ threshold_metrics <- function(presence, background) {
   )
 }
 
+roc_points <- function(presence, background) {
+  values <- sort(unique(c(presence, background)), decreasing = TRUE)
+  upper <- max(values) + max(.Machine$double.eps, abs(max(values)) * .Machine$double.eps)
+  thresholds <- c(upper, values)
+  lapply(thresholds, function(threshold) {
+    list(
+      falsePositiveRate = mean(background >= threshold),
+      truePositiveRate = mean(presence >= threshold),
+      threshold = threshold
+    )
+  })
+}
+
 partition_indices <- function(count, validation, seed) {
-  set.seed(seed)
+  set_model_seed(seed)
   shuffled <- sample.int(count)
   if (identical(validation$method, "train-test-split")) {
     evaluation <- floor(count * validation$testFraction)
@@ -67,7 +93,7 @@ partition_indices <- function(count, validation, seed) {
 }
 
 scan_study_area <- function(stack, predictors, count, seed) {
-  set.seed(seed)
+  set_model_seed(seed)
   block_plan <- terra::blocks(stack)
   predictor_count <- terra::nlyr(stack)
   categorical <- vapply(
@@ -173,7 +199,8 @@ fit_model <- function(presence, background, configuration, study_area) {
       values,
       f = formula,
       regmult = configuration$model$regularizationMultiplier,
-      addsamplestobackground = FALSE
+      addsamplestobackground = FALSE,
+      type.logistic = "modified.Newton"
     ),
     error = function(error) NULL
   )
@@ -227,14 +254,27 @@ evaluate_partitions <- function(presence, background, configuration, study_area)
     )
   })
   auc_values <- vapply(evaluations, function(evaluation) evaluation$auc, numeric(1))
+  pooled_presence <- unlist(lapply(evaluations, function(evaluation) evaluation$presencePredictions))
+  pooled_background <- unlist(lapply(evaluations, function(evaluation) evaluation$backgroundPredictions))
   list(
     evaluations = evaluations,
-    auc = mean(auc_values),
-    aucStandardDeviation = if (length(auc_values) > 1L) stats::sd(auc_values) else 0,
-    threshold = threshold_metrics(
-      unlist(lapply(evaluations, function(evaluation) evaluation$presencePredictions)),
-      unlist(lapply(evaluations, function(evaluation) evaluation$backgroundPredictions))
-    )
+    auc = list(
+      mean = mean(auc_values),
+      standardDeviation = if (length(auc_values) > 1L) stats::sd(auc_values) else 0,
+      minimum = min(auc_values),
+      maximum = max(auc_values)
+    ),
+    pooledRoc = roc_points(pooled_presence, pooled_background),
+    evaluationRuns = lapply(seq_along(evaluations), function(index) {
+      item <- evaluations[[index]]
+      list(
+        run = index,
+        auc = item$auc,
+        presenceCount = length(item$presencePredictions),
+        backgroundCount = length(item$backgroundPredictions)
+      )
+    }),
+    threshold = threshold_metrics(pooled_presence, pooled_background)
   )
 }
 
@@ -243,7 +283,7 @@ permutation_importance <- function(evaluation, presence, background, study_area,
   labels <- c(rep.int(1L, nrow(presence)), rep.int(0L, nrow(background)))
   baseline <- evaluation$auc
   vapply(seq_len(ncol(test_values)), function(index) {
-    set.seed(seed + evaluation$fold * 1000L + index)
+    set_model_seed(seed, evaluation$fold * 1000L + index)
     permuted <- test_values
     permuted[, index] <- sample(permuted[, index])
     predictions <- predict_values(evaluation$model, permuted, study_area)
@@ -375,11 +415,12 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
     )
   })
   metrics <- list(
-    schemaVersion = 1L,
+    schemaVersion = 2L,
     method = configuration$validation$method,
     folds = length(evaluation$evaluations),
     auc = evaluation$auc,
-    aucStandardDeviation = evaluation$aucStandardDeviation,
+    pooledRoc = evaluation$pooledRoc,
+    evaluationRuns = evaluation$evaluationRuns,
     threshold = evaluation$threshold
   )
 
@@ -387,36 +428,49 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   dir.create(output_directory, recursive = TRUE, showWarnings = FALSE, mode = "0700")
   emit_event(emit, "projecting", 84L, "Projecting block-based cloglog suitability rasters.")
   suitability_path <- file.path(output_directory, "suitability.tif")
+  suitability_source <- file.path(output_directory, "suitability-source.tif")
   suitability <- tryCatch(
     terra::predict(
       stack,
       final_model,
       fun = predict_raster_values,
       study_area = study_area,
-      filename = suitability_path,
+      na.rm = TRUE,
+      filename = suitability_source,
       overwrite = TRUE,
-      wopt = list(datatype = "FLT4S", gdal = c("COMPRESS=DEFLATE"))
+      wopt = list(
+        datatype = "FLT4S",
+        gdal = c("COMPRESS=DEFLATE", "TILED=YES")
+      )
     ),
     error = function(error) NULL
   )
   if (is.null(suitability)) {
     abort_model("MODEL_PROJECTION_FAILED")
   }
+  write_verified_cog(suitability, suitability_path, "Float32", -9999, "AVERAGE", 0, 1)
   threshold_path <- file.path(output_directory, "suitability-threshold.tif")
+  threshold_source <- file.path(output_directory, "suitability-threshold-source.tif")
   thresholded <- tryCatch(
     terra::ifel(
       suitability >= evaluation$threshold$threshold,
       1L,
       0L,
-      filename = threshold_path,
+      filename = threshold_source,
       overwrite = TRUE,
-      wopt = list(datatype = "INT1U", gdal = c("COMPRESS=DEFLATE"))
+      wopt = list(
+        datatype = "INT1U",
+        gdal = c("COMPRESS=DEFLATE", "TILED=YES")
+      )
     ),
     error = function(error) NULL
   )
   if (is.null(thresholded)) {
     abort_model("MODEL_PROJECTION_FAILED")
   }
+  write_verified_cog(thresholded, threshold_path, "Byte", 255, "NEAREST", 0, 1)
+  unlink(c(suitability_source, threshold_source), force = TRUE)
+  map_assets <- create_predictor_map_assets(validated, workspace)
 
   emit_event(emit, "writing-artifacts", 92L, "Writing versioned scientific artifacts.")
   curves <- list(
@@ -446,6 +500,8 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
     crs = terra::crs(stack)
   )
   tryCatch({
+    occurrence <- sf::st_transform(occurrence, 4326)
+    background_points <- sf::st_transform(background_points, 4326)
     sf::st_write(
       occurrence,
       file.path(output_directory, "occurrences.geojson"),
@@ -508,6 +564,7 @@ execute_model <- function(validated, workspace, emit, candidate_completed_at = N
   list(
     summary = validated$summary,
     outputDirectory = output_directory,
+    mapAssets = map_assets,
     candidateCompletedAt = candidate_completed_at
   )
 }

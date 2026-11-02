@@ -1,30 +1,47 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { presignS3Get, presignS3Put } from '@ecosuitability/runtime-utils';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { WorkerEnvironment } from '../env';
+import type { Readable } from 'node:stream';
 
 @Injectable()
 export class WorkerStorageService {
   private readonly client: S3Client;
 
+  private readonly capabilityClient: S3Client;
+
   private readonly bucket: string;
 
   public constructor(config: ConfigService<WorkerEnvironment, true>) {
-    this.client = new S3Client({
-      endpoint: config.getOrThrow('STORAGE_INTERNAL_ENDPOINT'),
+    const internalEndpoint = config.getOrThrow('STORAGE_INTERNAL_ENDPOINT');
+    const clientOptions = {
       region: config.getOrThrow('STORAGE_REGION'),
       forcePathStyle: config.getOrThrow('STORAGE_FORCE_PATH_STYLE'),
       credentials: {
         accessKeyId: config.getOrThrow('STORAGE_ACCESS_KEY_ID'),
         secretAccessKey: config.getOrThrow('STORAGE_SECRET_ACCESS_KEY'),
       },
+    };
+    this.client = new S3Client({
+      ...clientOptions,
+      endpoint: internalEndpoint,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+    this.capabilityClient = new S3Client({
+      ...clientOptions,
+      endpoint: config.get('STORAGE_CAPABILITY_ENDPOINT') ?? internalEndpoint,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
     this.bucket = config.getOrThrow('STORAGE_BUCKET');
   }
@@ -46,6 +63,36 @@ export class WorkerStorageService {
         Metadata: { sha256 },
       }),
     );
+  }
+
+  public async getStream(key: string): Promise<Readable> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!response.Body) {
+      throw new Error('Stored result artifact has no body.');
+    }
+    return response.Body as Readable;
+  }
+
+  public async putStream(
+    key: string,
+    body: Readable,
+    contentType: string,
+    contentDisposition: string,
+    sha256: string,
+  ): Promise<void> {
+    await new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentDisposition: contentDisposition,
+        Metadata: { sha256 },
+      },
+    }).done();
   }
 
   public async head(key: string): Promise<
@@ -85,7 +132,7 @@ export class WorkerStorageService {
   }
 
   public async presignGet(key: string, expiresIn: number): Promise<string> {
-    return presignS3Get(this.client, this.bucket, key, expiresIn);
+    return presignS3Get(this.capabilityClient, this.bucket, key, expiresIn);
   }
 
   public async presignPut(
@@ -96,7 +143,7 @@ export class WorkerStorageService {
     sha256: string,
   ): Promise<string> {
     return presignS3Put(
-      this.client,
+      this.capabilityClient,
       this.bucket,
       key,
       expiresIn,

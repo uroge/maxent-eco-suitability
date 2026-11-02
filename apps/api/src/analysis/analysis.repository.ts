@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { canonicalizeJson } from '@ecosuitability/runtime-utils';
-import type { AnalysisInputDataset } from '@ecosuitability/contracts';
+import type {
+  AnalysisInputDataset,
+  AnalysisInputProfile,
+  AnalysisPreflight,
+  OccurrenceSourceProfile,
+  QueueAnalysisRequest,
+} from '@ecosuitability/contracts';
 import { RedisService } from '../platform/redis/redis.service';
 import {
   CreateAnalysisScript,
@@ -12,6 +18,7 @@ import {
   DispatchOutboxScript,
   QueueAnalysisScript,
   UpdateConfigurationScript,
+  UpdateValidationStateScript,
 } from './analysis-scripts';
 import type {
   CreateStoredAnalysisInput,
@@ -55,6 +62,22 @@ const resultKeyPrefix = 'ecosuitability:analysis-result-provisional:';
 
 const configurationIdempotencyKeyPrefix =
   'ecosuitability:analysis-configuration:idempotency:';
+
+const operationIndexKeyPrefix = 'ecosuitability:analysis-operations:';
+
+const redisArray = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.keys(value).length === 0
+  ) {
+    return [];
+  }
+  return value as T[];
+};
 
 @Injectable()
 export class AnalysisRepository {
@@ -104,7 +127,9 @@ export class AnalysisRepository {
       return undefined;
     }
 
-    const analysis = JSON.parse(payload) as StoredAnalysis;
+    const analysis = this.normalizeValidationArrays(
+      JSON.parse(payload) as StoredAnalysis,
+    );
     return analysis.ownerId === ownerId ? analysis : undefined;
   }
 
@@ -135,8 +160,14 @@ export class AnalysisRepository {
     analysisId: string,
     ownerId: string,
     processingExpiresAt: Date,
+    expected?: QueueAnalysisRequest,
   ): Promise<
-    StoredAnalysis | 'missing' | 'invalid' | 'configuration_required'
+    | StoredAnalysis
+    | 'missing'
+    | 'invalid'
+    | 'configuration_required'
+    | 'preflight_required'
+    | 'stale'
   > {
     const now = new Date();
     const inputManifest = await this.inputManifest(analysisId);
@@ -157,11 +188,19 @@ export class AnalysisRepository {
         processingExpiresAt.toISOString(),
         JSON.stringify(inputManifest),
         inputFingerprint,
+        expected ? String(expected.expectedInputRevision) : '',
+        expected ? String(expected.expectedConfigurationRevision) : '',
+        expected?.configurationFingerprint ?? '',
       ],
     })) as string[];
 
     if (result[0] !== 'queued') {
-      return result[0] as 'missing' | 'invalid' | 'configuration_required';
+      return result[0] as
+        | 'missing'
+        | 'invalid'
+        | 'configuration_required'
+        | 'preflight_required'
+        | 'stale';
     }
 
     return JSON.parse(result[1]) as StoredAnalysis;
@@ -199,6 +238,35 @@ export class AnalysisRepository {
     }
     if (result[0] !== 'updated' && result[0] !== 'replay') {
       return result[0] as 'missing' | 'invalid' | 'conflict';
+    }
+    return JSON.parse(result[1]) as StoredAnalysis;
+  }
+
+  public async updateValidationState(
+    analysisId: string,
+    ownerId: string,
+    kind: 'inputProfile' | 'preflight',
+    state: AnalysisInputProfile | AnalysisPreflight,
+  ): Promise<StoredAnalysis | 'missing' | 'stale'> {
+    const result = (await this.redis
+      .getClient()
+      .eval(UpdateValidationStateScript, {
+        keys: [this.analysisKey(analysisId)],
+        arguments: [
+          ownerId,
+          kind,
+          String(state.inputRevision),
+          String(
+            kind === 'preflight'
+              ? (state as AnalysisPreflight).configurationRevision
+              : 0,
+          ),
+          JSON.stringify(state),
+          new Date().toISOString(),
+        ],
+      })) as string[];
+    if (result[0] !== 'updated') {
+      return result[0] as 'missing' | 'stale';
     }
     return JSON.parse(result[1]) as StoredAnalysis;
   }
@@ -401,6 +469,7 @@ export class AnalysisRepository {
         this.outboxKey(analysisId),
         outboxIndexKey,
         `${resultKeyPrefix}${analysisId}`,
+        `${operationIndexKeyPrefix}${analysisId}`,
       ],
       arguments: [
         ownerId,
@@ -455,6 +524,64 @@ export class AnalysisRepository {
           datasets: AnalysisInputDataset[];
         })
       : { datasets: [] };
+  }
+
+  public inputFingerprint(manifest: unknown): string {
+    return this.fingerprint(manifest);
+  }
+
+  private normalizeValidationArrays(analysis: StoredAnalysis): StoredAnalysis {
+    const profile = analysis.inputProfile;
+    const preflight = analysis.preflight;
+    return {
+      ...analysis,
+      inputProfile: profile
+        ? {
+            ...profile,
+            checks: redisArray(profile.checks),
+            warnings: redisArray(profile.warnings),
+            blockers: redisArray(profile.blockers),
+            occurrence: {
+              ...profile.occurrence,
+              columns: redisArray(profile.occurrence.columns),
+              layers: redisArray(profile.occurrence.layers),
+              longitudeCandidates: redisArray(
+                profile.occurrence.longitudeCandidates,
+              ),
+              latitudeCandidates: redisArray(
+                profile.occurrence.latitudeCandidates,
+              ),
+              speciesCandidates: redisArray(
+                profile.occurrence.speciesCandidates,
+              ),
+              sources: redisArray<OccurrenceSourceProfile>(
+                profile.occurrence.sources,
+              ).map((source) => ({
+                ...source,
+                columns: redisArray(source.columns),
+                longitudeCandidates: redisArray(source.longitudeCandidates),
+                latitudeCandidates: redisArray(source.latitudeCandidates),
+                speciesCandidates: redisArray(source.speciesCandidates),
+              })),
+            },
+            rasters: redisArray(profile.rasters),
+            spatialPreview: profile.spatialPreview
+              ? {
+                  ...profile.spatialPreview,
+                  features: redisArray(profile.spatialPreview.features),
+                }
+              : null,
+          }
+        : undefined,
+      preflight: preflight
+        ? {
+            ...preflight,
+            checks: redisArray(preflight.checks),
+            warnings: redisArray(preflight.warnings),
+            blockers: redisArray(preflight.blockers),
+          }
+        : undefined,
+    };
   }
 
   private fingerprint(value: unknown): string {

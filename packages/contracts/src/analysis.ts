@@ -53,6 +53,7 @@ export const analysisProgressSchema = z.object({
   stage: analysisStageSchema,
   percent: z.number().int().min(0).max(100),
   attempt: z.number().int().positive().nullable(),
+  message: z.string().min(1).max(256).nullable().optional(),
   updatedAt: z.string().datetime(),
 });
 
@@ -70,10 +71,16 @@ export const analysisSchema = z.object({
   id: analysisIdSchema,
   status: analysisStatusSchema,
   displayName: z.string().min(1).max(120).nullable(),
+  inputRevision: z.number().int().nonnegative(),
+  configurationRevision: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   expiredAt: z.string().datetime().nullable(),
+  queuedAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+  cancelledAt: z.string().datetime().nullable(),
   failure: analysisFailureSchema.nullable(),
   progress: analysisProgressSchema.nullable(),
   execution: analysisExecutionSchema.nullable(),
@@ -131,6 +138,51 @@ export const analysisQueueName = 'analysis-execution';
 export const analysisQueuePrefix = 'ecosuitability';
 
 export const analysisJobName = 'run-analysis';
+
+export const analysisInputProfileJobName = 'input-profile';
+
+export const analysisPreflightJobName = 'preflight';
+
+export const analysisValidationJobPayloadSchema = analysisJobPayloadSchema.extend({
+  inputRevision: z.number().int().nonnegative(),
+  configurationRevision: z.number().int().nonnegative().optional(),
+});
+
+export type AnalysisValidationJobPayload = z.infer<typeof analysisValidationJobPayloadSchema>;
+
+export const requestInputProfileSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type RequestInputProfile = z.infer<typeof requestInputProfileSchema>;
+
+export const completeAnalysisInputsRequestSchema = z
+  .object({
+    expectedInputRevision: z.number().int().positive(),
+  })
+  .strict();
+
+export type CompleteAnalysisInputsRequest = z.infer<typeof completeAnalysisInputsRequestSchema>;
+
+export const requestPreflightSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+    expectedConfigurationRevision: z.number().int().nonnegative(),
+    configurationFingerprint: z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/),
+  })
+  .strict();
+
+export type RequestPreflight = z.infer<typeof requestPreflightSchema>;
+
+export const cancelAnalysisRequestSchema = z
+  .object({
+    expectedStatus: analysisStatusSchema,
+  })
+  .strict();
+
+export type CancelAnalysisRequest = z.infer<typeof cancelAnalysisRequestSchema>;
 
 export const sha256VerificationSchema = z.enum(['client-declared', 'worker-verified']);
 
@@ -194,6 +246,7 @@ export const createUploadDatasetRequestSchema = z
   .object({
     kind: uploadDatasetKindSchema,
     format: uploadDatasetFormatSchema,
+    replaceDatasetId: uploadDatasetIdSchema.optional(),
   })
   .strict();
 
@@ -229,6 +282,7 @@ export type UploadPartRequest = z.infer<typeof uploadPartRequestSchema>;
 export const uploadFileResponseSchema = z.object({
   id: uploadIdSchema,
   multipart: z.boolean(),
+  status: uploadFileStatusSchema,
   uploadUrl: z.string().url().nullable(),
   partSizeBytes: z.number().int().positive().nullable(),
 });
@@ -253,6 +307,35 @@ export const uploadDatasetResponseSchema = z.object({
 
 export type UploadDatasetResponse = z.infer<typeof uploadDatasetResponseSchema>;
 
+export const activeUploadFileSchema = z
+  .object({
+    id: uploadIdSchema,
+    originalName: z.string().min(1).max(255),
+    size: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    contentType: z.string().max(128).nullable(),
+    component: shapefileComponentSchema.nullable(),
+    multipart: z.boolean(),
+    partSizeBytes: z.number().int().positive().nullable(),
+    status: uploadFileStatusSchema,
+  })
+  .strict();
+
+export const activeUploadDatasetSchema = uploadDatasetSchema
+  .extend({
+    replaceDatasetId: uploadDatasetIdSchema.nullable(),
+    files: z.array(activeUploadFileSchema).max(5),
+  })
+  .strict();
+
+export const activeUploadDatasetsResponseSchema = z
+  .object({ uploads: z.array(activeUploadDatasetSchema) })
+  .strict();
+
+export type ActiveUploadDataset = z.infer<typeof activeUploadDatasetSchema>;
+
+export type ActiveUploadDatasetsResponse = z.infer<typeof activeUploadDatasetsResponseSchema>;
+
 export const analysisInputFileSchema = z.object({
   uploadId: uploadIdSchema,
   storageKey: z.string().min(1).max(1024),
@@ -274,11 +357,41 @@ export const analysisInputDatasetSchema = z.object({
 
 export type AnalysisInputDataset = z.infer<typeof analysisInputDatasetSchema>;
 
+export const analysisInputFileSummarySchema = analysisInputFileSchema.omit({
+  storageKey: true,
+});
+
+export type AnalysisInputFileSummary = z.infer<typeof analysisInputFileSummarySchema>;
+
+export const analysisInputDatasetSummarySchema = z.object({
+  dataset: uploadDatasetSchema,
+  files: z.array(analysisInputFileSummarySchema).min(1).max(5),
+  attachedAt: z.string().datetime(),
+});
+
+export type AnalysisInputDatasetSummary = z.infer<typeof analysisInputDatasetSummarySchema>;
+
+export const analysisInputManifestSchema = z.object({
+  analysisId: analysisIdSchema,
+  inputRevision: z.number().int().nonnegative(),
+  datasets: z.array(analysisInputDatasetSummarySchema),
+});
+
+export type AnalysisInputManifest = z.infer<typeof analysisInputManifestSchema>;
+
+export const analysisInputManifestResponseSchema = z.object({
+  inputs: analysisInputManifestSchema,
+});
+
+export type AnalysisInputManifestResponse = z.infer<typeof analysisInputManifestResponseSchema>;
+
 export const analysisArtifactIdSchema = z.string().regex(/^ar_[a-z0-9]{32}$/);
 
 export type AnalysisArtifactId = z.infer<typeof analysisArtifactIdSchema>;
 
-export const analysisArtifactKinds = [
+export const canonicalFingerprintSchema = z.string().regex(/^jcs-sha256-v1:[a-f0-9]{64}$/);
+
+export const scientificArtifactKinds = [
   'execution-summary',
   'metrics',
   'variable-importance',
@@ -290,7 +403,13 @@ export const analysisArtifactKinds = [
   'run-log',
 ] as const;
 
+export const analysisArtifactKinds = [...scientificArtifactKinds, 'result-bundle'] as const;
+
 export const analysisArtifactKindSchema = z.enum(analysisArtifactKinds);
+
+export const scientificArtifactKindSchema = z.enum(scientificArtifactKinds);
+
+export type ScientificArtifactKind = z.infer<typeof scientificArtifactKindSchema>;
 
 export type AnalysisArtifactKind = z.infer<typeof analysisArtifactKindSchema>;
 
@@ -320,7 +439,16 @@ export const analysisArtifactSpecifications: ReadonlyArray<{
   { kind: 'occurrences', filename: 'occurrences.geojson', contentType: 'application/geo+json' },
   { kind: 'background', filename: 'background.geojson', contentType: 'application/geo+json' },
   { kind: 'run-log', filename: 'run.log.txt', contentType: 'text/plain; charset=utf-8' },
+  { kind: 'result-bundle', filename: 'ecosuitability-results.zip', contentType: 'application/zip' },
 ];
+
+export const scientificArtifactSpecifications = analysisArtifactSpecifications.filter(
+  (artifact) => artifact.kind !== 'result-bundle'
+) as ReadonlyArray<{
+  kind: ScientificArtifactKind;
+  filename: string;
+  contentType: string;
+}>;
 
 export const workerSha256VerificationSchema = z.literal('worker-verified');
 
@@ -331,13 +459,25 @@ export const analysisArtifactSchema = z.object({
   kind: analysisArtifactKindSchema,
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1).max(128),
-  size: z.number().int().nonnegative(),
+  size: z.number().int().positive(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/i),
   sha256Verification: workerSha256VerificationSchema,
   createdAt: z.string().datetime(),
 });
 
 export type AnalysisArtifact = z.infer<typeof analysisArtifactSchema>;
+
+export const analysisReproducibilitySchema = z
+  .object({
+    inputRevision: z.number().int().nonnegative(),
+    configurationRevision: z.number().int().positive(),
+    inputFingerprint: canonicalFingerprintSchema,
+    configurationFingerprint: canonicalFingerprintSchema,
+    seed: z.number().int(),
+  })
+  .strict();
+
+export type AnalysisReproducibility = z.infer<typeof analysisReproducibilitySchema>;
 
 const completeArtifactSet = <T extends { kind: AnalysisArtifactKind }>(artifacts: T[]): boolean =>
   artifacts.length === analysisArtifactKinds.length &&
@@ -349,6 +489,7 @@ export const analysisResultManifestSchema = z
     analysisId: analysisIdSchema,
     completedAt: z.string().datetime(),
     resultExpiresAt: z.string().datetime(),
+    reproducibility: analysisReproducibilitySchema,
     artifacts: z.array(analysisArtifactSchema).length(analysisArtifactKinds.length),
   })
   .superRefine((value, context) => {
@@ -356,6 +497,30 @@ export const analysisResultManifestSchema = z
       context.addIssue({
         code: 'custom',
         message: 'Result manifest must contain every artifact once.',
+      });
+    }
+    for (const artifact of value.artifacts) {
+      const specification = analysisArtifactSpecifications.find(
+        (candidate) => candidate.kind === artifact.kind
+      );
+      if (
+        !specification ||
+        artifact.filename !== specification.filename ||
+        artifact.contentType !== specification.contentType
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['artifacts'],
+          message: 'Result artifact metadata does not match its authoritative specification.',
+        });
+        break;
+      }
+    }
+    if (new Date(value.resultExpiresAt).getTime() <= new Date(value.completedAt).getTime()) {
+      context.addIssue({
+        code: 'custom',
+        path: ['resultExpiresAt'],
+        message: 'Result expiry must be later than completion.',
       });
     }
   });
@@ -376,6 +541,52 @@ export const analysisArtifactDownloadResponseSchema = z.object({
 export type AnalysisArtifactDownloadResponse = z.infer<
   typeof analysisArtifactDownloadResponseSchema
 >;
+
+export const bundleManifestArtifactSchema = analysisArtifactSchema
+  .extend({ kind: scientificArtifactKindSchema })
+  .strict();
+
+export const analysisBundleManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    analysisId: analysisIdSchema,
+    completedAt: z.string().datetime(),
+    reproducibility: analysisReproducibilitySchema,
+    artifacts: z.array(bundleManifestArtifactSchema).length(scientificArtifactKinds.length),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const kinds = new Set(value.artifacts.map((artifact) => artifact.kind));
+    if (
+      kinds.size !== scientificArtifactKinds.length ||
+      scientificArtifactKinds.some((kind) => !kinds.has(kind))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['artifacts'],
+        message: 'Bundle manifest must contain every scientific artifact once.',
+      });
+    }
+    for (const artifact of value.artifacts) {
+      const specification = scientificArtifactSpecifications.find(
+        (candidate) => candidate.kind === artifact.kind
+      );
+      if (
+        !specification ||
+        artifact.filename !== specification.filename ||
+        artifact.contentType !== specification.contentType
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['artifacts'],
+          message: 'Bundle artifact metadata does not match its authoritative specification.',
+        });
+        break;
+      }
+    }
+  });
+
+export type AnalysisBundleManifest = z.infer<typeof analysisBundleManifestSchema>;
 
 const normalizedText = z
   .string()
@@ -486,6 +697,19 @@ export const analysisConfigurationSchema = z
           .strict(),
       ])
       .default({ method: 'train-test-split', testFraction: 0.2 }),
+    visualization: z
+      .object({
+        terrain: z
+          .object({
+            datasetId: uploadDatasetIdSchema,
+            semanticType: z.literal('elevation'),
+            unit: z.literal('metres'),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .default({ terrain: null }),
     seed: z.number().int().min(0).max(4294967295),
   })
   .strict()
@@ -505,6 +729,18 @@ export const analysisConfigurationSchema = z
     }
     if (new Set(value.model.featureClasses).size !== value.model.featureClasses.length) {
       context.addIssue({ code: 'custom', message: 'Feature classes must be unique.' });
+    }
+    if (value.visualization.terrain) {
+      const terrainPredictor = value.predictors.find(
+        (predictor) => predictor.datasetId === value.visualization.terrain?.datasetId
+      );
+      if (!terrainPredictor || terrainPredictor.type !== 'continuous') {
+        context.addIssue({
+          code: 'custom',
+          message: 'Terrain must reference a selected continuous predictor.',
+          path: ['visualization', 'terrain', 'datasetId'],
+        });
+      }
     }
   });
 
@@ -526,6 +762,141 @@ export const analysisConfigurationResponseSchema = z.object({
 });
 
 export type AnalysisConfigurationResponse = z.infer<typeof analysisConfigurationResponseSchema>;
+
+export const analysisCheckStatusSchema = z.enum([
+  'pending',
+  'running',
+  'passed',
+  'warning',
+  'blocked',
+]);
+
+export type AnalysisCheckStatus = z.infer<typeof analysisCheckStatusSchema>;
+
+export const analysisValidationCheckSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,95}$/),
+    label: z.string().min(1).max(120),
+    status: analysisCheckStatusSchema,
+    message: z.string().min(1).max(512),
+  })
+  .strict();
+
+export type AnalysisValidationCheck = z.infer<typeof analysisValidationCheckSchema>;
+
+export const rasterMetadataSchema = z
+  .object({
+    datasetId: uploadDatasetIdSchema,
+    crs: z.string().min(1).max(4096),
+    bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    resolution: z.tuple([z.number().positive(), z.number().positive()]),
+    bandCount: z.number().int().positive(),
+    nodata: z.number().finite().nullable(),
+    alignedToReference: z.boolean(),
+  })
+  .strict();
+
+export type RasterMetadata = z.infer<typeof rasterMetadataSchema>;
+
+const spatialPreviewSchema = z
+  .object({
+    type: z.literal('FeatureCollection'),
+    features: z.array(z.unknown()).max(5000),
+  })
+  .strict();
+
+export const occurrenceSourceProfileSchema = z
+  .object({
+    source: z.string().min(1).max(255).nullable(),
+    columns: z.array(z.string().min(1).max(255)),
+    longitudeCandidates: z.array(z.string().min(1).max(255)),
+    latitudeCandidates: z.array(z.string().min(1).max(255)),
+    speciesCandidates: z.array(z.string().min(1).max(255)),
+    recordCount: z.number().int().nonnegative().nullable(),
+    geometryType: z.string().min(1).max(64).nullable(),
+  })
+  .strict();
+
+export type OccurrenceSourceProfile = z.infer<typeof occurrenceSourceProfileSchema>;
+
+export const analysisInputProfileSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    inputRevision: z.number().int().nonnegative(),
+    inputFingerprint: canonicalFingerprintSchema,
+    policyVersion: z.string().min(1).max(32),
+    status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
+    progress: z.number().int().min(0).max(100),
+    checks: z.array(analysisValidationCheckSchema),
+    warnings: z.array(z.string().min(1).max(512)),
+    blockers: z.array(z.string().min(1).max(512)),
+    occurrence: z
+      .object({
+        columns: z.array(z.string().min(1).max(255)),
+        layers: z.array(z.string().min(1).max(255)),
+        longitudeCandidates: z.array(z.string().min(1).max(255)),
+        latitudeCandidates: z.array(z.string().min(1).max(255)),
+        speciesCandidates: z.array(z.string().min(1).max(255)),
+        recordCount: z.number().int().nonnegative().nullable(),
+        duplicateCoordinateCount: z.number().int().nonnegative().nullable(),
+        crs: z.string().min(1).max(4096).nullable(),
+        sources: z.array(occurrenceSourceProfileSchema).default([]),
+      })
+      .strict(),
+    rasters: z.array(rasterMetadataSchema),
+    spatialPreview: spatialPreviewSchema.nullable(),
+    createdAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export type AnalysisInputProfile = z.infer<typeof analysisInputProfileSchema>;
+
+export const analysisInputProfileResponseSchema = z.object({
+  profile: analysisInputProfileSchema,
+});
+
+export type AnalysisInputProfileResponse = z.infer<typeof analysisInputProfileResponseSchema>;
+
+export const analysisPreflightSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    inputRevision: z.number().int().nonnegative(),
+    configurationRevision: z.number().int().nonnegative(),
+    inputFingerprint: canonicalFingerprintSchema,
+    configurationFingerprint: canonicalFingerprintSchema,
+    policyVersion: z.string().min(1).max(32),
+    status: z.enum(['queued', 'running', 'passed', 'blocked', 'failed']),
+    progress: z.number().int().min(0).max(100),
+    checks: z.array(analysisValidationCheckSchema),
+    warnings: z.array(z.string().min(1).max(512)),
+    blockers: z.array(z.string().min(1).max(512)),
+    createdAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export type AnalysisPreflight = z.infer<typeof analysisPreflightSchema>;
+
+export const analysisPreflightResponseSchema = z.object({ preflight: analysisPreflightSchema });
+
+export type AnalysisPreflightResponse = z.infer<typeof analysisPreflightResponseSchema>;
+
+export const rJobModeSchema = z.enum(['profile', 'validate', 'execute']);
+
+export type RJobMode = z.infer<typeof rJobModeSchema>;
+
+export const queueAnalysisRequestSchema = z
+  .object({
+    expectedInputRevision: z.number().int().nonnegative(),
+    expectedConfigurationRevision: z.number().int().positive(),
+    configurationFingerprint: canonicalFingerprintSchema,
+  })
+  .strict();
+
+export type QueueAnalysisRequest = z.infer<typeof queueAnalysisRequestSchema>;
 
 export const scientificValidationFailureCodeSchema = z.enum([
   'INPUT_RESOURCE_LIMIT_EXCEEDED',
@@ -564,6 +935,7 @@ export const scientificValidationFailureCodeSchema = z.enum([
 export type ScientificValidationFailureCode = z.infer<typeof scientificValidationFailureCodeSchema>;
 
 export const rValidationEventsResponseSchema = z.object({
+  mode: rJobModeSchema,
   events: z
     .array(
       z.object({
@@ -609,8 +981,20 @@ export const rValidationEventsResponseSchema = z.object({
     })
     .nullable(),
   artifacts: z.array(z.unknown()).nullable(),
+  mapAssets: z.array(z.unknown()).nullable().default(null),
   candidateCompletedAt: z.string().datetime().nullable(),
-  failureCode: scientificValidationFailureCodeSchema.nullable(),
+  failureCode: z
+    .union([
+      scientificValidationFailureCodeSchema,
+      z.enum([
+        'R_RUNTIME_UNAVAILABLE',
+        'R_RUNTIME_TIMEOUT',
+        'R_RUNTIME_PROTOCOL_INVALID',
+        'R_RUNTIME_CANCEL_FAILED',
+      ]),
+    ])
+    .nullable(),
+  result: z.union([analysisInputProfileSchema, analysisPreflightSchema]).nullable(),
 });
 
 export type RValidationEventsResponse = z.infer<typeof rValidationEventsResponseSchema>;
@@ -694,14 +1078,148 @@ export const analysisThresholdMetricsSchema = z
 
 export const analysisMetricsArtifactSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     method: z.enum(['train-test-split', 'k-fold']),
     folds: z.number().int().positive(),
-    auc: z.number().finite().min(0).max(1),
-    aucStandardDeviation: z.number().finite().nonnegative(),
+    pooledRoc: z
+      .array(
+        z
+          .object({
+            falsePositiveRate: z.number().finite().min(0).max(1),
+            truePositiveRate: z.number().finite().min(0).max(1),
+            threshold: z.number().finite(),
+          })
+          .strict()
+      )
+      .min(2),
+    evaluationRuns: z
+      .array(
+        z
+          .object({
+            run: z.number().int().positive(),
+            auc: z.number().finite().min(0).max(1),
+            presenceCount: z.number().int().nonnegative(),
+            backgroundCount: z.number().int().nonnegative(),
+          })
+          .strict()
+      )
+      .min(1),
+    auc: z
+      .object({
+        mean: z.number().finite().min(0).max(1),
+        standardDeviation: z.number().finite().nonnegative(),
+        minimum: z.number().finite().min(0).max(1),
+        maximum: z.number().finite().min(0).max(1),
+      })
+      .strict(),
     threshold: analysisThresholdMetricsSchema,
   })
   .strict();
+
+export type AnalysisMetricsArtifact = z.infer<typeof analysisMetricsArtifactSchema>;
+
+export const analysisResultOverviewSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    displayName: z.string().min(1).max(120).nullable(),
+    completedAt: z.string().datetime(),
+    resultExpiresAt: z.string().datetime(),
+    metrics: analysisMetricsArtifactSchema,
+    validation: rValidationSummarySchema,
+    configuration: analysisConfigurationSchema,
+  })
+  .strict();
+
+export const analysisResultOverviewResponseSchema = z.object({
+  overview: analysisResultOverviewSchema,
+});
+
+export type AnalysisResultOverviewResponse = z.infer<typeof analysisResultOverviewResponseSchema>;
+
+export const mapBasemapSchema = z
+  .object({
+    id: z.enum(['light', 'satellite', 'terrain']),
+    label: z.string().min(1).max(64),
+    styleUrl: z.string().url(),
+    darkStyleUrl: z.string().url().nullable(),
+    attribution: z.string().min(1).max(512),
+  })
+  .strict();
+
+export const mapLayerIdSchema = z.string().regex(/^(?:ar|ml)_[a-z0-9]{32}$/);
+
+export const mapLayerSchema = z
+  .object({
+    id: mapLayerIdSchema,
+    label: z.string().min(1).max(120),
+    kind: z.enum(['suitability', 'threshold', 'predictor', 'occurrences', 'background']),
+    dataType: z.enum(['raster', 'vector']),
+    legend: z
+      .array(
+        z.object({
+          label: z.string().min(1).max(64),
+          value: z.number().finite(),
+          color: z.string().regex(/^#[0-9a-f]{6}$/i),
+        })
+      )
+      .max(20),
+  })
+  .strict();
+
+export const mapCapabilitiesSchema = z
+  .object({
+    analysisId: analysisIdSchema,
+    basemaps: z.array(mapBasemapSchema),
+    layers: z.array(mapLayerSchema),
+    terrain: z
+      .object({
+        available: z.boolean(),
+        layerId: z.string().nullable(),
+        unavailableReason: z.string().max(256).nullable(),
+      })
+      .strict(),
+    bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.terrain.available && (!value.terrain.layerId || value.terrain.unavailableReason)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['terrain'],
+        message: 'Available terrain requires a layer and no unavailable reason.',
+      });
+    }
+    if (!value.terrain.available && (value.terrain.layerId || !value.terrain.unavailableReason)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['terrain'],
+        message: 'Unavailable terrain requires a reason and no layer.',
+      });
+    }
+  });
+
+export const mapCapabilitiesResponseSchema = z.object({ capabilities: mapCapabilitiesSchema });
+
+export type MapCapabilities = z.infer<typeof mapCapabilitiesSchema>;
+
+export type MapCapabilitiesResponse = z.infer<typeof mapCapabilitiesResponseSchema>;
+
+export const mapInspectionSchema = z
+  .object({
+    longitude: z.number().min(-180).max(180),
+    latitude: z.number().min(-90).max(90),
+    suitability: z.number().min(0).max(1).nullable(),
+    thresholdClass: z.number().int().min(0).max(1).nullable(),
+    predictors: z.record(z.string(), z.union([z.number(), z.string(), z.null()])),
+    nearestOccurrenceMetres: z.number().nonnegative().nullable(),
+  })
+  .strict();
+
+export const mapInspectionResponseSchema = z.object({ inspection: mapInspectionSchema });
+
+export type MapInspection = z.infer<typeof mapInspectionSchema>;
+
+export type MapInspectionResponse = z.infer<typeof mapInspectionResponseSchema>;
 
 export const analysisVariableImportanceArtifactSchema = z
   .object({
@@ -735,14 +1253,30 @@ export const analysisResponseCurvesArtifactSchema = z
   })
   .strict();
 
+export const analysisDiagnosticsSchema = z
+  .object({
+    metrics: analysisMetricsArtifactSchema,
+    importance: analysisVariableImportanceArtifactSchema,
+    responseCurves: analysisResponseCurvesArtifactSchema,
+  })
+  .strict();
+
+export type AnalysisDiagnostics = z.infer<typeof analysisDiagnosticsSchema>;
+
+export const analysisDiagnosticsResponseSchema = z.object({
+  diagnostics: analysisDiagnosticsSchema,
+});
+
+export type AnalysisDiagnosticsResponse = z.infer<typeof analysisDiagnosticsResponseSchema>;
+
 export const analysisExecutionSummaryArtifactSchema = z
   .object({
     schemaVersion: z.literal(1),
     placeholder: z.literal(false),
     scientificModelExecuted: z.literal(true),
     completedAt: z.string().datetime(),
-    configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
-    inputFingerprint: z.string().regex(/^[a-f0-9]{64}$/i),
+    configurationFingerprint: canonicalFingerprintSchema,
+    inputFingerprint: canonicalFingerprintSchema,
     validation: rValidationSummarySchema,
     inputValidation: z
       .object({
@@ -771,7 +1305,7 @@ export const analysisExecutionSummaryArtifactSchema = z
 
 export const rGeneratedArtifactSchema = z
   .object({
-    kind: analysisArtifactKindSchema,
+    kind: scientificArtifactKindSchema,
     size: z.number().int().positive(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/i),
   })
@@ -779,17 +1313,94 @@ export const rGeneratedArtifactSchema = z
 
 export type RGeneratedArtifact = z.infer<typeof rGeneratedArtifactSchema>;
 
+export const rCogValidationSchema = z
+  .object({
+    cog: z.literal(true),
+    overviewCount: z.number().int().positive(),
+    compression: z.string().min(1),
+    nodata: z.number().finite(),
+    crs: z.string().min(1),
+    bounds: z.tuple([
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+    ]),
+    resolution: z.tuple([z.number().finite().positive(), z.number().finite().positive()]),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    dataType: z.string().min(1),
+    finiteValueCount: z.number().int().positive(),
+    minimum: z.number().finite(),
+    maximum: z.number().finite(),
+  })
+  .strict();
+
+export type RCogValidation = z.infer<typeof rCogValidationSchema>;
+
+export const rDemValidationSchema = z
+  .object({
+    eligible: z.boolean(),
+    reason: z.string().min(1).max(256).nullable(),
+    sourceDataType: z.string().min(1),
+    dataTypeValid: z.boolean(),
+    unit: z.literal('metre').nullable(),
+    crsTransformable: z.boolean(),
+    resolutionValid: z.boolean(),
+    finiteValuesValid: z.boolean(),
+    rangeValid: z.boolean(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const checksPass =
+      value.unit === 'metre' &&
+      value.dataTypeValid &&
+      value.crsTransformable &&
+      value.resolutionValid &&
+      value.finiteValuesValid &&
+      value.rangeValid;
+    if (value.eligible !== checksPass || (value.eligible ? value.reason !== null : !value.reason)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'DEM eligibility must match all authoritative raster checks.',
+      });
+    }
+  });
+
+export type RDemValidation = z.infer<typeof rDemValidationSchema>;
+
+export const rGeneratedMapAssetSchema = z
+  .object({
+    datasetId: uploadDatasetIdSchema,
+    filename: z.string().regex(/^[A-Za-z0-9._-]+\.tif$/i),
+    size: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    raster: rCogValidationSchema,
+    dem: rDemValidationSchema.nullable(),
+  })
+  .strict()
+  .refine((value) => value.filename === `${value.datasetId}.tif`, {
+    path: ['filename'],
+    message: 'Map asset filenames must be derived from their dataset ID.',
+  });
+
+export type RGeneratedMapAsset = z.infer<typeof rGeneratedMapAssetSchema>;
+
 export const rGeneratedArtifactSetSchema = z
   .array(rGeneratedArtifactSchema)
-  .length(analysisArtifactKinds.length)
+  .length(scientificArtifactKinds.length)
   .superRefine((value, context) => {
-    if (!completeArtifactSet(value)) {
+    if (
+      new Set(value.map((artifact) => artifact.kind)).size !== scientificArtifactKinds.length ||
+      !scientificArtifactKinds.every((kind) => value.some((artifact) => artifact.kind === kind))
+    ) {
       context.addIssue({ code: 'custom', message: 'R runtime must produce every artifact once.' });
     }
   });
 
 export const rValidationEventsPageSchema = z
   .object({
+    mode: rJobModeSchema,
     generation: z.number().int().positive(),
     events: z.array(rValidationEventSchema).max(100),
     nextSequence: z.number().int().nonnegative(),
@@ -797,8 +1408,10 @@ export const rValidationEventsPageSchema = z
     state: rValidationRunStateSchema,
     summary: rValidationSummarySchema.nullable(),
     artifacts: rGeneratedArtifactSetSchema.nullable(),
+    mapAssets: z.array(rGeneratedMapAssetSchema).max(64).nullable().default(null),
     candidateCompletedAt: z.string().datetime().nullable(),
     failureCode: rValidationFailureCodeSchema.nullable(),
+    result: z.union([analysisInputProfileSchema, analysisPreflightSchema]).nullable(),
   })
   .strict();
 

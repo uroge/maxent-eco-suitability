@@ -18,7 +18,7 @@ const BrandMark = () => {
 
 export const AppHeader = () => {
   return (
-    <header className="border-b border-border bg-surface">
+    <header className="shrink-0 border-b border-border bg-surface">
       <div className="flex min-h-header items-center justify-between gap-4 px-5 sm:px-8">
         <Link aria-label="EcoSuitability home" className="flex min-w-0 items-center gap-3" href="/">
           <BrandMark />
@@ -32,20 +32,20 @@ export const AppHeader = () => {
           </span>
         </Link>
         <nav aria-label="Utility navigation" className="flex items-center gap-1">
-          <a
+          <Link
             className="hidden min-h-10 items-center gap-1.5 px-3 text-sm text-muted-foreground hover:text-foreground sm:inline-flex"
-            href="#methodology"
+            href="/methodology"
           >
             <BookOpen aria-hidden="true" size={15} />
             Methodology
-          </a>
-          <a
+          </Link>
+          <Link
             className="hidden min-h-10 items-center gap-1.5 px-3 text-sm text-muted-foreground hover:text-foreground md:inline-flex"
-            href="#footer"
+            href="/help"
           >
             <CircleHelp aria-hidden="true" size={15} />
             Help
-          </a>
+          </Link>
           <Button asChild className="ml-1" size="sm">
             <Link href="/analyses/new">
               <RefreshCw aria-hidden="true" size={15} />

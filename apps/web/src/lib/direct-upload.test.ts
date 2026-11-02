@@ -84,6 +84,7 @@ const createXhrHarness = (responses: XhrResponse[] = []) => {
 
 const createApi = (file: {
   multipart: boolean;
+  status?: 'pending' | 'completed' | 'aborted';
   uploadUrl: string | null;
   partSizeBytes: number | null;
 }) => {
@@ -96,7 +97,13 @@ const createApi = (file: {
     }
 
     if (path.endsWith('/files') && options?.method === 'POST') {
-      return Response.json({ file: { id: 'up_0123456789abcdef0123456789abcdef', ...file } });
+      return Response.json({
+        file: {
+          id: 'up_0123456789abcdef0123456789abcdef',
+          status: 'pending',
+          ...file,
+        },
+      });
     }
 
     if (path.endsWith('/parts')) {
@@ -183,7 +190,7 @@ describe('uploadDataset', () => {
     );
   });
 
-  it('cancels the storage request and aborts the server session', async () => {
+  it('pauses the storage request while retaining the server session', async () => {
     const controller = new AbortController();
     const api = createApi({
       multipart: false,
@@ -197,10 +204,35 @@ describe('uploadDataset', () => {
     controller.abort();
 
     await expect(operation).rejects.toMatchObject({ name: 'AbortError' });
-    expect(api.request).toHaveBeenCalledWith(
+    expect(api.request).not.toHaveBeenCalledWith(
       expect.stringMatching(/upload-datasets\/ds_.*$/),
       expect.objectContaining({ method: 'DELETE' })
     );
+  });
+
+  it('continues an existing server upload without creating another dataset', async () => {
+    createXhrHarness();
+    const api = createApi({
+      multipart: false,
+      uploadUrl: 'https://storage.test/direct',
+      partSizeBytes: null,
+    });
+    await upload(api, fakeFile('occurrences.csv', 10), {
+      datasetId: 'ds_0123456789abcdef0123456789abcdef',
+    });
+    expect(api.request).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/upload-datasets$/),
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('skips storage transfer when the matching file is already completed', async () => {
+    const harness = createXhrHarness();
+    await upload(
+      createApi({ multipart: false, status: 'completed', uploadUrl: null, partSizeBytes: null }),
+      fakeFile('occurrences.csv', 10)
+    );
+    expect(harness.requests).toHaveLength(0);
   });
 
   it('limits multipart storage requests to four concurrent parts', async () => {

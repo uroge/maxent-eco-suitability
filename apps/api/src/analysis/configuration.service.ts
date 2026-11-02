@@ -31,7 +31,10 @@ export class ConfigurationService {
     return {
       mode: frozen ? 'frozen' : 'editable',
       configuration: frozen?.configuration ?? analysis.configuration ?? null,
-      revision: frozen?.revision ?? analysis.configurationRevision ?? 0,
+      revision:
+        frozen?.configurationRevision ??
+        frozen?.revision ??
+        analysis.configurationRevision,
       fingerprint: frozen?.fingerprint ?? analysis.configurationFingerprint,
     };
   }
@@ -50,14 +53,9 @@ export class ConfigurationService {
     if (!analysis) {
       throw this.notFound();
     }
-    if (analysis.status !== 'ready') {
-      throw new ApiException(
-        409,
-        'CONFLICT',
-        'The analysis configuration is immutable.',
-      );
+    if (analysis.status === 'ready') {
+      await this.validateInputs(analysisId, configuration);
     }
-    await this.validateInputs(analysisId, configuration);
     const fingerprint = this.fingerprint(configuration);
     const result = await this.repository.updateConfiguration(
       analysisId,

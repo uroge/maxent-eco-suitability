@@ -28,10 +28,11 @@ rate-limit policies:
 - `GET /v1/analyses/:analysisId` returns an analysis owned by the authenticated
   Clerk user. A resource owned by someone else returns `404` to prevent
   enumeration.
-- `POST /v1/analyses/:analysisId/queue` creates a durable execution request for
-  a `ready` analysis. It atomically moves the record to `queued` and persists
-  an outbox record before BullMQ insertion.
-- `POST /v1/analyses/:analysisId/cancel` is idempotent. It cancels preparation
+- `POST /v1/analyses/:analysisId/queue` requires an `Idempotency-Key` and creates
+  a durable execution request for a `ready` analysis. It atomically moves the
+  record to `queued` and persists an outbox record before BullMQ insertion.
+- `POST /v1/analyses/:analysisId/cancel` requires an `Idempotency-Key` and is
+  idempotent. It cancels preparation
   and queued work immediately; running work becomes `cancelling` until the
   worker cooperatively finalizes it as `cancelled`.
 
@@ -42,24 +43,44 @@ storage-verified, attached, and immutable. `queued` means a durable execution
 request exists; a leased reconciler inserts the deterministic BullMQ job
 (`jobId = analysisId`) and repairs undispatched outbox records after failures.
 The worker reports progress, retries up to three total attempts with five-second
-exponential backoff, and has global queue concurrency one. Its scientific-input
-validation stage calls the private `analysis-r` service, while the remaining
-deterministic placeholder stages do not claim that a scientific model ran.
-`analysis-r` has one replica, no public port, no Redis/Clerk/object-storage
-credentials, a read-only root filesystem, a small control-only tmpfs, and a
+exponential backoff, and has global queue concurrency one. Input profiling,
+configuration preflight, and model execution all call the private `analysis-r`
+service through the same recoverable run protocol.
+`analysis-r` has one replica, no production public port, no
+Redis/Clerk/object-storage credentials, a read-only root filesystem, a small
+control-only tmpfs, and a
 dedicated disk-backed workspace volume. The worker passes only short-lived
-signed GET capabilities for frozen input objects. The runtime uses HMAC-authenticated
-requests and sequenced polling; it has no callback endpoint. A runtime restart
-forgets in-memory runs, and BullMQ safely recreates the same semantic run.
+signed GET capabilities for frozen input objects. The runtime uses
+HMAC-authenticated requests and sequenced polling; it has no callback endpoint.
+Profile and preflight results are persisted in the runtime workspace until the
+worker stores and acknowledges them, so a runtime restart can recover the same
+revision-bound semantic run.
 
-The R runtime validates the frozen input files before placeholder execution:
+Every durable mutation uses either its lifecycle-specific atomic Redis script
+or the analysis-scoped operation ledger. The ledger binds the key to a
+canonical operation/payload fingerprint, serializes concurrent execution with
+a recoverable lease, stores the exact successful response for the analysis
+TTL, and rejects reuse with different revisions or content. Profile and
+preflight retries also reassert their deterministic BullMQ job IDs, closing the
+state-written/job-not-enqueued crash window. Temporary signed URL issuance is
+not a durable mutation and deliberately issues a fresh credential on retry.
+
+The R runtime supports `profile`, `validate`, and `execute` modes. Profiling
+inspects occurrence headers, worksheets/layers, coordinate candidates,
+duplicates, CRS, predictor grids, nodata, and alignment and produces a bounded
+WGS84 preview. Preflight and execution both call the same authoritative
+`validate_run` implementation; execution repeats validation from the frozen
+snapshot before fitting the model. Queueing is permitted only when the passed R
+preflight matches the current input revision and fingerprint and configuration
+revision and fingerprint.
+
+Scientific validation enforces:
 at most 500 occurrence records, 20 selected predictors, 5 GiB aggregate inputs,
 2 GiB per predictor, 100 million cells per raster, and 500 million cells across
 predictors. It rejects unsupported geometry, CRS/grid incompatibility, invalid
 coverage, unsafe input complexity, and invalid partitions using stable safe
-codes. It does not fit MaxEnt in this phase. The placeholder summary explicitly
-contains `placeholder: true`, `scientificModelExecuted: false`, and
-`validationCompleted: true`.
+codes. Preflight converts scientific failures into actionable blockers while
+runtime/protocol failures remain retryable infrastructure failures.
 
 The R image is reproducible through `renv`; generate `services/analysis-r/renv.lock`
 after changing `scripts/bootstrap-renv.R`, never by hand:
@@ -89,15 +110,20 @@ response to an incidental runtime failure.
 `draft`, `uploading`, and `ready` can become `cancelled` or `expired`.
 
 Successful deterministic runs create a crash-safe provisional result record
-before writing output. The worker produces `execution-summary.json` and
-`run.log.txt`, verifies their size, content metadata, and worker-generated
-SHA-256 values with storage, then atomically publishes a result manifest and
-marks the analysis succeeded. A failed publication is retried by BullMQ using
-the same artifact IDs, keys, and completion timestamp; ordinary reconciliation
-only cleans abandoned provisional records. Result manifests are available only
-to the owning user at `GET /v1/analyses/:analysisId/results`. The download
-endpoint issues a direct storage URL with a maximum five-minute lifetime,
-bounded by result expiry, and never returns URLs from the manifest response.
+before writing output. The worker verifies the size, content metadata, and
+worker-generated SHA-256 of all nine scientific artifacts, then reads and
+hashes every stored byte again while staging `ecosuitability-results.zip`.
+That ZIP contains the nine files and a validated, non-recursive
+`bundle-manifest.json` with their checksums and the frozen revisions,
+fingerprints, and seed. The ZIP is verified and published as the tenth artifact
+before the analysis atomically becomes `succeeded`. A failed publication is
+retried by BullMQ using the same artifact IDs, keys, and completion timestamp;
+when all scientific artifacts and map assets are already present, recovery
+rebuilds only a missing ZIP rather than rerunning R. Result manifests are
+available only to the owning user at `GET /v1/analyses/:analysisId/results`.
+The download endpoint issues a fresh direct-storage URL with a maximum
+five-minute lifetime bounded by result expiry, never returns storage keys, and
+returns no signed URLs in the manifest response.
 
 Input preparation has an explicit 48-hour deadline starting at creation. Queue
 submission establishes a separate 48-hour processing deadline for `queued` and

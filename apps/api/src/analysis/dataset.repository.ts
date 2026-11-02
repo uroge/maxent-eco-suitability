@@ -7,6 +7,7 @@ import { RedisService } from '../platform/redis/redis.service';
 import {
   AbortDatasetScript,
   AttachDatasetScript,
+  DetachDatasetScript,
   CompleteDatasetScript,
   CompleteFileScript,
   CreateDatasetScript,
@@ -29,6 +30,10 @@ const analysisInputsKeyPrefix = 'ecosuitability:analysis-inputs:';
 
 const analysisSessionsKeyPrefix = 'ecosuitability:analysis-upload-sessions:';
 
+const cleanupKeyPrefix = 'ecosuitability:analysis-cleanup:';
+
+const cleanupIndexKey = 'ecosuitability:analysis-cleanup:index';
+
 type CreateResult = { dataset: DatasetSession; replayed: boolean } | 'conflict';
 
 @Injectable()
@@ -39,7 +44,11 @@ export class DatasetRepository {
     dataset: DatasetSession,
     ttlSeconds: number,
   ): Promise<
-    CreateResult | 'missing' | 'invalid_analysis' | 'occurrence_reserved'
+    | CreateResult
+    | 'missing'
+    | 'invalid_analysis'
+    | 'occurrence_reserved'
+    | 'replacement_missing'
   > {
     const result = (await this.redis.getClient().eval(CreateDatasetScript, {
       keys: [
@@ -52,6 +61,7 @@ export class DatasetRepository {
         expiryIndexKey,
         this.analysisKey(dataset.analysisId),
         this.analysisSessionsKey(dataset.analysisId),
+        this.analysisInputsKey(dataset.analysisId),
       ],
       arguments: [
         dataset.id,
@@ -62,6 +72,7 @@ export class DatasetRepository {
         dataset.ownerId,
         new Date().toISOString(),
         dataset.kind,
+        dataset.replaceDatasetId ?? '',
       ],
     })) as string[];
 
@@ -69,7 +80,8 @@ export class DatasetRepository {
       result[0] === 'conflict' ||
       result[0] === 'missing' ||
       result[0] === 'invalid_analysis' ||
-      result[0] === 'occurrence_reserved'
+      result[0] === 'occurrence_reserved' ||
+      result[0] === 'replacement_missing'
     ) {
       return result[0];
     }
@@ -213,6 +225,7 @@ export class DatasetRepository {
     | 'invalid'
     | 'invalid_analysis'
     | 'occurrence_taken'
+    | 'replacement_stale'
   > {
     const result = (await this.redis.getClient().eval(AttachDatasetScript, {
       keys: [
@@ -227,21 +240,46 @@ export class DatasetRepository {
         expiryIndexKey,
         uploadKeyPrefix,
         this.analysisSessionsKey(dataset.analysisId),
+        cleanupKeyPrefix,
+        cleanupIndexKey,
       ],
       arguments: [
         dataset.ownerId,
         dataset.analysisId,
         claimId,
         JSON.stringify(attached),
+        new Date().toISOString(),
+        String(Date.now()),
       ],
     })) as string[];
 
     if (result[0] !== 'attached') {
       return result[0] as
-        'missing' | 'invalid' | 'invalid_analysis' | 'occurrence_taken';
+        | 'missing'
+        | 'invalid'
+        | 'invalid_analysis'
+        | 'occurrence_taken'
+        | 'replacement_stale';
     }
 
     return JSON.parse(result[1]) as UploadDataset;
+  }
+
+  public async sessions(
+    analysisId: string,
+    ownerId: string,
+  ): Promise<DatasetSession[]> {
+    const ids = await this.redis
+      .getClient()
+      .sMembers(this.analysisSessionsKey(analysisId));
+    const records = await Promise.all(ids.map(async (id) => this.get(id)));
+    return records.filter((record): record is DatasetSession =>
+      Boolean(
+        record &&
+        record.analysisId === analysisId &&
+        record.ownerId === ownerId,
+      ),
+    );
   }
 
   public async abortDataset(
@@ -272,13 +310,6 @@ export class DatasetRepository {
       .getClient()
       .multi()
       .del(this.datasetKey(dataset.id))
-      .del(
-        this.idempotencyKey(
-          dataset.ownerId,
-          dataset.analysisId,
-          dataset.idempotencyKey,
-        ),
-      )
       .zRem(expiryIndexKey, dataset.id)
       .sRem(this.analysisSessionsKey(dataset.analysisId), dataset.id)
       .exec();
@@ -317,6 +348,21 @@ export class DatasetRepository {
     );
   }
 
+  public async detach(
+    analysisId: string,
+    datasetId: string,
+    ownerId: string,
+  ): Promise<AnalysisInputDataset | 'missing' | 'invalid'> {
+    const result = (await this.redis.getClient().eval(DetachDatasetScript, {
+      keys: [this.analysisKey(analysisId), this.analysisInputsKey(analysisId)],
+      arguments: [ownerId, datasetId, new Date().toISOString()],
+    })) as string[];
+    if (result[0] !== 'removed') {
+      return result[0] as 'missing' | 'invalid';
+    }
+    return JSON.parse(result[1]) as AnalysisInputDataset;
+  }
+
   public async manifest(
     analysisId: string,
   ): Promise<{ datasets: AnalysisInputDataset[] }> {
@@ -331,16 +377,25 @@ export class DatasetRepository {
   public async markReady(
     analysisId: string,
     ownerId: string,
+    expectedInputRevision: number,
   ): Promise<
-    { status: 'ready'; analysis: string } | 'missing' | 'invalid' | 'incomplete'
+    | { status: 'ready'; analysis: string }
+    | 'missing'
+    | 'invalid'
+    | 'incomplete'
+    | 'stale'
   > {
     const result = (await this.redis.getClient().eval(MarkReadyScript, {
       keys: [this.analysisKey(analysisId), this.analysisInputsKey(analysisId)],
-      arguments: [ownerId, new Date().toISOString()],
+      arguments: [
+        ownerId,
+        new Date().toISOString(),
+        String(expectedInputRevision),
+      ],
     })) as string[];
 
     if (result[0] !== 'ready') {
-      return result[0] as 'missing' | 'invalid' | 'incomplete';
+      return result[0] as 'missing' | 'invalid' | 'incomplete' | 'stale';
     }
 
     return { status: 'ready', analysis: result[1] };

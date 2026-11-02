@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import {
+  analysisInputProfileSchema,
+  analysisPreflightSchema,
   rValidationEventsPageSchema,
+  type AnalysisConfiguration,
+  type AnalysisInputDataset,
+  type AnalysisInputProfile,
+  type AnalysisPreflight,
   type RValidationEvent,
   type RGeneratedArtifact,
+  type RGeneratedMapAsset,
   type RValidationSummary,
 } from '@ecosuitability/contracts';
 import { ConfigService } from '@nestjs/config';
@@ -12,6 +19,8 @@ import { WorkerStorageService } from '../storage/worker-storage.service';
 import { WorkerLifecycleRepository } from './worker-lifecycle.repository';
 
 type ExecutionSnapshot = {
+  inputRevision: number;
+  configurationRevision: number;
   fingerprint: string;
   inputFingerprint: string;
   configuration: {
@@ -22,6 +31,7 @@ type ExecutionSnapshot = {
       dataset: { id: string; kind: string; format: string };
       files: Array<{
         storageKey: string;
+        originalName: string;
         size: number;
         declaredSha256: string;
         component?: string | null;
@@ -80,22 +90,30 @@ export class RValidationClient {
     onHeartbeat: () => Promise<void>,
     onArtifactsReady: (
       artifacts: RGeneratedArtifact[],
+      mapAssets: RGeneratedMapAsset[],
       candidateCompletedAt: string,
     ) => Promise<unknown[]>,
-  ): Promise<{ summary: RValidationSummary; artifacts: RGeneratedArtifact[] }> {
+  ): Promise<{
+    summary: RValidationSummary;
+    artifacts: RGeneratedArtifact[];
+    mapAssets: RGeneratedMapAsset[];
+  }> {
     const snapshot = await this.snapshot(analysisId);
     const inputManifest = this.selectedManifest(snapshot);
-    const runId = `${analysisId}.1`;
+    const runId = `${analysisId}.execute.1`;
     const accepted = await this.request<RunAccepted>(
       'POST',
       '/v1/runs',
       {
         runId,
+        mode: 'execute',
         analysisId,
         jobId,
         attempt,
         configurationFingerprint: snapshot.fingerprint,
         inputFingerprint: snapshot.inputFingerprint,
+        inputRevision: snapshot.inputRevision,
+        configurationRevision: snapshot.configurationRevision,
         configuration: snapshot.configuration,
         inputManifest,
       },
@@ -132,6 +150,9 @@ export class RValidationClient {
             signal,
           ),
         );
+        if (page.mode !== 'execute') {
+          throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+        }
         if (page.generation < generation) {
           throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
         }
@@ -151,6 +172,7 @@ export class RValidationClient {
           (page.state === 'awaiting-output-capabilities' ||
             page.state === 'running') &&
           page.artifacts &&
+          page.mapAssets &&
           page.candidateCompletedAt &&
           (!capabilitiesIssued ||
             Date.now() - outputCapabilitiesIssuedAt >=
@@ -158,6 +180,7 @@ export class RValidationClient {
         ) {
           const capabilities = await onArtifactsReady(
             page.artifacts,
+            page.mapAssets,
             page.candidateCompletedAt,
           );
           await this.request(
@@ -177,10 +200,17 @@ export class RValidationClient {
           if (!page.artifacts) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
           }
+          if (!page.mapAssets) {
+            throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+          }
           if (!page.candidateCompletedAt) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
           }
-          return { summary: page.summary, artifacts: page.artifacts };
+          return {
+            summary: page.summary,
+            artifacts: page.artifacts,
+            mapAssets: page.mapAssets,
+          };
         }
         if (page.state === 'failed') {
           if (!page.failureCode) {
@@ -210,14 +240,190 @@ export class RValidationClient {
   }
 
   public async acknowledge(analysisId: string): Promise<void> {
+    await this.acknowledgeRun(`${analysisId}.execute.1`);
+  }
+
+  public async profileInputs(input: {
+    analysisId: string;
+    jobId: string;
+    attempt: number;
+    inputRevision: number;
+    inputFingerprint: string;
+    inputManifest: { datasets: AnalysisInputDataset[] };
+    policyVersion: string;
+    createdAt: string;
+    signal: AbortSignal;
+    onEvent: (event: RValidationEvent, generation: number) => Promise<void>;
+    onHeartbeat: () => Promise<void>;
+  }): Promise<AnalysisInputProfile> {
+    const runId = `${input.analysisId}.profile.${input.inputRevision}`;
+    const result = await this.runControlJob({
+      ...input,
+      runId,
+      mode: 'profile',
+      request: {
+        inputRevision: input.inputRevision,
+        inputFingerprint: input.inputFingerprint,
+        inputManifest: input.inputManifest,
+        policyVersion: input.policyVersion,
+        createdAt: input.createdAt,
+      },
+    });
+    return analysisInputProfileSchema.parse(result);
+  }
+
+  public async validateInputs(input: {
+    analysisId: string;
+    jobId: string;
+    attempt: number;
+    inputRevision: number;
+    configurationRevision: number;
+    inputFingerprint: string;
+    configurationFingerprint: string;
+    configuration: AnalysisConfiguration;
+    inputManifest: { datasets: AnalysisInputDataset[] };
+    policyVersion: string;
+    createdAt: string;
+    signal: AbortSignal;
+    onEvent: (event: RValidationEvent, generation: number) => Promise<void>;
+    onHeartbeat: () => Promise<void>;
+  }): Promise<AnalysisPreflight> {
+    const runId = `${input.analysisId}.validate.${input.inputRevision}.${input.configurationRevision}`;
+    const result = await this.runControlJob({
+      ...input,
+      runId,
+      mode: 'validate',
+      request: {
+        inputRevision: input.inputRevision,
+        configurationRevision: input.configurationRevision,
+        inputFingerprint: input.inputFingerprint,
+        configurationFingerprint: input.configurationFingerprint,
+        configuration: input.configuration,
+        inputManifest: this.selectedManifest({
+          fingerprint: input.configurationFingerprint,
+          inputFingerprint: input.inputFingerprint,
+          inputRevision: input.inputRevision,
+          configurationRevision: input.configurationRevision,
+          configuration: input.configuration,
+          inputManifest: input.inputManifest,
+        }),
+        policyVersion: input.policyVersion,
+        createdAt: input.createdAt,
+      },
+    });
+    return analysisPreflightSchema.parse(result);
+  }
+
+  public async acknowledgeRun(runId: string): Promise<void> {
     await this.request(
       'POST',
-      `/v1/runs/${encodeURIComponent(`${analysisId}.1`)}/complete`,
+      `/v1/runs/${encodeURIComponent(runId)}/complete`,
     );
   }
 
   public async cancel(runId: string): Promise<void> {
     await this.request('DELETE', `/v1/runs/${encodeURIComponent(runId)}`);
+  }
+
+  private async runControlJob(input: {
+    analysisId: string;
+    jobId: string;
+    attempt: number;
+    runId: string;
+    mode: 'profile' | 'validate';
+    inputManifest: { datasets: AnalysisInputDataset[] };
+    request: Record<string, unknown>;
+    signal: AbortSignal;
+    onEvent: (event: RValidationEvent, generation: number) => Promise<void>;
+    onHeartbeat: () => Promise<void>;
+  }): Promise<unknown> {
+    const accepted = await this.request<RunAccepted>(
+      'POST',
+      '/v1/runs',
+      {
+        runId: input.runId,
+        mode: input.mode,
+        analysisId: input.analysisId,
+        jobId: input.jobId,
+        attempt: input.attempt,
+        ...input.request,
+      },
+      input.signal,
+    );
+    if (accepted.runId !== input.runId) {
+      throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+    }
+    await this.refreshCapabilities(
+      input.runId,
+      input.inputManifest,
+      input.signal,
+    );
+    let capabilitiesIssuedAt = Date.now();
+    let afterSequence = accepted.eventSequence;
+    let generation = accepted.generation;
+    const deadline =
+      Date.now() + this.config.getOrThrow('R_RUNTIME_RUN_TIMEOUT_MS');
+    try {
+      while (Date.now() < deadline) {
+        await input.onHeartbeat();
+        if (
+          Date.now() - capabilitiesIssuedAt >=
+          this.config.getOrThrow('R_RUNTIME_INPUT_URL_TTL_SECONDS') * 750
+        ) {
+          await this.refreshCapabilities(
+            input.runId,
+            input.inputManifest,
+            input.signal,
+          );
+          capabilitiesIssuedAt = Date.now();
+        }
+        const page = rValidationEventsPageSchema.parse(
+          await this.request<unknown>(
+            'GET',
+            `/v1/runs/${encodeURIComponent(input.runId)}/events?afterSequence=${afterSequence}&limit=100`,
+            undefined,
+            input.signal,
+          ),
+        );
+        if (page.mode !== input.mode || page.generation < generation) {
+          throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+        }
+        if (page.generation > generation) {
+          generation = page.generation;
+          afterSequence = 0;
+          continue;
+        }
+        for (const event of page.events) {
+          await input.onEvent(event, generation);
+        }
+        afterSequence = page.nextSequence;
+        if (page.state === 'succeeded') {
+          if (!page.result) {
+            throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
+          }
+          return page.result;
+        }
+        if (page.state === 'failed') {
+          throw new RRuntimeError(
+            page.failureCode ?? 'R_RUNTIME_PROTOCOL_INVALID',
+          );
+        }
+        if (page.state === 'cancelled' || input.signal.aborted) {
+          throw new RValidationCancelledError('R validation was cancelled.');
+        }
+        await this.sleep(input.signal);
+      }
+      throw new RRuntimeError('R_RUNTIME_TIMEOUT');
+    } catch (error) {
+      await this.cancel(input.runId).catch(() => undefined);
+      if (input.signal.aborted) {
+        if (input.signal.reason instanceof Error) {
+          throw input.signal.reason;
+        }
+        throw new RValidationCancelledError('R validation was cancelled.');
+      }
+      throw error;
+    }
   }
 
   private async snapshot(analysisId: string): Promise<ExecutionSnapshot> {
@@ -229,6 +435,8 @@ export class RValidationClient {
     if (
       typeof value.fingerprint !== 'string' ||
       typeof value.inputFingerprint !== 'string' ||
+      typeof value.inputRevision !== 'number' ||
+      typeof value.configurationRevision !== 'number' ||
       !value.inputManifest ||
       !Array.isArray(value.inputManifest.datasets)
     ) {

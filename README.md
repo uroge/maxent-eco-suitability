@@ -19,7 +19,8 @@ cp apps/worker/.env.example apps/worker/.env
 cp infrastructure/docker/.env.example infrastructure/docker/.env.local
 ```
 
-- `apps/web/.env.local` contains browser-safe `NEXT_PUBLIC_*` values only.
+- `apps/web/.env.local` contains browser-visible `NEXT_PUBLIC_*` values plus
+  server-only Next.js values such as `API_INTERNAL_URL` and `CLERK_SECRET_KEY`.
 - `apps/api/.env` and `apps/worker/.env` contain their own runtime configuration.
 - `infrastructure/docker/.env.local` supplies Docker Compose values. Use `pnpm docker:up` after creating it.
 - Production values belong in the hosting provider's secret manager, separately for each deployed service.
@@ -27,6 +28,30 @@ cp infrastructure/docker/.env.example infrastructure/docker/.env.local
 `NEXT_PUBLIC_*` values are embedded when the Next.js image is built. Set the
 production public API URL before building; it cannot be changed by a runtime
 container environment variable.
+
+### Host-based development
+
+For fast application development, run only Redis, SeaweedFS, the R runtime,
+and TiTiler in Docker:
+
+```sh
+pnpm docker:infra
+pnpm dev
+```
+
+The local Compose file binds Redis and SeaweedFS plus the private runtime
+health/API ports to loopback only. The host-run API uses TiTiler at
+`http://localhost:8081`; the host-run worker uses the R runtime at
+`http://localhost:8080`. The worker signs R input capabilities against
+Docker's `http://seaweedfs:8333` service address while retaining
+`http://localhost:8333` for its own storage access. Production Compose does not
+publish either internal service.
+
+Copy all four environment examples before starting. Keep the storage access
+key and secret, `R_RUNTIME_SHARED_SECRET`, and
+`TILE_INTERNAL_SHARED_SECRET` identical between the application environment
+files and `infrastructure/docker/.env.local`. Replace the Clerk placeholders
+with credentials from the same Clerk development instance.
 
 ## Design System
 
@@ -236,14 +261,22 @@ Depending on the supplied inputs and analysis configuration, a completed analysi
 
 ### Downloadable artifacts
 
-- `result.json`
-- occurrence `GeoJSON`
-- suitability `GeoTIFF`
-- response-curve data
-- model/evaluation data
-- Excel analysis report
+- `execution-summary.json`
+- `metrics.json`
+- `variable-importance.json`
+- `response-curves.json`
+- `occurrences.geojson`
+- `background.geojson`
+- `suitability.tif`
+- `suitability-threshold.tif`
+- `run.log.txt`
+- `ecosuitability-results.zip`, containing the nine scientific files plus `bundle-manifest.json`
+
+Every row is driven by the published result manifest and includes the worker-verified SHA-256 checksum. The download screen requests a new signed URL for each attempt, displays the frozen input and configuration revisions, fingerprints, and random seed, and disables downloads after the result expires. See [Result artifacts and bundles](docs/result-artifacts.md) for the publication and recovery guarantees.
 
 GIS artifacts that depend on spatial raster prediction are generated only when the required spatial predictor data is available.
+
+The R runtime normalizes every interactive raster into a private COG and verifies its layout, overview, compression, nodata, CRS, bounds, resolution, and finite values before upload; the worker then verifies the stored size, checksum metadata, and content headers before publication. Terrain remains unavailable unless the selected continuous predictor also passes data-type, metre-unit, transformability, resolution, finite-value, and TerrainRGB-range checks. These map assets are not additional scientific downloads. The API authorizes every tile, point, vector, and terrain request before proxying it to the internal `services/tiles` service; browsers cannot submit storage keys or arbitrary source URLs.
 
 ---
 
@@ -491,7 +524,7 @@ The NestJS API does not implement or need to understand the underlying scientifi
 
 R writes structured JSON lines to stdout during execution.
 
-Example:
+Example (artifact entries abbreviated):
 
 ```json
 {"stage":"validation","progress":10}
@@ -540,39 +573,27 @@ cancelled
 
 ## Result Manifest
 
-Every successful analysis produces a machine-readable `result.json`.
+Every successful analysis stores a validated manifest in Redis that points to the ten published artifacts. Scientific values are split between `execution-summary.json`, `metrics.json`, `variable-importance.json`, and `response-curves.json` rather than a synthetic aggregate result file.
 
 Example:
 
 ```json
 {
-  "model": {
-    "type": "maxnet",
-    "auc": 0.89,
-    "threshold": 0.54
+  "analysisId": "an_abc123",
+  "completedAt": "2026-10-17T12:00:00.000Z",
+  "resultExpiresAt": "2026-10-19T12:00:00.000Z",
+  "reproducibility": {
+    "inputRevision": 3,
+    "configurationRevision": 2,
+    "inputFingerprint": "jcs-sha256-v1:…",
+    "configurationFingerprint": "jcs-sha256-v1:…",
+    "seed": 42
   },
-
-  "variables": [
-    {
-      "name": "temperature",
-      "importance": 42
-    },
-    {
-      "name": "rainfall",
-      "importance": 31
-    },
-    {
-      "name": "elevation",
-      "importance": 18
-    }
-  ],
-
-  "artifacts": {
-    "occurrences": "occurrences.geojson",
-    "suitability": "suitability.tif",
-    "responseCurves": "response-curves.json",
-    "report": "analysis-report.xlsx"
-  }
+  "artifacts": [
+    { "kind": "execution-summary", "filename": "execution-summary.json" },
+    { "kind": "metrics", "filename": "metrics.json" },
+    { "kind": "result-bundle", "filename": "ecosuitability-results.zip" }
+  ]
 }
 ```
 
@@ -657,13 +678,17 @@ analyses/an_abc123/
   config/
     analysis.json
 
-  output/
-    result.json
+  results/
+    execution-summary.json
+    metrics.json
     suitability.tif
+    suitability-threshold.tif
     occurrences.geojson
+    background.geojson
     variable-importance.json
     response-curves.json
-    analysis-report.xlsx
+    run.log.txt
+    ecosuitability-results.zip
 ```
 
 Typical lifecycle:

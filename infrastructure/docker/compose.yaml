@@ -7,11 +7,15 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in infrastructure/docker/.env.local}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
         CLIENT_BRAND: ${CLIENT_BRAND:-}
+    environment:
+      API_INTERNAL_URL: http://api:3001
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in infrastructure/docker/.env.local}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in infrastructure/docker/.env.local}
     ports: ['3000:3000']
     restart: unless-stopped
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
   api:
     build:
       context: ../..
@@ -41,12 +45,37 @@ services:
       STORAGE_CORS_ORIGINS: ${STORAGE_CORS_ORIGINS:-http://localhost:3000}
       STORAGE_FORCE_PATH_STYLE: 'true'
       ANALYSIS_EXECUTION_TIMEOUT_MS: ${ANALYSIS_EXECUTION_TIMEOUT_MS:-1800000}
+      TILE_SERVICE_URL: http://tiles:8081
+      TILE_INTERNAL_SHARED_SECRET: ${TILE_INTERNAL_SHARED_SECRET:?Set TILE_INTERNAL_SHARED_SECRET in infrastructure/docker/.env.local}
+      TILE_REQUEST_TIMEOUT_MS: ${TILE_REQUEST_TIMEOUT_MS:-5000}
+      TILE_RESPONSE_MAX_BYTES: ${TILE_RESPONSE_MAX_BYTES:-2097152}
+      MAP_LIGHT_STYLE_URL: ${MAP_LIGHT_STYLE_URL:-}
+      MAP_DARK_STYLE_URL: ${MAP_DARK_STYLE_URL:-}
+      MAP_LIGHT_ATTRIBUTION: ${MAP_LIGHT_ATTRIBUTION:-}
+      MAP_SATELLITE_STYLE_URL: ${MAP_SATELLITE_STYLE_URL:-}
+      MAP_SATELLITE_ATTRIBUTION: ${MAP_SATELLITE_ATTRIBUTION:-}
+      MAP_TERRAIN_STYLE_URL: ${MAP_TERRAIN_STYLE_URL:-}
+      MAP_TERRAIN_ATTRIBUTION: ${MAP_TERRAIN_ATTRIBUTION:-}
     ports: ['3001:3001']
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
     depends_on:
       redis:
         condition: service_healthy
       seaweedfs:
+        condition: service_healthy
+      tiles:
         condition: service_healthy
   worker:
     build:
@@ -108,9 +137,10 @@ services:
     volumes: ['seaweedfs-data:/data']
     restart: unless-stopped
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8333/']
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:8888/']
       interval: 5s
       timeout: 3s
+      start_period: 20s
       retries: 10
   analysis-r:
     build:
@@ -128,11 +158,51 @@ services:
     security_opt: ['no-new-privileges:true']
     tmpfs: ['/run/analysis-r:uid=10001,gid=10001,mode=0700,size=16m']
     volumes: ['analysis-r-workspaces:/workspaces']
+    ports: ['127.0.0.1:8080:8080']
     mem_limit: 3g
     cpus: 2
     pids_limit: 128
     ulimits:
       nofile: 256
+    restart: unless-stopped
+  tiles:
+    build:
+      context: ../../services/tiles
+      dockerfile: Dockerfile
+    environment:
+      TILE_INTERNAL_SHARED_SECRET: ${TILE_INTERNAL_SHARED_SECRET:?Set TILE_INTERNAL_SHARED_SECRET in infrastructure/docker/.env.local}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?Set STORAGE_BUCKET in infrastructure/docker/.env.local}
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?Set STORAGE_ACCESS_KEY_ID in infrastructure/docker/.env.local}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?Set STORAGE_SECRET_ACCESS_KEY in infrastructure/docker/.env.local}
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://seaweedfs:8333
+      AWS_S3_ENDPOINT: seaweedfs:8333
+      AWS_HTTPS: 'NO'
+      AWS_VIRTUAL_HOSTING: 'FALSE'
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: .tif,.tiff
+    read_only: true
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    tmpfs: ['/tmp:uid=10002,gid=10002,mode=0700,size=64m']
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 128
+    ports: ['127.0.0.1:8081:8081']
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health/ready')",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 volumes:
   redis-data:

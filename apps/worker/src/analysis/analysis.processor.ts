@@ -2,9 +2,13 @@ import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, type BeforeApplicationShutdown } from '@nestjs/common';
 import {
   analysisJobName,
+  analysisInputProfileJobName,
+  analysisPreflightJobName,
   analysisQueueName,
   type AnalysisJobPayload,
   type AnalysisProgress,
+  type AnalysisValidationJobPayload,
+  type RGeneratedMapAsset,
 } from '@ecosuitability/contracts';
 import type { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
@@ -19,6 +23,7 @@ import {
   RRuntimeError,
   ScientificValidationError,
 } from './r-validation.client';
+import { ValidationJobService } from './validation-job.service';
 
 type Stage = AnalysisProgress['stage'];
 
@@ -40,6 +45,7 @@ export class AnalysisProcessor
     private readonly serviceLifecycle: LifecycleService,
     private readonly results: ResultService,
     private readonly validation: RValidationClient,
+    private readonly validationJobs: ValidationJobService = null as never,
   ) {
     super();
   }
@@ -54,10 +60,26 @@ export class AnalysisProcessor
     await this.serviceLifecycle.waitForDrain();
   }
 
-  public async process(job: Job<AnalysisJobPayload>): Promise<void> {
+  public async process(
+    job: Job<AnalysisJobPayload | AnalysisValidationJobPayload>,
+  ): Promise<void> {
+    if (job.name === analysisInputProfileJobName) {
+      await this.validationJobs.profile(
+        job as Job<AnalysisValidationJobPayload>,
+      );
+      return;
+    }
+    if (job.name === analysisPreflightJobName) {
+      await this.validationJobs.preflight(
+        job as Job<AnalysisValidationJobPayload>,
+      );
+      return;
+    }
     if (job.name !== analysisJobName || !job.id) {
       return;
     }
+
+    const analysisJob = job as Job<AnalysisJobPayload>;
 
     if (!this.serviceLifecycle.beginJob()) {
       return;
@@ -68,8 +90,8 @@ export class AnalysisProcessor
 
     try {
       const claim = await this.lifecycle.claim(
-        job.data.analysisId,
-        job.id,
+        analysisJob.data.analysisId,
+        analysisJob.id!,
         attempt,
       );
       if (claim === 'cancelled') {
@@ -83,7 +105,7 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
-      const resumed = await this.results.resumeAvailable(job, attempt);
+      const resumed = await this.results.resumeAvailable(analysisJob, attempt);
       if (resumed === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
         return;
@@ -99,7 +121,7 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
-      const provisional = await this.results.provision(job, attempt);
+      const provisional = await this.results.provision(analysisJob, attempt);
       if (typeof provisional === 'string') {
         if (provisional === 'cancelled') {
           await this.lifecycle.finaliseCancellation(job.data.analysisId);
@@ -123,9 +145,10 @@ export class AnalysisProcessor
         controller.signal,
       );
       let uploading = provisional;
+      let generatedMapAssets: RGeneratedMapAsset[] = [];
       let heartbeatStage: AnalysisProgress['stage'] = 'downloading';
       let heartbeatPercent = 5;
-      await this.validation.validate(
+      const validationResult = await this.validation.validate(
         job.data.analysisId,
         job.id,
         attempt,
@@ -173,7 +196,8 @@ export class AnalysisProcessor
             controller.signal,
           );
         },
-        async (artifacts, candidateCompletedAt) => {
+        async (artifacts, mapAssets, candidateCompletedAt) => {
+          generatedMapAssets = mapAssets;
           uploading = await this.results.beginUpload(
             job,
             attempt,
@@ -181,12 +205,20 @@ export class AnalysisProcessor
             artifacts,
             candidateCompletedAt,
           );
-          return this.results.uploadCapabilities(
-            uploading,
-            this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS'),
+          const expiresIn = this.config.getOrThrow(
+            'R_RUNTIME_OUTPUT_URL_TTL_SECONDS',
           );
+          return [
+            ...(await this.results.uploadCapabilities(uploading, expiresIn)),
+            ...(await this.results.mapAssetUploadCapabilities(
+              job.data.analysisId,
+              mapAssets,
+              expiresIn,
+            )),
+          ];
         },
       );
+      generatedMapAssets = validationResult.mapAssets;
       await this.assertActive(
         job,
         attempt,
@@ -195,6 +227,16 @@ export class AnalysisProcessor
         controller.signal,
       );
 
+      await this.results.publishMapAssets(
+        analysisJob,
+        attempt,
+        generatedMapAssets,
+      );
+      uploading = await this.results.createBundle(
+        analysisJob,
+        attempt,
+        uploading,
+      );
       const outcome = await this.results.verifyAndPublish(
         job,
         attempt,
@@ -356,7 +398,15 @@ export class AnalysisProcessor
       stage,
       percent,
       attempt,
+      message: this.progressMessage(stage),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  private progressMessage(stage: AnalysisProgress['stage']): string {
+    return stage
+      .split('-')
+      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+      .join(' ');
   }
 }

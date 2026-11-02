@@ -16,7 +16,8 @@
 - `packages/contracts`: shared Zod contracts and application types.
 - `packages/geo-utils`: browser/Node-safe pure helpers only.
 - `packages/config`: shared TypeScript, ESLint, and Vitest configuration.
-- `services/analysis-r`: isolated R service scaffolding.
+- `services/analysis-r`: private R scientific runtime; it never serves browsers directly.
+- `services/tiles`: private FastAPI/TiTiler COG rendering service; only the API may call it.
 - `infrastructure/docker`: local Redis and SeaweedFS only. Never add a SQL database unless the plan is explicitly changed.
 
 ## General Code Rules
@@ -47,15 +48,15 @@ pnpm dev
 pnpm check
 pnpm build
 pnpm test:e2e
+pnpm docker:infra
 pnpm docker:up
 pnpm docker:down
 ```
 
-`pnpm dev` starts web, API, and worker. Start Redis and SeaweedFS separately for host-based development:
+`pnpm dev` starts web, API, and worker. Start their four supporting services separately for host-based development:
 
 ```sh
-docker compose --env-file infrastructure/docker/.env.local \
-  -f infrastructure/docker/compose.yaml up redis seaweedfs
+pnpm docker:infra
 ```
 
 ## Validation
@@ -71,4 +72,4 @@ docker compose --env-file infrastructure/docker/.env.local \
 
 - Web and UI work: `docs/agent-skills/web-ui/SKILL.md`
 - API and worker work: `docs/agent-skills/nest-services/SKILL.md`
-- Workspace, tooling, Docker, and CI work: `docs/agent-skills/monorepo/SKILL.md`
+- Workspace, tooling, Docker, Python services, and CI work: `docs/agent-skills/monorepo/SKILL.md`

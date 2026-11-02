@@ -6,11 +6,15 @@ import {
 } from '@nestjs/common';
 import {
   analysisJobName,
+  analysisInputProfileJobName,
+  analysisPreflightJobName,
   analysisQueueName,
   type AnalysisJobPayload,
+  type AnalysisValidationJobPayload,
 } from '@ecosuitability/contracts';
 import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
+import { createHash } from 'node:crypto';
 import { AnalysisRepository } from './analysis.repository';
 import type { AnalysisOutbox } from './analysis.types';
 
@@ -72,6 +76,38 @@ export class AnalysisQueueService
     }
   }
 
+  public async enqueueInputProfile(
+    payload: AnalysisValidationJobPayload,
+    requestCreatedAt: string,
+  ): Promise<void> {
+    await this.queue.add(analysisInputProfileJobName, payload, {
+      jobId: this.validationJobId(
+        `${payload.analysisId}-profile-${payload.inputRevision}`,
+        requestCreatedAt,
+      ),
+      attempts: queueAttempts,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: { age: 24 * 60 * 60, count: 100 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 500 },
+    });
+  }
+
+  public async enqueuePreflight(
+    payload: AnalysisValidationJobPayload,
+    requestCreatedAt: string,
+  ): Promise<void> {
+    await this.queue.add(analysisPreflightJobName, payload, {
+      jobId: this.validationJobId(
+        `${payload.analysisId}-preflight-${payload.inputRevision}-${payload.configurationRevision}`,
+        requestCreatedAt,
+      ),
+      attempts: queueAttempts,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: { age: 24 * 60 * 60, count: 100 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 500 },
+    });
+  }
+
   private async dispatch(outbox: AnalysisOutbox): Promise<void> {
     const payload: AnalysisJobPayload = {
       analysisId: outbox.analysisId as AnalysisJobPayload['analysisId'],
@@ -84,5 +120,13 @@ export class AnalysisQueueService
       removeOnComplete: { age: 24 * 60 * 60, count: 100 },
       removeOnFail: { age: 7 * 24 * 60 * 60, count: 500 },
     });
+  }
+
+  private validationJobId(prefix: string, requestCreatedAt: string): string {
+    const requestId = createHash('sha256')
+      .update(requestCreatedAt)
+      .digest('hex')
+      .slice(0, 16);
+    return `${prefix}-${requestId}`;
   }
 }

@@ -102,6 +102,11 @@ describe.runIf(integrationEnabled)(
           }),
           beginUpload: vi.fn(),
           uploadCapabilities: vi.fn(),
+          mapAssetUploadCapabilities: vi.fn(),
+          createBundle: vi.fn(
+            async (_job, _attempt, provisional) => provisional,
+          ),
+          publishMapAssets: vi.fn().mockResolvedValue(undefined),
           verifyAndPublish: vi.fn(
             async (
               job: { id?: string; data: AnalysisJobPayload },
@@ -132,7 +137,7 @@ describe.runIf(integrationEnabled)(
             const onHeartbeat = parameters[5] as () => Promise<void>;
             await new Promise((resolve) => setTimeout(resolve, 150));
             await onHeartbeat();
-            return { summary: null, artifacts: [] };
+            return { summary: null, artifacts: [], mapAssets: [] };
           }),
           acknowledge: vi.fn().mockResolvedValue(undefined),
         } as never,

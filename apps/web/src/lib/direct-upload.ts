@@ -18,8 +18,16 @@ export type UploadProgress = {
 
 export type UploadDatasetOptions = {
   idempotencyKey: string;
+  datasetId?: string;
+  replaceDatasetId?: string;
+  resume?: DirectUploadResumeState;
   signal?: AbortSignal;
+  onDatasetReady?: (datasetId: string) => void;
   onProgress?: (progress: UploadProgress) => void;
+};
+
+export type DirectUploadResumeState = {
+  completedParts: Map<string, UploadPart[]>;
 };
 
 type CreatedDataset = { dataset: { id: string } };
@@ -28,6 +36,7 @@ type CreatedFile = {
   file: {
     id: string;
     multipart: boolean;
+    status: 'pending' | 'completed' | 'aborted';
     uploadUrl: string | null;
     partSizeBytes: number | null;
   };
@@ -61,24 +70,24 @@ export const uploadDataset = async (
   api: ApiClient,
   analysisId: string,
   kind: 'occurrence' | 'predictor',
-  format: 'csv' | 'xlsx' | 'geojson' | 'shapefile' | 'geotiff',
+  format: 'csv' | 'xlsx' | 'geojson' | 'gpkg' | 'shapefile' | 'geotiff' | 'geotiff-zip',
   files: DirectUploadFile[],
   options: UploadDatasetOptions
 ): Promise<string> => {
-  const created = await requestJson<CreatedDataset>(
-    api,
-    `/v1/analyses/${analysisId}/upload-datasets`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': options.idempotencyKey,
-      },
-      body: JSON.stringify({ kind, format }),
-      signal: options.signal,
-    }
-  );
-  const datasetId = created.dataset.id;
+  const datasetId =
+    options.datasetId ??
+    (
+      await requestJson<CreatedDataset>(api, `/v1/analyses/${analysisId}/upload-datasets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': options.idempotencyKey,
+        },
+        body: JSON.stringify({ kind, format, replaceDatasetId: options.replaceDatasetId }),
+        signal: options.signal,
+      })
+    ).dataset.id;
+  options.onDatasetReady?.(datasetId);
   const progress = new Map<File, number>();
   const totalBytes = files.reduce((total, entry) => total + entry.file.size, 0);
 
@@ -89,68 +98,72 @@ export const uploadDataset = async (
     });
   };
 
-  try {
-    const uploads = await Promise.all(
-      files.map(async ({ file, component }) => {
-        const digest = await hashFile(file);
-        const createdFile = await requestJson<CreatedFile>(
-          api,
-          `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              originalName: file.name,
-              size: file.size,
-              sha256: digest,
-              contentType: file.type || undefined,
-              component,
-            }),
-            signal: options.signal,
-          }
-        );
-        return { file, upload: createdFile.file };
-      })
-    );
-
-    for (const { file, upload } of uploads) {
-      const parts = await uploadFile(
+  const uploads = await Promise.all(
+    files.map(async ({ file, component }) => {
+      const digest = await hashFile(file);
+      const createdFile = await requestJson<CreatedFile>(
         api,
-        analysisId,
-        datasetId,
-        file,
-        upload,
-        options.signal,
-        (loaded) => {
-          progress.set(file, loaded);
-          reportProgress();
-        }
-      );
-      await requestNoContent(
-        api,
-        `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files/${upload.id}/complete`,
+        `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ parts }),
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': `${options.idempotencyKey}-file-${datasetId.slice(-8)}-${digest.slice(0, 12)}`,
+          },
+          body: JSON.stringify({
+            originalName: file.name,
+            size: file.size,
+            sha256: digest,
+            contentType: file.type || undefined,
+            component,
+          }),
           signal: options.signal,
         }
       );
-    }
+      return { file, upload: createdFile.file };
+    })
+  );
 
-    await requestJson(api, `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/complete`, {
-      method: 'POST',
-      signal: options.signal,
-    });
-    return datasetId;
-  } catch (error) {
-    await api
-      .request(`/v1/analyses/${analysisId}/upload-datasets/${datasetId}`, {
-        method: 'DELETE',
-      })
-      .catch(() => undefined);
-    throw error;
+  for (const { file, upload } of uploads) {
+    if (upload.status === 'completed') {
+      progress.set(file, file.size);
+      reportProgress();
+      continue;
+    }
+    const parts = await uploadFile(
+      api,
+      analysisId,
+      datasetId,
+      file,
+      upload,
+      options.resume,
+      options.signal,
+      (loaded) => {
+        progress.set(file, loaded);
+        reportProgress();
+      }
+    );
+    await requestNoContent(
+      api,
+      `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files/${upload.id}/complete`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${options.idempotencyKey}-complete-${upload.id.slice(-8)}`,
+        },
+        body: JSON.stringify({ parts }),
+        signal: options.signal,
+      }
+    );
   }
+
+  await requestJson(api, `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/complete`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': `${options.idempotencyKey}-attach-${datasetId.slice(-8)}` },
+    signal: options.signal,
+  });
+  return datasetId;
 };
 
 const uploadFile = async (
@@ -159,6 +172,7 @@ const uploadFile = async (
   datasetId: string,
   file: File,
   upload: CreatedFile['file'],
+  resume: DirectUploadResumeState | undefined,
   signal: AbortSignal | undefined,
   onProgress: (loadedBytes: number) => void
 ): Promise<UploadPart[]> => {
@@ -180,14 +194,23 @@ const uploadFile = async (
 
   const partSize = upload.partSizeBytes ?? defaultPartSizeBytes;
   const partCount = Math.ceil(file.size / partSize);
-  const completedParts: UploadPart[] = [];
-  let loadedBytes = 0;
+  const resumeKey = `${upload.id}:${file.size}`;
+  const completedParts = [...(resume?.completedParts.get(resumeKey) ?? [])];
+  let loadedBytes = completedParts.reduce(
+    (total, part) => total + Math.min(partSize, file.size - (part.partNumber - 1) * partSize),
+    0
+  );
+  onProgress(loadedBytes);
 
   for (let start = 1; start <= partCount; start += partBatchSize) {
+    const completedNumbers = new Set(completedParts.map((part) => part.partNumber));
     const partNumbers = Array.from(
       { length: Math.min(partBatchSize, partCount - start + 1) },
       (_, index) => start + index
-    );
+    ).filter((partNumber) => !completedNumbers.has(partNumber));
+    if (partNumbers.length === 0) {
+      continue;
+    }
     const signed = await requestJson<{ parts: Array<{ partNumber: number; url: string }> }>(
       api,
       `/v1/analyses/${analysisId}/upload-datasets/${datasetId}/files/${upload.id}/parts`,
@@ -234,6 +257,7 @@ const uploadFile = async (
       batch.push({ partNumber: part.partNumber, etag });
     });
     completedParts.push(...batch);
+    resume?.completedParts.set(resumeKey, [...completedParts]);
     loadedBytes += batch.reduce(
       (total, part) => total + Math.min(partSize, file.size - (part.partNumber - 1) * partSize),
       0
