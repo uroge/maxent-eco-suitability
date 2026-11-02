@@ -1,0 +1,20 @@
+services:
+  caddy:
+    volumes: !override
+      - ./caddy/Caddyfile.api:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: !override
+      api:
+        condition: service_healthy
+
+  web:
+    profiles: ['full-stack']
+
+  api:
+    environment:
+      APP_ENV: ${APP_ENV:-staging}
+
+  worker:
+    environment:
+      APP_ENV: ${APP_ENV:-staging}

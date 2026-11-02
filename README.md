@@ -801,6 +801,9 @@ Initial worker concurrency can be:
 
 This matches the expected single-user workload and prevents multiple GIS analyses from competing for memory.
 
+For a backend-only Oracle deployment with a local frontend and Cloudflare R2,
+follow [`infrastructure/docker/ORACLE.md`](infrastructure/docker/ORACLE.md).
+
 ---
 
 ## Scaling
