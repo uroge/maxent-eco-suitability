@@ -6,11 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { mapCapabilitiesResponseSchema } from '@ecosuitability/contracts';
 import { QueryStateAlert } from '../analysis/QueryStateAlert';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
-import {
-  installResultMapLayers,
-  mapApiUrl,
-  selectedResultMapStyle,
-} from '../map/result-map-style';
+import { installResultMapLayers, mapApiUrl, selectedResultMapStyle } from '../map/result-map-style';
 
 export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
@@ -44,13 +40,7 @@ export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId 
         attributionControl: false,
         bounds: value.bounds,
         fitBoundsOptions: { padding: 24 },
-        style: selectedResultMapStyle(
-          value.basemaps[0],
-          analysisId,
-          value,
-          activeLayers,
-          0.85
-        ),
+        style: selectedResultMapStyle(value.basemaps[0], analysisId, value, activeLayers, 0.85),
         transformRequest: (url) =>
           url.startsWith(mapApiUrl) && token
             ? { url, headers: { Authorization: `Bearer ${token}` } }

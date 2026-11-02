@@ -6,9 +6,9 @@ import { RedisService } from './redis.service';
 
 describe('RedisModule', () => {
   it('exports RedisService to each module that consumes it', () => {
-    expect(
-      Reflect.getMetadata(MODULE_METADATA.EXPORTS, RedisModule),
-    ).toContain(RedisService);
+    expect(Reflect.getMetadata(MODULE_METADATA.EXPORTS, RedisModule)).toContain(
+      RedisService,
+    );
     expect(
       Reflect.getMetadata(MODULE_METADATA.IMPORTS, AnalysisModule),
     ).toContain(RedisModule);

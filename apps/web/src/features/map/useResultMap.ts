@@ -3,11 +3,7 @@
 import { useEffect, useEffectEvent, useReducer, useRef, type RefObject } from 'react';
 import type { MapCapabilities } from '@ecosuitability/contracts';
 import type { Coordinates } from './map-types';
-import {
-  installResultMapLayers,
-  mapApiUrl,
-  selectedResultMapStyle,
-} from './result-map-style';
+import { installResultMapLayers, mapApiUrl, selectedResultMapStyle } from './result-map-style';
 
 type RuntimeState = {
   status: 'loading' | 'ready' | 'error';
@@ -208,22 +204,12 @@ export const useResultMap = ({
       attributeFilter: ['data-theme'],
     });
     return () => observer.disconnect();
-  }, [
-    activeLayersRef,
-    analysisId,
-    basemap,
-    capabilities,
-    mapRef,
-    opacityRef,
-    terrainRef,
-  ]);
+  }, [activeLayersRef, analysisId, basemap, capabilities, mapRef, opacityRef, terrainRef]);
 
   return { containerRef, coordinateOutputRef, state };
 };
 
-const resultStyleKey = (
-  basemap: MapCapabilities['basemaps'][number] | undefined
-): string => {
+const resultStyleKey = (basemap: MapCapabilities['basemaps'][number] | undefined): string => {
   const dark = document.documentElement.dataset.theme === 'dark';
   return dark
     ? (basemap?.darkStyleUrl ?? basemap?.styleUrl ?? 'fallback:dark')

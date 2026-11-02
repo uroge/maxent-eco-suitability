@@ -210,7 +210,9 @@ describe('MapService', () => {
       undefined,
     );
     expect(result.contentType).toBe('image/png');
-    expect(Array.from(result.body.subarray(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(Array.from(result.body.subarray(0, 8))).toEqual([
+      137, 80, 78, 71, 13, 10, 26, 10,
+    ]);
     expect(request).not.toHaveBeenCalled();
   });
 

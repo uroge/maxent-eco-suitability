@@ -73,16 +73,12 @@ describe('runtime utils', () => {
           'a'.repeat(64)
         )
       );
-      const signedHeaders = signed.searchParams
-        .get('X-Amz-SignedHeaders')
-        ?.split(';');
+      const signedHeaders = signed.searchParams.get('X-Amz-SignedHeaders')?.split(';');
 
       expect(signedHeaders).toContain('content-disposition');
       expect(signedHeaders).toContain('x-amz-meta-sha256');
       expect(signed.searchParams.has('x-amz-meta-sha256')).toBe(false);
-      expect(
-        [...signed.searchParams.keys()].some((key) => key.includes('checksum'))
-      ).toBe(false);
+      expect([...signed.searchParams.keys()].some((key) => key.includes('checksum'))).toBe(false);
     } finally {
       client.destroy();
     }

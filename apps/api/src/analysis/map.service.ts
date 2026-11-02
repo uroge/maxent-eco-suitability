@@ -174,10 +174,7 @@ export class MapService {
     const rasterBounds = mapAsset
       ? mapAsset.raster.bounds
       : this.outputRasterBounds(analysis);
-    if (
-      rasterBounds &&
-      !this.tileIntersectsBounds(z, x, y, rasterBounds)
-    ) {
+    if (rasterBounds && !this.tileIntersectsBounds(z, x, y, rasterBounds)) {
       return { body: transparentPng, contentType: 'image/png' };
     }
     const url = new URL(
@@ -585,7 +582,8 @@ export class MapService {
       Math.min(...bounds.map((value) => value[2])),
       Math.min(...bounds.map((value) => value[3])),
     ];
-    return intersection[0] < intersection[2] && intersection[1] < intersection[3]
+    return intersection[0] < intersection[2] &&
+      intersection[1] < intersection[3]
       ? intersection
       : undefined;
   }
