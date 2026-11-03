@@ -1,9 +1,13 @@
-import { Skeleton } from '@ecosuitability/ui';
+import { BrandedLoading } from '@ecosuitability/ui';
 
 export default function NewAnalysisLoading() {
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-16">
-      <Skeleton className="h-32 w-full" />
+    <main className="w-full">
+      <BrandedLoading
+        description="Setting up a secure draft for your occurrence and environmental data."
+        label="Preparing workspace…"
+        layout="full-page"
+      />
     </main>
   );
 }

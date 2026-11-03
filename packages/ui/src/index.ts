@@ -1,5 +1,9 @@
 export { Badge } from './components/Badge';
 export { Alert } from './components/Alert';
+export { AnimatedBrandMark } from './components/AnimatedBrandMark';
+export { BrandLockup } from './components/BrandLockup';
+export { BrandMark } from './components/BrandMark';
+export { BrandedLoading } from './components/BrandedLoading';
 export { Button } from './components/Button';
 export { Card } from './components/Card';
 export { Checkbox } from './components/Checkbox';

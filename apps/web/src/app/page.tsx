@@ -68,36 +68,29 @@ export default function Home() {
               <br />
               to habitat suitability maps
             </h1>
-            <p className="mt-5 text-[15px] leading-6 text-white/72">
+            <p className="mt-5 text-[15px] leading-6 text-inverse-muted">
               Upload species occurrence records and environmental rasters. EcoSuitability validates
               your data, fits a MaxEnt model with R maxnet, and delivers georeferenced suitability
               maps with reproducibility metadata.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button asChild className="bg-surface text-primary hover:bg-background" size="lg">
+              <Button asChild size="lg" variant="inverse">
                 <Link href="/analyses/new">
                   <ArrowRight aria-hidden="true" size={17} />
                   Start analysis
                 </Link>
               </Button>
-              <Button
-                asChild
-                className="border-white/25 text-white hover:bg-white/10 hover:text-white"
-                size="lg"
-                variant="secondary"
-              >
+              <Button asChild size="lg" variant="inverse">
                 <Link href="/analyses/new?example=1">Try example dataset</Link>
               </Button>
-              <Button
-                asChild
-                className="text-white hover:bg-white/10 hover:text-white focus-visible:ring-white focus-visible:ring-offset-hero"
-                size="lg"
-                variant="ghost"
+              <a
+                className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-inverse-muted transition-colors hover:text-inverse-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inverse-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-hero"
+                href="#methodology"
               >
-                <a href="#methodology">Explore methodology</a>
-              </Button>
+                Explore methodology
+              </a>
             </div>
-            <p className="mt-8 text-xs text-white/45">
+            <p className="mt-8 text-xs text-inverse-muted">
               Sign in to create, save, and run an analysis. Results remain available for 48 hours.
             </p>
           </div>

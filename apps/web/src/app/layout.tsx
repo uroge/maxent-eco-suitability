@@ -6,6 +6,7 @@ import '@fontsource-variable/jetbrains-mono';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { appearanceBootstrapScript } from '@/appearance';
 import { getConfiguredBrand } from '@/brand';
+import { clerkAppearance } from '@/clerk-appearance';
 import { AppearanceController } from '@/components/AppearanceController';
 import './globals.css';
 
@@ -30,7 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: appearanceBootstrapScript }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <ClerkProvider>
+        <ClerkProvider appearance={clerkAppearance} signInUrl="/sign-in" signUpUrl="/sign-up">
           <AppearanceController />
           {children}
         </ClerkProvider>
