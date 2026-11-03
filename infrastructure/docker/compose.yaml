@@ -105,7 +105,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
   redis:
-    image: redis:8-alpine@sha256:9c3ecc609a8087c0f11c494fefaf37a8f7bf9a967631d4a0da8967a9810be354
+    image: redis:8.10.1-alpine@sha256:ef216d85ec44f4fdf7c0e6df2d1757a4734ed32fbb278cabd3181b5a27353b79
     ports: ['6379:6379']
     command:
       [
