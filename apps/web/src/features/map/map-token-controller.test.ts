@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMapTokenController } from './map-token-controller';
-import { isMapApiRequest } from './useResultMap';
+import { isMapApiRequest } from './useAuthenticatedMapRuntime';
 
 const token = (expirationSeconds?: number): string => {
   const payload = expirationSeconds === undefined ? {} : { exp: expirationSeconds };

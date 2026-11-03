@@ -146,7 +146,14 @@ const profile = {
       alignedToReference: true,
     },
   ],
-  spatialPreview: { type: 'FeatureCollection', features: [] },
+  spatialPreview: {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [18.4, 44.6] }, properties: {} },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [19.1, 45.2] }, properties: {} },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [19.7, 45.6] }, properties: {} },
+    ],
+  },
   createdAt,
   completedAt: createdAt,
 };

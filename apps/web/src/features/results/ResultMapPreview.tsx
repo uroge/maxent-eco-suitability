@@ -1,62 +1,72 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
-import { mapCapabilitiesResponseSchema } from '@ecosuitability/contracts';
+import { mapCapabilitiesResponseSchema, type MapCapabilities } from '@ecosuitability/contracts';
+import { Alert, BrandedLoading } from '@ecosuitability/ui';
 import { QueryStateAlert } from '../analysis/QueryStateAlert';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
-import { installResultMapLayers, mapApiUrl, selectedResultMapStyle } from '../map/result-map-style';
+import { useAuthenticatedMapRuntime } from '../map/useAuthenticatedMapRuntime';
+
+const StaticResultMap: React.FC<{
+  analysisId: string;
+  capabilities: MapCapabilities;
+}> = ({ analysisId, capabilities }) => {
+  const { getToken } = useAuth();
+  const mapRef = useRef<import('maplibre-gl').Map | null>(null);
+  const activeLayersRef = useRef(
+    new Set(
+      capabilities.layers
+        .filter((layer) => layer.kind === 'suitability' || layer.kind === 'occurrences')
+        .map((layer) => layer.id)
+    )
+  );
+  const opacityRef = useRef(0.85);
+  const terrainRef = useRef(false);
+  const { containerRef, state } = useAuthenticatedMapRuntime({
+    activeLayersRef,
+    analysisId,
+    capabilities,
+    fitPadding: 24,
+    getToken,
+    inspection: false,
+    interactive: false,
+    mapRef,
+    navigationControls: false,
+    opacityRef,
+    terrainRef,
+  });
+
+  return (
+    <div className="relative h-72 w-full bg-muted">
+      <div
+        ref={containerRef}
+        aria-label="Suitability and occurrence map preview"
+        className="absolute inset-0"
+      />
+      {state.status === 'loading' ? (
+        <BrandedLoading
+          className="absolute inset-0 bg-surface/85 py-4"
+          label="Loading map preview…"
+        />
+      ) : null}
+      {state.status === 'error' ? (
+        <div className="absolute inset-x-4 top-4">
+          <Alert variant="destructive">{state.error}</Alert>
+        </div>
+      ) : null}
+    </div>
+  );
+};
 
 export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const api = useAnalysisApi();
-  const { getToken } = useAuth();
-  const container = useRef<HTMLDivElement>(null);
   const capabilities = useQuery({
-    queryKey: [...analysisKeys.map(analysisId), 'preview'],
+    queryKey: analysisKeys.map(analysisId),
     queryFn: () =>
       api.json(`/v1/analyses/${analysisId}/map/capabilities`, mapCapabilitiesResponseSchema),
   });
-
-  useEffect(() => {
-    const value = capabilities.data?.capabilities;
-    if (!container.current || !value) {
-      return;
-    }
-    let map: import('maplibre-gl').Map | undefined;
-    let disposed = false;
-    void Promise.all([import('maplibre-gl'), getToken()]).then(([maplibregl, token]) => {
-      if (disposed || !container.current) {
-        return;
-      }
-      const activeLayers = new Set(
-        value.layers
-          .filter((layer) => layer.kind === 'suitability' || layer.kind === 'occurrences')
-          .map((layer) => layer.id)
-      );
-      map = new maplibregl.Map({
-        container: container.current,
-        interactive: false,
-        attributionControl: false,
-        bounds: value.bounds,
-        fitBoundsOptions: { padding: 24 },
-        style: selectedResultMapStyle(value.basemaps[0], analysisId, value, activeLayers, 0.85),
-        transformRequest: (url) =>
-          url.startsWith(mapApiUrl) && token
-            ? { url, headers: { Authorization: `Bearer ${token}` } }
-            : { url },
-      });
-      map.on('style.load', () => {
-        if (map) {
-          installResultMapLayers(map, analysisId, value, activeLayers, 0.85, false);
-        }
-      });
-    });
-    return () => {
-      disposed = true;
-      map?.remove();
-    };
-  }, [analysisId, capabilities.data, getToken]);
 
   if (capabilities.isError) {
     return (
@@ -67,18 +77,12 @@ export const ResultMapPreview: React.FC<{ analysisId: string }> = ({ analysisId 
       />
     );
   }
-  return (
-    <div className="relative h-72 w-full bg-muted">
-      <div
-        ref={container}
-        className="absolute inset-0"
-        aria-label="Suitability and occurrence map preview"
-      />
-      {capabilities.isPending ? (
-        <div className="absolute inset-0 grid place-items-center bg-surface/80 text-sm text-muted-foreground">
-          Loading map preview…
-        </div>
-      ) : null}
-    </div>
-  );
+  if (capabilities.isPending) {
+    return (
+      <div className="h-72 bg-muted">
+        <BrandedLoading className="h-full py-4" label="Loading map preview…" />
+      </div>
+    );
+  }
+  return <StaticResultMap analysisId={analysisId} capabilities={capabilities.data.capabilities} />;
 };

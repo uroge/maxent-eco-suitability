@@ -1,5 +1,19 @@
 import { expect, test } from '@playwright/test';
 
+const expectInside = async (
+  parent: import('@playwright/test').Locator,
+  child: import('@playwright/test').Locator
+): Promise<void> => {
+  const parentBox = await parent.boundingBox();
+  const childBox = await child.boundingBox();
+  expect(parentBox).not.toBeNull();
+  expect(childBox).not.toBeNull();
+  expect(childBox!.x).toBeGreaterThanOrEqual(parentBox!.x);
+  expect(childBox!.y).toBeGreaterThanOrEqual(parentBox!.y);
+  expect(childBox!.x + childBox!.width).toBeLessThanOrEqual(parentBox!.x + parentBox!.width);
+  expect(childBox!.y + childBox!.height).toBeLessThanOrEqual(parentBox!.y + parentBox!.height);
+};
+
 test('keeps landing actions readable in both themes', async ({ page }) => {
   for (const theme of ['light', 'dark']) {
     await page.addInitScript((selectedTheme) => {
@@ -45,4 +59,34 @@ test('renders the branded authentication shell without horizontal clipping', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true
   );
+});
+
+test('keeps both scientific atlas compositions inside their responsive safe areas', async ({
+  page,
+}) => {
+  await page.goto('/');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((selectedTheme) => {
+      window.localStorage.setItem('app:appearance', selectedTheme);
+    }, theme);
+    for (const viewport of [
+      { composition: 'desktop', height: 900, width: 1440 },
+      { composition: 'mobile', height: 844, width: 390 },
+    ]) {
+      await page.setViewportSize({ height: viewport.height, width: viewport.width });
+      await page.reload();
+
+      const atlas = page.locator(`[data-atlas-composition="${viewport.composition}"]`);
+      await expect(atlas).toBeVisible();
+      await expect(atlas).toHaveAttribute('preserveAspectRatio', 'xMidYMid meet');
+      for (const element of ['legend', 'scale', 'occurrence-focus']) {
+        const feature = atlas.locator(`[data-atlas-element="${element}"]`);
+        await expect(feature).toBeVisible();
+        await expectInside(atlas, feature);
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+      ).toBe(true);
+    }
+  }
 });

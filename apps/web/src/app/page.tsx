@@ -95,7 +95,7 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <div className="relative min-h-72 min-w-0 overflow-hidden bg-surface-subtle sm:min-h-96 lg:min-h-0">
+        <div className="relative min-w-0 aspect-[7/6] overflow-hidden bg-surface-subtle sm:aspect-[4/3] lg:aspect-auto lg:min-h-0">
           <HeroSuitabilityMap />
           <div
             aria-hidden="true"

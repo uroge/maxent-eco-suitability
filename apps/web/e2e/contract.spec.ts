@@ -18,6 +18,10 @@ test('completes the authenticated analysis workflow against the contract API', a
   await page.goto('/analyses/new?example=1');
   await expect(page.getByRole('heading', { name: 'Validate source data' })).toBeVisible();
   await expect(page.getByText('Raster alignment')).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: 'Occurrence and predictor spatial profile' })
+  ).toBeVisible();
+  await expect(page.getByText('100% of preview points')).toBeVisible();
   await page.getByRole('link', { name: 'Configure analysis' }).click();
 
   await page.getByLabel('Species name').fill('Lynx lynx');
@@ -31,6 +35,7 @@ test('completes the authenticated analysis workflow against the contract API', a
 
   await expect(page.getByRole('heading', { name: 'Lynx lynx' })).toBeVisible();
   await expect(page.getByText('Mean AUC')).toBeVisible();
+  await expect(page.getByLabel('Suitability and occurrence map preview')).toBeVisible();
   await page.getByRole('link', { name: 'Explore map' }).click();
   await expect(page.getByRole('heading', { name: 'Map layers' })).toBeVisible();
   await page.locator('.maplibregl-canvas').click({ position: { x: 200, y: 200 } });
