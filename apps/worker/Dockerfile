@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.19
 
-FROM node:24.19-trixie-slim@sha256:ab3eebe934147fee049b5eb83c570f68c849a13c930bdfa482de99fcdfa3b3de AS build
+FROM node:26.13-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS build
 WORKDIR /app
 COPY . .
 RUN --mount=type=cache,id=ecosuitability-pnpm-store,target=/pnpm/store,sharing=locked \
@@ -13,7 +13,7 @@ RUN --mount=type=cache,id=ecosuitability-pnpm-store,target=/pnpm/store,sharing=l
     && pnpm exec turbo run build --filter=@ecosuitability/worker \
     && pnpm --filter @ecosuitability/worker --prod deploy /deploy
 
-FROM node:24.19-trixie-slim@sha256:ab3eebe934147fee049b5eb83c570f68c849a13c930bdfa482de99fcdfa3b3de AS runtime
+FROM node:26.13-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --exclude=**/*.map --from=build /deploy ./
