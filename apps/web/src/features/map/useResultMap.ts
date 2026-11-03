@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useReducer, useRef, type RefObject } from 'react';
 import type { MapCapabilities } from '@ecosuitability/contracts';
 import type { Coordinates } from './map-types';
+import { createMapTokenController, type MapTokenGetter } from './map-token-controller';
 import { installResultMapLayers, mapApiUrl, selectedResultMapStyle } from './result-map-style';
 
 type RuntimeState = {
@@ -20,7 +21,7 @@ type ResultMapOptions = {
   opacityRef: RefObject<number>;
   terrainRef: RefObject<boolean>;
   basemap?: MapCapabilities['basemaps'][number];
-  getToken: () => Promise<string | null>;
+  getToken: MapTokenGetter;
   onInspect: (coordinates: Coordinates) => void;
 };
 
@@ -50,7 +51,7 @@ export const useResultMap = ({
   const coordinateOutputRef = useRef<HTMLSpanElement>(null);
   const styleKeyRef = useRef<string | undefined>(undefined);
   const [state, dispatch] = useReducer(reducer, { status: 'loading' });
-  const readToken = useEffectEvent(() => getToken());
+  const readToken = useEffectEvent((options?: { skipCache?: boolean }) => getToken(options));
   const inspect = useEffectEvent(onInspect);
 
   useEffect(() => {
@@ -63,9 +64,10 @@ export const useResultMap = ({
     let disposed = false;
     let resizeObserver: ResizeObserver | undefined;
     let initialFitPending = true;
+    const tokenController = createMapTokenController(readToken);
 
-    void Promise.all([import('maplibre-gl'), readToken()])
-      .then(([maplibregl, token]) => {
+    void Promise.all([import('maplibre-gl'), tokenController.start()])
+      .then(([maplibregl]) => {
         if (disposed) {
           return;
         }
@@ -84,10 +86,12 @@ export const useResultMap = ({
           bounds: capabilities.bounds,
           fitBoundsOptions: { padding: 30 },
           attributionControl: false,
-          transformRequest: (url) =>
-            url.startsWith(mapApiUrl) && token
+          transformRequest: (url) => {
+            const token = tokenController.current();
+            return isMapApiRequest(url) && token
               ? { url, headers: { Authorization: `Bearer ${token}` } }
-              : { url },
+              : { url };
+          },
         });
         mapRef.current = map;
         map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -155,6 +159,7 @@ export const useResultMap = ({
 
     return () => {
       disposed = true;
+      tokenController.stop();
       resizeObserver?.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
@@ -214,4 +219,18 @@ const resultStyleKey = (basemap: MapCapabilities['basemaps'][number] | undefined
   return dark
     ? (basemap?.darkStyleUrl ?? basemap?.styleUrl ?? 'fallback:dark')
     : (basemap?.styleUrl ?? 'fallback:light');
+};
+
+export const isMapApiRequest = (url: string, apiUrl = mapApiUrl): boolean => {
+  try {
+    const candidate = new URL(url);
+    const api = new URL(apiUrl);
+    const apiPath = api.pathname.replace(/\/$/, '');
+    return (
+      candidate.origin === api.origin &&
+      (candidate.pathname === apiPath || candidate.pathname.startsWith(`${apiPath}/`))
+    );
+  } catch {
+    return false;
+  }
 };

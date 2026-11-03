@@ -1,0 +1,11 @@
+{
+  "extends": "../config/typescript/base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vitest.config.mts"]
+}

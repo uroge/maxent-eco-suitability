@@ -11,6 +11,7 @@ import {
   type UploadDatasetFormat,
 } from '@ecosuitability/contracts';
 import { uploadDataset } from '@/lib/direct-upload';
+import { responseError } from '@/lib/api-error';
 import { analysisKeys, idempotencyKey, useAnalysisApi } from '../analysis/api';
 import {
   fileIntent,
@@ -126,7 +127,7 @@ export const useDataUploads = (analysisId: string) => {
         body: JSON.stringify(completeBody),
       });
       if (!completedResponse.ok) {
-        throw new Error('One occurrence dataset and at least one predictor are required.');
+        throw await responseError(completedResponse);
       }
       const completed = analysisResponseSchema.parse(await completedResponse.json());
       const profileBody = { expectedInputRevision: completed.analysis.inputRevision };
@@ -139,9 +140,7 @@ export const useDataUploads = (analysisId: string) => {
         body: JSON.stringify(profileBody),
       });
       if (!profileResponse.ok) {
-        throw new Error(
-          'The files are attached, but profiling could not be queued. Retry from Validation.'
-        );
+        throw await responseError(profileResponse);
       }
       await queryClient.invalidateQueries({ queryKey: ['analysis', analysisId] });
       setMessage('Profiling started. Opening Validation…');
@@ -213,7 +212,8 @@ export const useDataUploads = (analysisId: string) => {
       if (response.ok) {
         await finishInputs();
       } else {
-        setMessage('The completed upload could not be attached yet. Retry shortly or discard it.');
+        const error = await responseError(response);
+        setMessage(error.message);
       }
       return;
     }
@@ -277,6 +277,9 @@ export const useDataUploads = (analysisId: string) => {
     });
     if (response.ok) {
       await activeUploads.refetch();
+    } else {
+      const error = await responseError(response);
+      setMessage(error.message);
     }
   };
 
@@ -292,6 +295,9 @@ export const useDataUploads = (analysisId: string) => {
     });
     if (response.ok) {
       await queryClient.invalidateQueries({ queryKey: ['analysis', analysisId] });
+    } else {
+      const error = await responseError(response);
+      setMessage(error.message);
     }
   };
 

@@ -154,6 +154,43 @@ afterEach(() => {
 });
 
 describe('uploadDataset', () => {
+  it('preserves a structured API error from upload initialization', async () => {
+    const api = {
+      request: vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              version: '1',
+              code: 'VALIDATION_FAILED',
+              message: 'The selected file exceeds the upload limit.',
+              requestId: 'req_upload_limit',
+              details: null,
+            },
+          },
+          { status: 413 }
+        )
+      ),
+    } satisfies ApiClient;
+
+    await expect(upload(api, fakeFile('occurrences.csv', 10))).rejects.toMatchObject({
+      status: 413,
+      code: 'VALIDATION_FAILED',
+      message: 'The selected file exceeds the upload limit.',
+    });
+  });
+
+  it('uses a safe fallback for a malformed API error', async () => {
+    const api = {
+      request: vi.fn().mockResolvedValue(new Response('upstream failure', { status: 502 })),
+    } satisfies ApiClient;
+
+    await expect(upload(api, fakeFile('occurrences.csv', 10))).rejects.toMatchObject({
+      status: 502,
+      code: 'INVALID_RESPONSE',
+      message: 'The service could not complete the request.',
+    });
+  });
+
   it('reports aggregate progress for a direct upload', async () => {
     const progress = vi.fn();
     createXhrHarness();
@@ -188,6 +225,23 @@ describe('uploadDataset', () => {
       expect.stringMatching(/\/url$/),
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  it('keeps storage-provider failures generic', async () => {
+    vi.useFakeTimers();
+    createXhrHarness([{ status: 403 }, { status: 403 }, { status: 403 }]);
+    const operation = upload(
+      createApi({
+        multipart: false,
+        uploadUrl: 'https://storage.test/expired?secret=value',
+        partSizeBytes: null,
+      }),
+      fakeFile('occurrences.csv', 10)
+    );
+    const rejection = expect(operation).rejects.toThrow('Storage upload failed with status 403.');
+
+    await vi.runAllTimersAsync();
+    await rejection;
   });
 
   it('pauses the storage request while retaining the server session', async () => {

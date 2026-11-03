@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Card, Progress } from '@ecosuitability/ui';
 import { uploadDataset } from '@/lib/direct-upload';
+import { responseError } from '@/lib/api-error';
 import { idempotencyKey, useAnalysisApi } from '../analysis/api';
 import {
   analysisInputManifestResponseSchema,
@@ -58,7 +59,7 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           body: JSON.stringify(completeBody),
         });
         if (!completed.ok) {
-          throw new Error('The example inputs could not be completed.');
+          throw await responseError(completed);
         }
         const completedAnalysis = analysisResponseSchema.parse(await completed.json());
         setProgress(90);
@@ -74,7 +75,7 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
           body: JSON.stringify(profileBody),
         });
         if (!profile.ok) {
-          throw new Error('The example profile could not be queued.');
+          throw await responseError(profile);
         }
         setProgress(100);
         router.replace(`/analyses/${analysisId}/setup/validation`);

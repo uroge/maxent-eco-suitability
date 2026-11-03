@@ -1,6 +1,7 @@
 'use client';
 
 import { sha256 } from '@noble/hashes/sha2.js';
+import { responseError } from './api-error';
 
 export type ApiClient = {
   request: (path: string, options?: RequestInit) => Promise<Response>;
@@ -343,7 +344,7 @@ const putWithXhr = async (
 const requestJson = async <T>(api: ApiClient, path: string, options: RequestInit): Promise<T> => {
   const response = await api.request(path, options);
   if (!response.ok) {
-    throw new Error('The API request failed.');
+    throw await responseError(response);
   }
 
   return response.json() as Promise<T>;
@@ -356,7 +357,7 @@ const requestNoContent = async (
 ): Promise<void> => {
   const response = await api.request(path, options);
   if (!response.ok) {
-    throw new Error('The API request failed.');
+    throw await responseError(response);
   }
 };
 
