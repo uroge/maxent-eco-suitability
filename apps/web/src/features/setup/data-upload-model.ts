@@ -1,20 +1,5 @@
 import type { ActiveUploadDataset, UploadDatasetFormat } from '@ecosuitability/contracts';
-import type { DirectUploadFile, DirectUploadResumeState } from '@/lib/direct-upload';
-
-export type OccurrenceFormat = 'csv' | 'xlsx' | 'geojson' | 'gpkg' | 'shapefile';
-
-export type UploadTask = {
-  key: string;
-  kind: 'occurrence' | 'predictor';
-  format: UploadDatasetFormat;
-  files: File[];
-  replaceDatasetId?: string;
-  datasetId?: string;
-  progress: number;
-  status: 'waiting' | 'uploading' | 'paused' | 'failed' | 'complete';
-  message?: string;
-  resume: DirectUploadResumeState;
-};
+import type { DirectUploadFile } from '@/lib/direct-upload';
 
 export const shapefileComponent = (file: File): DirectUploadFile['component'] => {
   const extension = file.name.split('.').pop()?.toLowerCase();

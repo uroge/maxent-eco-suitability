@@ -1,92 +1,45 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { Alert, Card, Progress } from '@ecosuitability/ui';
-import { uploadDataset } from '@/lib/direct-upload';
-import { responseError } from '@/lib/api-error';
-import { idempotencyKey, useAnalysisApi } from '../analysis/api';
-import {
-  analysisInputManifestResponseSchema,
-  analysisResponseSchema,
-} from '@ecosuitability/contracts';
+import type { UploadWorkflowPhase } from './upload-workflow-machine';
 
-export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisId }) => {
-  const api = useAnalysisApi();
-  const router = useRouter();
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string>();
+type ExampleDatasetFlowProps = {
+  message?: string;
+  onStart: () => Promise<void>;
+  phase: UploadWorkflowPhase;
+  progress: number;
+};
+
+const stageLabel = (phase: UploadWorkflowPhase): string => {
+  switch (phase) {
+    case 'loading-example':
+      return 'Loading example files…';
+    case 'uploading':
+      return 'Uploading example datasets…';
+    case 'completing':
+      return 'Completing inputs…';
+    case 'profiling':
+      return 'Starting spatial profiling…';
+    case 'redirecting':
+      return 'Opening Validation…';
+    case 'failed':
+      return 'Example setup stopped';
+    case 'idle':
+      return 'Preparing example…';
+  }
+};
+
+export const ExampleDatasetFlow: React.FC<ExampleDatasetFlowProps> = ({
+  message,
+  onStart,
+  phase,
+  progress,
+}) => {
   useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const [occurrenceResponse, predictorResponse] = await Promise.all([
-          fetch('/example/synthetic-occurrences.csv', { signal: controller.signal }),
-          fetch('/example/synthetic-elevation.tif', { signal: controller.signal }),
-        ]);
-        if (!occurrenceResponse.ok || !predictorResponse.ok) {
-          throw new Error('Example assets are unavailable.');
-        }
-        const occurrence = new File(
-          [await occurrenceResponse.blob()],
-          'synthetic-occurrences.csv',
-          { type: 'text/csv' }
-        );
-        const predictor = new File([await predictorResponse.blob()], 'synthetic-elevation.tif', {
-          type: 'image/tiff',
-        });
-        await uploadDataset(api, analysisId, 'occurrence', 'csv', [{ file: occurrence }], {
-          idempotencyKey: `example-occurrence-${analysisId}`,
-          signal: controller.signal,
-          onProgress: () => setProgress(35),
-        });
-        await uploadDataset(api, analysisId, 'predictor', 'geotiff', [{ file: predictor }], {
-          idempotencyKey: `example-predictor-${analysisId}`,
-          signal: controller.signal,
-          onProgress: () => setProgress(75),
-        });
-        const inputs = await api.json(
-          `/v1/analyses/${analysisId}/inputs`,
-          analysisInputManifestResponseSchema
-        );
-        const completeBody = { expectedInputRevision: inputs.inputs.inputRevision };
-        const completed = await api.request(`/v1/analyses/${analysisId}/inputs/complete`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': idempotencyKey('complete-inputs', analysisId, completeBody),
-          },
-          body: JSON.stringify(completeBody),
-        });
-        if (!completed.ok) {
-          throw await responseError(completed);
-        }
-        const completedAnalysis = analysisResponseSchema.parse(await completed.json());
-        setProgress(90);
-        const profileBody = {
-          expectedInputRevision: completedAnalysis.analysis.inputRevision,
-        };
-        const profile = await api.request(`/v1/analyses/${analysisId}/input-profile`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': idempotencyKey('input-profile', analysisId, profileBody),
-          },
-          body: JSON.stringify(profileBody),
-        });
-        if (!profile.ok) {
-          throw await responseError(profile);
-        }
-        setProgress(100);
-        router.replace(`/analyses/${analysisId}/setup/validation`);
-      } catch (reason) {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : 'Example setup failed.');
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [analysisId, api, router]);
+    void onStart();
+  }, [onStart]);
+
   return (
     <Card className="p-8">
       <h2 className="text-lg font-semibold">Preparing the synthetic example</h2>
@@ -94,10 +47,11 @@ export const ExampleDatasetFlow: React.FC<{ analysisId: string }> = ({ analysisI
         The checked-in fixture is converted to browser File objects and follows the normal hashing,
         direct-upload, completion, and profiling flow. It never injects result data.
       </p>
-      <Progress className="mt-6" value={progress} />
-      {error ? (
+      <p className="mt-5 text-sm font-medium">{stageLabel(phase)}</p>
+      <Progress className="mt-2" value={progress} />
+      {phase === 'failed' && message ? (
         <Alert className="mt-5" variant="destructive">
-          {error}
+          {message}
         </Alert>
       ) : null}
     </Card>
