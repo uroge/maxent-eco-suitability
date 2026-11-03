@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.11.2-alpine@sha256:6d125e80883be8a2bef5f088c7535945b42cdbb8a0f5471bf36eaf18dc0638f1
+    image: caddy:2.11.2-alpine@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
     ports: ['80:80', '443:443']
     environment:
       CADDY_EMAIL: ${CADDY_EMAIL:?Set CADDY_EMAIL in the production environment}
