@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM rocker/r-ver:4.6.1@sha256:4e6e6696ff54a86625c7f80046478e67014a2184e942b85eeff43db7b992d93e AS base
+FROM rocker/r-ver:4.6.2@sha256:7b0bfa4b4af875756b3e28801ad81cfcddeef713598834549bfdf12d20a80db4 AS base
 
 COPY system-packages.txt /tmp/system-packages.txt
 
