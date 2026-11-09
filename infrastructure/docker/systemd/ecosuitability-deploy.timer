@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the EcoSuitability dev branch for deployment updates
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+Persistent=true
+Unit=ecosuitability-deploy.service
+
+[Install]
+WantedBy=timers.target
