@@ -64,6 +64,31 @@ const successfulUpload = async (
   return datasetId;
 };
 
+const restoredUpload = (id: string) =>
+  activeUploadDatasetSchema.parse({
+    id,
+    analysisId,
+    kind: 'occurrence',
+    format: 'csv',
+    status: 'collecting',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    expiresAt: '2026-10-01T01:00:00.000Z',
+    replaceDatasetId: null,
+    files: [
+      {
+        id: 'up_33333333333333333333333333333333',
+        originalName: 'restored.csv',
+        size: 10,
+        sha256: 'a'.repeat(64),
+        contentType: 'text/csv',
+        component: null,
+        multipart: false,
+        partSizeBytes: null,
+        status: 'completed',
+      },
+    ],
+  });
+
 describe('useDataUploads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -207,29 +232,7 @@ describe('useDataUploads', () => {
   });
 
   it('waits for an unresolved local upload before profiling restored inputs', async () => {
-    const restored = activeUploadDatasetSchema.parse({
-      id: 'ds_33333333333333333333333333333333',
-      analysisId,
-      kind: 'occurrence',
-      format: 'csv',
-      status: 'collecting',
-      createdAt: '2026-10-01T00:00:00.000Z',
-      expiresAt: '2026-10-01T01:00:00.000Z',
-      replaceDatasetId: null,
-      files: [
-        {
-          id: 'up_33333333333333333333333333333333',
-          originalName: 'restored.csv',
-          size: 10,
-          sha256: 'a'.repeat(64),
-          contentType: 'text/csv',
-          component: null,
-          multipart: false,
-          partSizeBytes: null,
-          status: 'completed',
-        },
-      ],
-    });
+    const restored = restoredUpload('ds_33333333333333333333333333333333');
     mocks.uploadDataset.mockRejectedValueOnce(new Error('Upload interrupted.'));
     const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.queries.inputs.isSuccess).toBe(true));
@@ -244,10 +247,93 @@ describe('useDataUploads', () => {
       expect.objectContaining({ method: 'POST' })
     );
     expect(mocks.push).not.toHaveBeenCalled();
+    expect(
+      mocks.api.json.mock.calls.some(([path]) => String(path).endsWith('/inputs/complete'))
+    ).toBe(false);
 
     mocks.uploadDataset.mockImplementation(successfulUpload);
     await act(() => result.current.actions.retry(result.current.state.tasks[0]!));
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith(`/analyses/${analysisId}/setup/validation`);
+  });
+
+  it('settles a failed local task when its uploaded files are attached from the server', async () => {
+    const restored = restoredUpload('ds_33333333333333333333333333333333');
+    mocks.uploadDataset.mockImplementationOnce(
+      async (...parameters: Parameters<typeof uploadDataset>) => {
+        parameters[5].onDatasetReady?.(restored.id);
+        throw new Error('Attachment interrupted.');
+      }
+    );
+    const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.queries.inputs.isSuccess).toBe(true));
+    act(() =>
+      result.current.actions.setOccurrenceFiles([new File(['occurrence'], 'restored.csv')])
+    );
+    await act(() => result.current.actions.startSelected());
+    expect(result.current.state.tasks[0]?.status).toBe('failed');
+
+    await act(() => result.current.actions.resumeServerUpload(restored, []));
+
+    expect(result.current.state.tasks[0]?.status).toBe('complete');
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(`/analyses/${analysisId}/setup/validation`);
+  });
+
+  it('keeps a failed restored attachment pending until it is discarded', async () => {
+    const first = restoredUpload('ds_33333333333333333333333333333333');
+    const second = restoredUpload('ds_44444444444444444444444444444444');
+    const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.queries.inputs.isSuccess).toBe(true));
+    mocks.api.json.mockRejectedValueOnce(new Error('Attachment interrupted.'));
+
+    await act(() => result.current.actions.resumeServerUpload(first, []));
+    await act(() => result.current.actions.resumeServerUpload(second, []));
+
+    expect(result.current.derived.hasUnresolvedTasks).toBe(true);
+    expect(
+      mocks.api.json.mock.calls.some(([path]) => String(path).endsWith('/input-profile'))
+    ).toBe(false);
+
+    await act(() => result.current.actions.discardUpload(first.id));
+    await act(() => result.current.actions.startSelected());
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(`/analyses/${analysisId}/setup/validation`);
+  });
+
+  it('blocks completion while a server upload still needs a decision', async () => {
+    const pending = restoredUpload('ds_33333333333333333333333333333333');
+    const defaultRequest = mocks.api.json.getMockImplementation()!;
+    mocks.api.json.mockImplementation((path: string, schema, options) =>
+      path.endsWith('/upload-datasets')
+        ? Promise.resolve({ uploads: [pending] })
+        : defaultRequest(path, schema, options)
+    );
+    const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.queries.activeUploads.isSuccess).toBe(true));
+
+    await act(() => result.current.actions.startSelected());
+
+    expect(result.current.derived.hasUnresolvedTasks).toBe(true);
+    expect(
+      mocks.api.json.mock.calls.some(([path]) => String(path).endsWith('/inputs/complete'))
+    ).toBe(false);
+  });
+
+  it('starts only one transfer when the same incomplete dataset is resumed twice', async () => {
+    const restored = restoredUpload('ds_33333333333333333333333333333333');
+    const file = new File(['occurrence'], restored.files[0]!.originalName);
+    const incomplete = activeUploadDatasetSchema.parse({
+      ...restored,
+      files: [{ ...restored.files[0], size: file.size, status: 'pending' }],
+    });
+    const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.queries.activeUploads.isSuccess).toBe(true));
+
+    act(() => {
+      void result.current.actions.resumeServerUpload(incomplete, [file]);
+      void result.current.actions.resumeServerUpload(incomplete, [file]);
+    });
+
+    await waitFor(() => expect(mocks.uploadDataset).toHaveBeenCalledTimes(1));
+    expect(result.current.state.tasks).toHaveLength(1);
   });
 
   it('preserves structured mutation errors in workflow state', async () => {

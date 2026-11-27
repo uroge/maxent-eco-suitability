@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   activeUploadDatasetsResponseSchema,
   analysisInputManifestResponseSchema,
   type ActiveUploadDataset,
+  type ActiveUploadDatasetsResponse,
   type UploadDatasetFormat,
 } from '@ecosuitability/contracts';
 import { analysisKeys, useAnalysisApi } from '../analysis/api';
@@ -59,9 +60,11 @@ const mutationMessage = (error: unknown, fallback: string): string =>
 export const useDataUploads = (analysisId: string) => {
   const api = useAnalysisApi();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const controllers = useRef(new Map<string, AbortController>());
   const exampleController = useRef<AbortController | undefined>(undefined);
   const exampleStarted = useRef(false);
+  const finishInFlight = useRef(false);
   const startInFlight = useRef(false);
   const [workflow] = useState(createUploadWorkflow);
   const state = useSyncExternalStore(
@@ -100,13 +103,25 @@ export const useDataUploads = (analysisId: string) => {
   const finishInputs = useCallback(
     async (navigation: NavigationMode): Promise<boolean> => {
       const current = workflow.getSnapshot();
-      if (isUploadFinishing(current.phase) || current.phase === 'loading-example') {
+      if (
+        finishInFlight.current ||
+        isUploadFinishing(current.phase) ||
+        current.phase === 'loading-example'
+      ) {
         return false;
       }
-      if (hasUnresolvedUploadTasks(current) || controllers.current.size > 0) {
+      const uploads = queryClient.getQueryData<ActiveUploadDatasetsResponse>(
+        analysisKeys.uploads(analysisId)
+      );
+      if (
+        hasUnresolvedUploadTasks(current) ||
+        controllers.current.size > 0 ||
+        uploads?.uploads.length
+      ) {
         dispatch({ type: 'batch-settled' });
         return false;
       }
+      finishInFlight.current = true;
       dispatch({ type: 'completion-started' });
       try {
         const completed = await completeInputs();
@@ -129,6 +144,8 @@ export const useDataUploads = (analysisId: string) => {
           message: mutationMessage(error, 'Inputs could not be completed.'),
         });
         return false;
+      } finally {
+        finishInFlight.current = false;
       }
     },
     [
@@ -136,6 +153,7 @@ export const useDataUploads = (analysisId: string) => {
       completeInputs,
       dispatch,
       invalidateFinishedWorkflow,
+      queryClient,
       requestProfile,
       router,
       workflow,
@@ -144,12 +162,15 @@ export const useDataUploads = (analysisId: string) => {
 
   const runTask = useCallback(
     async (taskId: string): Promise<void> => {
-      const task = workflow.getSnapshot().tasksById[taskId];
+      const current = workflow.getSnapshot();
+      const task = current.tasksById[taskId];
       if (
         !task ||
         task.status === 'complete' ||
         controllers.current.has(taskId) ||
-        isUploadFinishing(workflow.getSnapshot().phase)
+        (task.datasetId && current.restoredAttachments[task.datasetId] === 'attaching') ||
+        finishInFlight.current ||
+        isUploadFinishing(current.phase)
       ) {
         return;
       }
@@ -172,7 +193,7 @@ export const useDataUploads = (analysisId: string) => {
       navigation: NavigationMode,
       clearSelection: boolean
     ): Promise<boolean> => {
-      if (isUploadFinishing(workflow.getSnapshot().phase)) {
+      if (finishInFlight.current || isUploadFinishing(workflow.getSnapshot().phase)) {
         return false;
       }
       dispatch({ type: 'tasks-added', tasks, clearSelection });
@@ -245,9 +266,13 @@ export const useDataUploads = (analysisId: string) => {
 
   const resumeServerUpload = useCallback(
     async (upload: ActiveUploadDataset, files: File[]): Promise<void> => {
+      const current = workflow.getSnapshot();
+      const existingTask = selectUploadTasks(current).find((task) => task.datasetId === upload.id);
       if (
-        isUploadFinishing(workflow.getSnapshot().phase) ||
-        workflow.getSnapshot().restoringDatasetIds.includes(upload.id)
+        finishInFlight.current ||
+        isUploadFinishing(current.phase) ||
+        current.restoredAttachments[upload.id] === 'attaching' ||
+        (existingTask && controllers.current.has(existingTask.key))
       ) {
         return;
       }
@@ -257,13 +282,21 @@ export const useDataUploads = (analysisId: string) => {
           await attachCompleted(upload);
         } catch (error) {
           dispatch({
+            type: 'restored-attachment-settled',
+            datasetId: upload.id,
+            outcome: 'failed',
+          });
+          dispatch({
             type: 'workflow-failed',
             message: mutationMessage(error, 'The completed upload could not be attached.'),
           });
           return;
-        } finally {
-          dispatch({ type: 'restored-attachment-settled', datasetId: upload.id });
         }
+        dispatch({
+          type: 'restored-attachment-settled',
+          datasetId: upload.id,
+          outcome: 'attached',
+        });
         await finishInputs('push');
         return;
       }
@@ -275,19 +308,17 @@ export const useDataUploads = (analysisId: string) => {
         });
         return;
       }
-      await runBatch(
-        [
-          createTask({
+      const task = existingTask
+        ? { ...existingTask, files }
+        : createTask({
             datasetId: upload.id,
             files,
             format: upload.format,
             kind: upload.kind,
             replaceDatasetId: upload.replaceDatasetId ?? undefined,
-          }),
-        ],
-        'push',
-        false
-      );
+          });
+      dispatch({ type: 'restored-attachment-settled', datasetId: upload.id, outcome: 'resumed' });
+      await runBatch([task], 'push', false);
     },
     [attachCompleted, dispatch, finishInputs, runBatch, workflow]
   );
@@ -330,6 +361,7 @@ export const useDataUploads = (analysisId: string) => {
     async (datasetId: string): Promise<void> => {
       try {
         await discardServerUpload(datasetId);
+        dispatch({ type: 'dataset-discarded', datasetId });
       } catch (error) {
         dispatch({
           type: 'workflow-failed',
@@ -403,7 +435,8 @@ export const useDataUploads = (analysisId: string) => {
       hasOccurrence: Boolean(
         inputs.data?.inputs.datasets.some((entry) => entry.dataset.kind === 'occurrence')
       ),
-      hasUnresolvedTasks: hasUnresolvedUploadTasks(state),
+      hasUnresolvedTasks:
+        hasUnresolvedUploadTasks(state) || Boolean(activeUploads.data?.uploads.length),
       progress: uploadWorkflowProgress(state),
       starting: isUploadStarting(state.phase),
     },
