@@ -16,9 +16,9 @@ Operational routes are version-neutral: `/health/live`, `/health/ready`, and `/m
 
 ## Analysis Lifecycle Foundation
 
-The API provides a Redis-only analysis resource with durable input staging and
-a deterministic BullMQ execution baseline. It has no scientific configuration,
-R execution, or scientific result artifacts yet.
+The API coordinates input staging, scientific configuration, execution in R,
+and result publication. See the [project glossary](../GLOSSARY.md) for the
+terms used across the analysis lifecycle.
 
 All analysis routes require a Clerk bearer token and use the authenticated Redis
 rate-limit policies:
@@ -37,10 +37,11 @@ rate-limit policies:
   worker cooperatively finalizes it as `cancelled`.
 
 The lifecycle is `draft -> uploading -> ready -> queued -> running ->
-succeeded | failed`, with `running -> cancelling -> cancelled`. `ready` means
-exactly one occurrence dataset and at least one predictor dataset are
-storage-verified, attached, and immutable. `queued` means a durable execution
-request exists; a leased reconciler inserts the deterministic BullMQ job
+succeeded | failed`, with `running -> cancelling -> cancelled`. Inputs are
+ready when input collection is complete and one occurrence dataset and at
+least one predictor dataset are storage-verified and attached. A queued
+analysis has a frozen submission and a durable execution request. A leased
+reconciler inserts the deterministic BullMQ job
 (`jobId = analysisId`) and repairs undispatched outbox records after failures.
 The worker reports progress, retries up to three total attempts with five-second
 exponential backoff, and has global queue concurrency one. Input profiling,
@@ -73,6 +74,11 @@ WGS84 preview. Preflight and execution both call the same authoritative
 snapshot before fitting the model. Queueing is permitted only when the passed R
 preflight matches the current input revision and fingerprint and configuration
 revision and fingerprint.
+
+For example, replacing an elevation raster after preflight passes returns the
+analysis to `uploading` and invalidates the preflight. Complete the inputs and
+pass preflight again before queueing. If the analysis was already queued, it
+runs with the original raster from its frozen submission.
 
 Scientific validation enforces:
 at most 500 occurrence records, 20 selected predictors, 5 GiB aggregate inputs,

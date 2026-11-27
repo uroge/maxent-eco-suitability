@@ -4,7 +4,7 @@
 
 EcoSuitability is a web GIS application for environmental and species suitability analysis.
 
-The user uploads occurrence/environmental data, configures a model, the backend runs an R-based analysis using `maxnet`, and the user receives:
+In v1, the user supplies one occurrence dataset for a single species and at least one raster predictor dataset. The backend runs the configured model in R using `maxnet` and returns the following.
 
 - interactive GIS layers
 - model statistics
@@ -448,12 +448,7 @@ spatial transformations
 
 # User Inputs
 
-Primary occurrence input:
-
-```text
-.xlsx
-.csv
-```
+An occurrence dataset can be CSV, XLSX, GeoJSON, GeoPackage, or a Shapefile component set. In CSV or XLSX, the user maps latitude and longitude columns and can also map a species column.
 
 Example:
 
@@ -475,13 +470,7 @@ humidity
 soil
 ```
 
-These can come from:
-
-```text
-columns inside the uploaded dataset
-```
-
-or separate GIS layers such as:
+Supply each predictor as a GeoTIFF (`.tif` or `.tiff`) or a ZIP containing one GeoTIFF. For example, a study could use the following rasters.
 
 ```text
 temperature.tif
@@ -490,49 +479,32 @@ wind.tif
 elevation.tif
 ```
 
-Supported formats may include:
-
-```text
-.xlsx
-.csv
-.geojson
-.gpkg
-.tif
-.tiff
-.zip
-```
-
 ---
 
 # Analysis Configuration
 
-The Next.js app sends configuration together with the job.
+The Next.js app saves the configuration before queueing. Preflight checks the current inputs and configuration together. Queueing freezes both for execution. See the [configuration and submission spec](docs/platform-foundation.md#analysis-configuration-and-immutable-submission).
 
-Example:
+A minimal CSV-based configuration selects the occurrence columns, a predictor dataset, and a seed.
 
 ```json
 {
-  "model": "maxnet",
-
-  "coordinates": {
-    "latitude": "latitude",
-    "longitude": "longitude"
+  "schemaVersion": 1,
+  "speciesName": "Oak",
+  "occurrence": {
+    "format": "csv",
+    "latitudeColumn": "latitude",
+    "longitudeColumn": "longitude"
   },
-
-  "predictors": ["temperature", "rainfall", "elevation", "wind"],
-
-  "settings": {
-    "regularizationMultiplier": 1,
-    "testPercentage": 20,
-    "replicates": 5
-  }
+  "predictors": [
+    {
+      "datasetId": "ds_0123456789abcdef0123456789abcdef",
+      "variableName": "elevation",
+      "type": "continuous"
+    }
+  ],
+  "seed": 42
 }
-```
-
-Store this temporarily in R2:
-
-```text
-analyses/an_abc123/config/analysis.json
 ```
 
 ---

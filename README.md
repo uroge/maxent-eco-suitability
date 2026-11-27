@@ -1,10 +1,10 @@
 # EcoSuitability
 
-EcoSuitability is a production-ready web GIS application for modelling environmental and species habitat suitability.
+EcoSuitability is a web GIS application for modelling environmental and species habitat suitability.
 
 A user uploads species occurrence records and environmental predictors, configures a MaxEnt-style model, and receives an interactive GIS map, model metrics, response curves, variable importance, and downloadable scientific/GIS artifacts.
 
-> The repository currently contains the architecture plan. The application services described below are the intended implementation.
+The v1 workflow models one species from occurrence records and at least one environmental raster. See the [project glossary](GLOSSARY.md) for analysis terminology.
 
 ## Environment Setup
 
@@ -82,11 +82,11 @@ Environmental predictors may include:
 - humidity
 - land cover
 
-Predictors can be supplied either as tabular values associated with observations or as spatial raster layers such as GeoTIFFs.
+Supply each predictor as a raster dataset covering the study area. Tabular inputs supply occurrence locations.
 
 The R analysis engine uses `maxnet` to fit a MaxEnt-style species distribution model.
 
-When environmental raster layers covering the study area are available, the trained model can be projected across that area to generate a continuous habitat-suitability raster.
+The analysis projects the trained model across the study area to generate a continuous habitat-suitability raster.
 
 ```mermaid
 flowchart LR
@@ -122,19 +122,14 @@ flowchart TD
 
   V --> P[Prepare spatial data]
 
-  P --> B[Generate / prepare background points]
+  P --> B[Sample background points]
 
   B --> M[Train MaxEnt-style model]
 
   M --> E[Evaluate model]
 
-  E --> C{Spatial predictor rasters available?}
-
-  C -->|Yes| G[Predict suitability across study area]
-  C -->|No| T[Return tabular/model predictions only]
-
+  E --> G[Predict suitability across study area]
   G --> X[Generate GIS + statistical artifacts]
-  T --> X
 
   X --> D[Explore results, charts, map layers, and downloads]
 ```
@@ -157,9 +152,8 @@ Analysis data is temporary and automatically expires after the configured retent
 
 ### Occurrence Data
 
-Occurrence data can be uploaded as Excel, CSV, GeoJSON, GeoPackage, or an
-explicit Shapefile component set. Environmental predictors accept GeoTIFF or a
-ZIP containing one GeoTIFF.
+Occurrence data can be uploaded as XLSX, CSV, GeoJSON, GeoPackage, or an
+explicit Shapefile component set.
 
 Example:
 
@@ -171,7 +165,7 @@ Oak     | 45.27    | 19.82
 Oak     | 45.31    | 19.91
 ```
 
-Depending on the modelling workflow, the dataset may also contain presence/background information and predictor values.
+For XLSX and CSV, configure the latitude and longitude columns and optionally map a species column. The analysis samples background points from the study area.
 
 ### Environmental Predictors
 
@@ -188,24 +182,7 @@ humidity
 land_cover
 ```
 
-They can be supplied in two main ways.
-
-#### Tabular predictors
-
-Example:
-
-```text
-species | latitude | longitude | temperature | rainfall | elevation
---------|----------|-----------|-------------|----------|----------
-Oak     | 45.26    | 19.84     | 21.4        | 820      | 114
-Oak     | 45.27    | 19.82     | 22.1        | 790      | 132
-```
-
-These values can be used for model fitting, evaluation, and predictions for supplied observations/samples.
-
-#### Spatial raster predictors
-
-Example:
+Each predictor dataset is a GeoTIFF or a ZIP containing one GeoTIFF.
 
 ```text
 temperature.tif
@@ -215,9 +192,7 @@ elevation.tif
 vegetation.tif
 ```
 
-These describe environmental conditions across an entire geographic area.
-
-Spatial predictor rasters are required when the application needs to generate a continuous suitability map across the study area.
+The intersection of the selected predictor rasters defines the study area.
 
 In simplified terms:
 
@@ -232,8 +207,6 @@ Suitability prediction for every raster cell
        ↓
 suitability.tif
 ```
-
-The application must not imply that a continuous geographic suitability raster can be generated from occurrence coordinates and observation-level predictor values alone.
 
 ---
 
@@ -273,8 +246,6 @@ Depending on the supplied inputs and analysis configuration, a completed analysi
 - `ecosuitability-results.zip`, containing the nine scientific files plus `bundle-manifest.json`
 
 Every row is driven by the published result manifest and includes the worker-verified SHA-256 checksum. The download screen requests a new signed URL for each attempt, displays the frozen input and configuration revisions, fingerprints, and random seed, and disables downloads after the result expires. See [Result artifacts and bundles](docs/result-artifacts.md) for the publication and recovery guarantees.
-
-GIS artifacts that depend on spatial raster prediction are generated only when the required spatial predictor data is available.
 
 The R runtime normalizes every interactive raster into a private COG and verifies its layout, overview, compression, nodata, CRS, bounds, resolution, and finite values before upload; the worker then verifies the stored size, checksum metadata, and content headers before publication. Terrain remains unavailable unless the selected continuous predictor also passes data-type, metre-unit, transformability, resolution, finite-value, and TerrainRGB-range checks. These map assets are not additional scientific downloads. The API authorizes every tile, point, vector, and terrain request before proxying it to the internal `services/tiles` service; browsers cannot submit storage keys or arbitrary source URLs.
 
