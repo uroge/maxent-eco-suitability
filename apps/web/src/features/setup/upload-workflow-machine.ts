@@ -25,6 +25,7 @@ export type UploadWorkflowState = Readonly<{
   occurrenceFiles: File[];
   phase: UploadWorkflowPhase;
   predictorFiles: File[];
+  restoringDatasetIds: string[];
   taskIds: string[];
   tasksById: Readonly<Record<string, UploadTask>>;
 }>;
@@ -41,6 +42,8 @@ export type UploadWorkflowEvent =
   | { type: 'task-paused'; taskId: string; message: string }
   | { type: 'task-failed'; taskId: string; message: string }
   | { type: 'task-completed'; taskId: string; datasetId: string }
+  | { type: 'restored-attachment-started'; datasetId: string }
+  | { type: 'restored-attachment-settled'; datasetId: string }
   | { type: 'batch-settled' }
   | { type: 'completion-started' }
   | { type: 'profiling-started' }
@@ -53,6 +56,7 @@ export const initialUploadWorkflowState: UploadWorkflowState = {
   occurrenceFiles: [],
   phase: 'idle',
   predictorFiles: [],
+  restoringDatasetIds: [],
   taskIds: [],
   tasksById: {},
 };
@@ -151,15 +155,33 @@ export const uploadWorkflowReducer = (
         progress: 100,
         status: 'complete',
       }));
-    case 'batch-settled':
-      return state.phase === 'uploading'
-        ? {
-            ...state,
-            phase: state.taskIds.every((taskId) => state.tasksById[taskId]?.status === 'complete')
-              ? 'idle'
-              : 'failed',
-          }
-        : state;
+    case 'restored-attachment-started':
+      return {
+        ...state,
+        message: undefined,
+        phase: 'uploading',
+        restoringDatasetIds: [...state.restoringDatasetIds, event.datasetId],
+      };
+    case 'restored-attachment-settled':
+      return {
+        ...state,
+        restoringDatasetIds: state.restoringDatasetIds.filter((id) => id !== event.datasetId),
+      };
+    case 'batch-settled': {
+      const stillUploading =
+        state.restoringDatasetIds.length > 0 ||
+        state.taskIds.some((id) => {
+          const status = state.tasksById[id]?.status;
+          return status === 'waiting' || status === 'uploading';
+        });
+      if (state.phase !== 'uploading' || stillUploading) {
+        return state;
+      }
+      return {
+        ...state,
+        phase: hasUnresolvedUploadTasks(state) ? 'failed' : 'idle',
+      };
+    }
     case 'completion-started':
       return { ...state, phase: 'completing', message: undefined };
     case 'profiling-started':
@@ -173,6 +195,29 @@ export const uploadWorkflowReducer = (
   }
 };
 
+export const createUploadWorkflow = () => {
+  let state = initialUploadWorkflowState;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: (): UploadWorkflowState => state,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    dispatch: (event: UploadWorkflowEvent): void => {
+      const next = uploadWorkflowReducer(state, event);
+      if (next !== state) {
+        state = next;
+        for (const listener of listeners) {
+          listener();
+        }
+      }
+    },
+  };
+};
+
 export const selectUploadTasks = (state: UploadWorkflowState): UploadTask[] =>
   state.taskIds.flatMap((taskId) => {
     const task = state.tasksById[taskId];
@@ -180,6 +225,7 @@ export const selectUploadTasks = (state: UploadWorkflowState): UploadTask[] =>
   });
 
 export const hasUnresolvedUploadTasks = (state: UploadWorkflowState): boolean =>
+  state.restoringDatasetIds.length > 0 ||
   state.taskIds.some((taskId) => state.tasksById[taskId]?.status !== 'complete');
 
 export const isUploadStarting = (phase: UploadWorkflowPhase): boolean =>

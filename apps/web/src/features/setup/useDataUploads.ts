@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -15,12 +15,11 @@ import { createTaskProgressThrottle } from './task-progress-throttle';
 import { useDataUploadMutations } from './useDataUploadMutations';
 import {
   hasUnresolvedUploadTasks,
-  initialUploadWorkflowState,
+  createUploadWorkflow,
   isUploadFinishing,
   isUploadStarting,
   selectUploadTasks,
   uploadWorkflowProgress,
-  uploadWorkflowReducer,
   type OccurrenceFormat,
   type UploadTask,
 } from './upload-workflow-machine';
@@ -63,16 +62,20 @@ export const useDataUploads = (analysisId: string) => {
   const controllers = useRef(new Map<string, AbortController>());
   const exampleController = useRef<AbortController | undefined>(undefined);
   const exampleStarted = useRef(false);
-  const finishInFlight = useRef(false);
   const startInFlight = useRef(false);
-  const unresolvedTaskIds = useRef(new Set<string>());
-  const [state, dispatch] = useReducer(uploadWorkflowReducer, initialUploadWorkflowState);
+  const [workflow] = useState(createUploadWorkflow);
+  const state = useSyncExternalStore(
+    workflow.subscribe,
+    workflow.getSnapshot,
+    workflow.getSnapshot
+  );
+  const { dispatch } = workflow;
   const progress = useMemo(
     () =>
       createTaskProgressThrottle((taskId, value) => {
         dispatch({ type: 'task-progressed', taskId, progress: value });
       }),
-    []
+    [dispatch]
   );
   const mutations = useDataUploadMutations({ analysisId, dispatch, progress });
   const attachCompleted = mutations.attachCompleted.mutateAsync;
@@ -96,10 +99,14 @@ export const useDataUploads = (analysisId: string) => {
 
   const finishInputs = useCallback(
     async (navigation: NavigationMode): Promise<boolean> => {
-      if (finishInFlight.current) {
+      const current = workflow.getSnapshot();
+      if (isUploadFinishing(current.phase) || current.phase === 'loading-example') {
         return false;
       }
-      finishInFlight.current = true;
+      if (hasUnresolvedUploadTasks(current) || controllers.current.size > 0) {
+        dispatch({ type: 'batch-settled' });
+        return false;
+      }
       dispatch({ type: 'completion-started' });
       try {
         const completed = await completeInputs();
@@ -122,31 +129,41 @@ export const useDataUploads = (analysisId: string) => {
           message: mutationMessage(error, 'Inputs could not be completed.'),
         });
         return false;
-      } finally {
-        finishInFlight.current = false;
       }
     },
-    [analysisId, completeInputs, invalidateFinishedWorkflow, requestProfile, router]
+    [
+      analysisId,
+      completeInputs,
+      dispatch,
+      invalidateFinishedWorkflow,
+      requestProfile,
+      router,
+      workflow,
+    ]
   );
 
   const runTask = useCallback(
-    async (task: UploadTask): Promise<boolean> => {
-      if (controllers.current.has(task.key)) {
-        return false;
+    async (taskId: string): Promise<void> => {
+      const task = workflow.getSnapshot().tasksById[taskId];
+      if (
+        !task ||
+        task.status === 'complete' ||
+        controllers.current.has(taskId) ||
+        isUploadFinishing(workflow.getSnapshot().phase)
+      ) {
+        return;
       }
       const controller = new AbortController();
-      controllers.current.set(task.key, controller);
+      controllers.current.set(taskId, controller);
       try {
         await uploadTask({ controller, task });
-        unresolvedTaskIds.current.delete(task.key);
-        return true;
       } catch {
-        return false;
+        // The mutation already records the failure or pause on the task.
       } finally {
-        controllers.current.delete(task.key);
+        controllers.current.delete(taskId);
       }
     },
-    [uploadTask]
+    [uploadTask, workflow]
   );
 
   const runBatch = useCallback(
@@ -155,18 +172,14 @@ export const useDataUploads = (analysisId: string) => {
       navigation: NavigationMode,
       clearSelection: boolean
     ): Promise<boolean> => {
-      for (const task of tasks) {
-        unresolvedTaskIds.current.add(task.key);
+      if (isUploadFinishing(workflow.getSnapshot().phase)) {
+        return false;
       }
       dispatch({ type: 'tasks-added', tasks, clearSelection });
-      await Promise.all(tasks.map(runTask));
-      if (unresolvedTaskIds.current.size === 0) {
-        return finishInputs(navigation);
-      }
-      dispatch({ type: 'batch-settled' });
-      return false;
+      await Promise.all(tasks.map(({ key }) => runTask(key)));
+      return finishInputs(navigation);
     },
-    [finishInputs, runTask]
+    [dispatch, finishInputs, runTask, workflow]
   );
 
   const startSelected = useCallback(async (): Promise<void> => {
@@ -228,20 +241,30 @@ export const useDataUploads = (analysisId: string) => {
         exampleController.current = undefined;
       }
     }
-  }, [loadExampleAssets, runBatch]);
+  }, [dispatch, loadExampleAssets, runBatch]);
 
   const resumeServerUpload = useCallback(
     async (upload: ActiveUploadDataset, files: File[]): Promise<void> => {
+      if (
+        isUploadFinishing(workflow.getSnapshot().phase) ||
+        workflow.getSnapshot().restoringDatasetIds.includes(upload.id)
+      ) {
+        return;
+      }
       if (upload.files.length > 0 && upload.files.every((file) => file.status === 'completed')) {
+        dispatch({ type: 'restored-attachment-started', datasetId: upload.id });
         try {
           await attachCompleted(upload);
-          await finishInputs('push');
         } catch (error) {
           dispatch({
             type: 'workflow-failed',
             message: mutationMessage(error, 'The completed upload could not be attached.'),
           });
+          return;
+        } finally {
+          dispatch({ type: 'restored-attachment-settled', datasetId: upload.id });
         }
+        await finishInputs('push');
         return;
       }
       if (!matchesRestoredFiles(upload, files)) {
@@ -266,7 +289,7 @@ export const useDataUploads = (analysisId: string) => {
         false
       );
     },
-    [attachCompleted, finishInputs, runBatch]
+    [attachCompleted, dispatch, finishInputs, runBatch, workflow]
   );
 
   const replace = useCallback(
@@ -297,12 +320,8 @@ export const useDataUploads = (analysisId: string) => {
 
   const retry = useCallback(
     async (task: UploadTask): Promise<void> => {
-      const succeeded = await runTask(task);
-      if (succeeded && unresolvedTaskIds.current.size === 0) {
-        await finishInputs('push');
-      } else {
-        dispatch({ type: 'batch-settled' });
-      }
+      await runTask(task.key);
+      await finishInputs('push');
     },
     [finishInputs, runTask]
   );
@@ -318,7 +337,7 @@ export const useDataUploads = (analysisId: string) => {
         });
       }
     },
-    [discardServerUpload]
+    [discardServerUpload, dispatch]
   );
 
   const remove = useCallback(
@@ -335,21 +354,21 @@ export const useDataUploads = (analysisId: string) => {
         });
       }
     },
-    [inputs.data, removeInput]
+    [dispatch, inputs.data, removeInput]
   );
 
   const pause = useCallback((taskId: string): void => controllers.current.get(taskId)?.abort(), []);
   const setFormat = useCallback(
     (format: OccurrenceFormat): void => dispatch({ type: 'format-selected', format }),
-    []
+    [dispatch]
   );
   const setOccurrenceFiles = useCallback(
     (files: File[]): void => dispatch({ type: 'occurrence-files-selected', files }),
-    []
+    [dispatch]
   );
   const setPredictorFiles = useCallback(
     (files: File[]): void => dispatch({ type: 'predictor-files-selected', files }),
-    []
+    [dispatch]
   );
 
   useEffect(

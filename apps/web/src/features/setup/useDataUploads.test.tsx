@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { activeUploadDatasetSchema } from '@ecosuitability/contracts';
 import { uploadDataset } from '@/lib/direct-upload';
 import { useDataUploads } from './useDataUploads';
 
@@ -203,6 +204,50 @@ describe('useDataUploads', () => {
 
     expect(result.current.state.tasks[0]?.status).toBe('complete');
     expect(mocks.push).toHaveBeenCalledWith(`/analyses/${analysisId}/setup/validation`);
+  });
+
+  it('waits for an unresolved local upload before profiling restored inputs', async () => {
+    const restored = activeUploadDatasetSchema.parse({
+      id: 'ds_33333333333333333333333333333333',
+      analysisId,
+      kind: 'occurrence',
+      format: 'csv',
+      status: 'collecting',
+      createdAt: '2026-10-01T00:00:00.000Z',
+      expiresAt: '2026-10-01T01:00:00.000Z',
+      replaceDatasetId: null,
+      files: [
+        {
+          id: 'up_33333333333333333333333333333333',
+          originalName: 'restored.csv',
+          size: 10,
+          sha256: 'a'.repeat(64),
+          contentType: 'text/csv',
+          component: null,
+          multipart: false,
+          partSizeBytes: null,
+          status: 'completed',
+        },
+      ],
+    });
+    mocks.uploadDataset.mockRejectedValueOnce(new Error('Upload interrupted.'));
+    const { result } = renderHook(() => useDataUploads(analysisId), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.queries.inputs.isSuccess).toBe(true));
+    act(() => result.current.actions.setPredictorFiles([new File(['predictor'], 'elevation.tif')]));
+    await act(() => result.current.actions.startSelected());
+    expect(result.current.state.tasks[0]?.status).toBe('failed');
+
+    await act(() => result.current.actions.resumeServerUpload(restored, []));
+    expect(mocks.api.json).toHaveBeenCalledWith(
+      expect.stringContaining(`/upload-datasets/${restored.id}/complete`),
+      expect.anything(),
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    mocks.uploadDataset.mockImplementation(successfulUpload);
+    await act(() => result.current.actions.retry(result.current.state.tasks[0]!));
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(`/analyses/${analysisId}/setup/validation`);
   });
 
   it('preserves structured mutation errors in workflow state', async () => {
