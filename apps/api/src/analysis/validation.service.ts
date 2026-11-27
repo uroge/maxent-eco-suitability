@@ -33,24 +33,6 @@ export class ValidationService {
     if (analysis.status !== 'ready') {
       throw this.conflict('Complete the analysis inputs before profiling.');
     }
-    if (
-      analysis.inputProfile?.inputRevision === analysis.inputRevision &&
-      ['queued', 'running', 'passed', 'blocked'].includes(
-        analysis.inputProfile.status,
-      )
-    ) {
-      if (['queued', 'running'].includes(analysis.inputProfile.status)) {
-        await this.queue.enqueueInputProfile(
-          {
-            analysisId: analysis.id,
-            ownerId: principal.userId,
-            inputRevision: analysis.inputRevision,
-          },
-          analysis.inputProfile.createdAt,
-        );
-      }
-      return analysis.inputProfile;
-    }
     const now = new Date().toISOString();
     const inputManifest = await this.repository.inputManifest(analysisId);
     const inputFingerprint = this.repository.inputFingerprint(inputManifest);
@@ -89,15 +71,8 @@ export class ValidationService {
     if (typeof updated === 'string') {
       throw this.conflict('The inputs changed while profiling was requested.');
     }
-    await this.queue.enqueueInputProfile(
-      {
-        analysisId: analysis.id,
-        ownerId: principal.userId,
-        inputRevision: analysis.inputRevision,
-      },
-      profile.createdAt,
-    );
-    return profile;
+    await this.queue.dispatchValidation(analysisId, 'inputProfile');
+    return updated.inputProfile!;
   }
 
   public async profile(
@@ -135,29 +110,6 @@ export class ValidationService {
     ) {
       throw this.conflict('Save a valid configuration before preflight.');
     }
-    if (
-      analysis.preflight?.inputRevision === analysis.inputRevision &&
-      analysis.preflight.configurationRevision ===
-        analysis.configurationRevision &&
-      analysis.preflight.configurationFingerprint ===
-        analysis.configurationFingerprint &&
-      ['queued', 'running', 'passed', 'blocked'].includes(
-        analysis.preflight.status,
-      )
-    ) {
-      if (['queued', 'running'].includes(analysis.preflight.status)) {
-        await this.queue.enqueuePreflight(
-          {
-            analysisId: analysis.id,
-            ownerId: principal.userId,
-            inputRevision: analysis.inputRevision,
-            configurationRevision: analysis.configurationRevision,
-          },
-          analysis.preflight.createdAt,
-        );
-      }
-      return analysis.preflight;
-    }
     const now = new Date().toISOString();
     const inputManifest = await this.repository.inputManifest(analysisId);
     const inputFingerprint = this.repository.inputFingerprint(inputManifest);
@@ -187,16 +139,8 @@ export class ValidationService {
         'The configuration changed while preflight was requested.',
       );
     }
-    await this.queue.enqueuePreflight(
-      {
-        analysisId: analysis.id,
-        ownerId: principal.userId,
-        inputRevision: analysis.inputRevision,
-        configurationRevision: analysis.configurationRevision,
-      },
-      preflight.createdAt,
-    );
-    return preflight;
+    await this.queue.dispatchValidation(analysisId, 'preflight');
+    return updated.preflight!;
   }
 
   public async preflight(

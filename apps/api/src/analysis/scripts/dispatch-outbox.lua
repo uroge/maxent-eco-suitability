@@ -5,6 +5,16 @@ if not outboxPayload or not analysisPayload then
 end
 
 local outbox = cjson.decode(outboxPayload)
+if outbox.leaseId ~= ARGV[1] then return { 'invalid' } end
+if outbox.validation then
+  outbox.status = 'dispatched'
+  outbox.dispatchedAt = ARGV[2]
+  outbox.leaseId = cjson.null
+  outbox.leaseExpiresAt = cjson.null
+  redis.call('SET', KEYS[1], cjson.encode(outbox), 'KEEPTTL')
+  redis.call('ZREM', KEYS[3], ARGV[3])
+  return { 'dispatched' }
+end
 local analysis = cjson.decode(analysisPayload)
 if outbox.leaseId ~= ARGV[1] or analysis.status ~= 'queued' then
   return { 'invalid' }

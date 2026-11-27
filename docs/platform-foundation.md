@@ -62,8 +62,9 @@ or the analysis-scoped operation ledger. The ledger binds the key to a
 canonical operation/payload fingerprint, serializes concurrent execution with
 a recoverable lease, stores the exact successful response for the analysis
 TTL, and rejects reuse with different revisions or content. Profile and
-preflight retries also reassert their deterministic BullMQ job IDs, closing the
-state-written/job-not-enqueued crash window. Temporary signed URL issuance is
+preflight requests record dispatch intent atomically with their queued state.
+The reconciler retries pending dispatches with deterministic BullMQ job IDs
+even when the browser only polls for status. Temporary signed URL issuance is
 not a durable mutation and deliberately issues a fresh credential on retry.
 
 The R runtime supports `profile`, `validate`, and `execute` modes. Profiling

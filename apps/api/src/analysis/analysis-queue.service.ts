@@ -16,7 +16,7 @@ import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
 import { createHash } from 'node:crypto';
 import { AnalysisRepository } from './analysis.repository';
-import type { AnalysisOutbox } from './analysis.types';
+import type { AnalysisOutbox, ValidationKind } from './analysis.types';
 
 const reconcileIntervalMs = 5_000;
 
@@ -49,23 +49,30 @@ export class AnalysisQueueService
   }
 
   public async reconcile(now = new Date()): Promise<void> {
-    const analysisIds = await this.repository.dueOutbox(now);
+    for (const member of await this.repository.dueOutbox(now)) {
+      await this.dispatchPending(member, now);
+    }
+  }
 
-    for (const analysisId of analysisIds) {
-      const outbox = await this.repository.claimOutbox(analysisId, now);
-      if (!outbox) {
-        continue;
-      }
+  public async dispatchValidation(
+    analysisId: string,
+    kind: ValidationKind,
+  ): Promise<void> {
+    await this.dispatchPending(`${analysisId}/${kind}`, new Date());
+  }
 
-      try {
+  private async dispatchPending(member: string, now: Date): Promise<void> {
+    try {
+      const outbox = await this.repository.claimOutbox(member, now);
+      if (outbox) {
         await this.dispatch(outbox);
         await this.repository.markOutboxDispatched(outbox);
-      } catch (error) {
-        this.logger.error(
-          { error, analysisId },
-          'Analysis queue outbox dispatch failed.',
-        );
       }
+    } catch (error) {
+      this.logger.error(
+        { error, member },
+        'Analysis queue outbox dispatch failed.',
+      );
     }
   }
 
@@ -109,6 +116,21 @@ export class AnalysisQueueService
   }
 
   private async dispatch(outbox: AnalysisOutbox): Promise<void> {
+    if (outbox.validation) {
+      const payload: AnalysisValidationJobPayload = {
+        analysisId:
+          outbox.analysisId as AnalysisValidationJobPayload['analysisId'],
+        ownerId: outbox.ownerId,
+        inputRevision: outbox.validation.inputRevision,
+        configurationRevision: outbox.validation.configurationRevision,
+      };
+      if (outbox.validation.kind === 'inputProfile') {
+        await this.enqueueInputProfile(payload, outbox.createdAt);
+      } else {
+        await this.enqueuePreflight(payload, outbox.createdAt);
+      }
+      return;
+    }
     const payload: AnalysisJobPayload = {
       analysisId: outbox.analysisId as AnalysisJobPayload['analysisId'],
       ownerId: outbox.ownerId,

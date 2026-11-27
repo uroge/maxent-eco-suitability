@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { canonicalizeJson } from '@ecosuitability/runtime-utils';
 import type {
   AnalysisInputDataset,
@@ -26,6 +26,7 @@ import type {
   StoredAnalysis,
   TransitionAnalysisInput,
   AnalysisOutbox,
+  ValidationKind,
 } from './analysis.types';
 import type { CleanupRecord } from '../storage/storage.types';
 
@@ -245,13 +246,19 @@ export class AnalysisRepository {
   public async updateValidationState(
     analysisId: string,
     ownerId: string,
-    kind: 'inputProfile' | 'preflight',
+    kind: ValidationKind,
     state: AnalysisInputProfile | AnalysisPreflight,
   ): Promise<StoredAnalysis | 'missing' | 'stale'> {
+    const now = new Date();
+    const member = this.validationOutboxMember(analysisId, kind);
     const result = (await this.redis
       .getClient()
       .eval(UpdateValidationStateScript, {
-        keys: [this.analysisKey(analysisId)],
+        keys: [
+          this.analysisKey(analysisId),
+          this.outboxKey(member),
+          outboxIndexKey,
+        ],
         arguments: [
           ownerId,
           kind,
@@ -262,13 +269,17 @@ export class AnalysisRepository {
               : 0,
           ),
           JSON.stringify(state),
-          new Date().toISOString(),
+          now.toISOString(),
+          member,
+          String(now.getTime()),
         ],
       })) as string[];
     if (result[0] !== 'updated') {
       return result[0] as 'missing' | 'stale';
     }
-    return JSON.parse(result[1]) as StoredAnalysis;
+    return this.normalizeValidationArrays(
+      JSON.parse(result[1]) as StoredAnalysis,
+    );
   }
 
   public async dueOutbox(now: Date): Promise<string[]> {
@@ -280,36 +291,49 @@ export class AnalysisRepository {
   }
 
   public async claimOutbox(
-    analysisId: string,
+    member: string,
     now: Date,
   ): Promise<AnalysisOutbox | undefined> {
-    const leaseId = `outbox:${analysisId}:${now.getTime()}`;
+    const analysisId = member.split('/')[0];
     const leaseExpiresAt = new Date(now.getTime() + 30_000);
     const result = (await this.redis.getClient().eval(ClaimOutboxScript, {
-      keys: [this.outboxKey(analysisId), outboxIndexKey],
+      keys: [
+        this.outboxKey(member),
+        outboxIndexKey,
+        this.analysisKey(analysisId),
+      ],
       arguments: [
-        analysisId,
+        member,
         now.toISOString(),
-        leaseId,
+        randomUUID(),
         leaseExpiresAt.toISOString(),
+        String(leaseExpiresAt.getTime()),
       ],
     })) as string[];
-
     return result[0] === 'claimed'
       ? (JSON.parse(result[1]) as AnalysisOutbox)
       : undefined;
   }
 
   public async markOutboxDispatched(outbox: AnalysisOutbox): Promise<void> {
-    const now = new Date();
+    const member = outbox.validation
+      ? this.validationOutboxMember(outbox.analysisId, outbox.validation.kind)
+      : outbox.analysisId;
     await this.redis.getClient().eval(DispatchOutboxScript, {
       keys: [
-        this.outboxKey(outbox.analysisId),
+        this.outboxKey(member),
         this.analysisKey(outbox.analysisId),
         outboxIndexKey,
       ],
-      arguments: [outbox.leaseId ?? '', now.toISOString(), outbox.analysisId],
+      arguments: [outbox.leaseId ?? '', new Date().toISOString(), member],
     });
+  }
+
+  private validationOutboxMember(
+    analysisId: string,
+    kind: ValidationKind,
+  ): string {
+    return `${analysisId}/${kind}`;
   }
 
   public async expireDue(now: Date): Promise<void> {
