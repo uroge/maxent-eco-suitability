@@ -378,90 +378,117 @@ describe('RValidationClient', () => {
     );
   });
 
-  it('returns a typed profile result through the recoverable R job protocol', async () => {
-    const analysisId = 'an_2123456789abcdef0123456789abcdef';
-    const inputFingerprint = `jcs-sha256-v1:${'a'.repeat(64)}`;
-    const profile = {
-      analysisId,
-      inputRevision: 4,
-      inputFingerprint,
-      policyVersion: '2026-10-01',
-      status: 'passed',
-      progress: 100,
-      checks: [
-        {
-          id: 'occurrence.schema.readable',
-          label: 'Occurrence structure',
-          status: 'passed',
-          message: '10 records detected.',
+  it.each(['initial', 'restored', 'cancelled'] as const)(
+    'consumes the complete profile result from the %s runtime generation',
+    async (runtime) => {
+      const analysisId = 'an_2123456789abcdef0123456789abcdef';
+      const inputFingerprint = `jcs-sha256-v1:${'a'.repeat(64)}`;
+      const profile = {
+        analysisId,
+        inputRevision: 4,
+        inputFingerprint,
+        policyVersion: '2026-10-01',
+        status: 'passed',
+        progress: 100,
+        checks: [
+          {
+            id: 'occurrence.schema.readable',
+            label: 'Occurrence structure',
+            status: 'passed',
+            message: '10 records detected.',
+          },
+        ],
+        warnings: [],
+        blockers: [],
+        occurrence: {
+          columns: ['longitude', 'latitude'],
+          layers: [],
+          longitudeCandidates: ['longitude'],
+          latitudeCandidates: ['latitude'],
+          speciesCandidates: [],
+          recordCount: 10,
+          duplicateCoordinateCount: 0,
+          crs: 'EPSG:4326',
+          sources: [],
         },
-      ],
-      warnings: [],
-      blockers: [],
-      occurrence: {
-        columns: ['longitude', 'latitude'],
-        layers: [],
-        longitudeCandidates: ['longitude'],
-        latitudeCandidates: ['latitude'],
-        speciesCandidates: [],
-        recordCount: 10,
-        duplicateCoordinateCount: 0,
-        crs: 'EPSG:4326',
-        sources: [],
-      },
-      rasters: [],
-      spatialPreview: { type: 'FeatureCollection', features: [] },
-      createdAt: '2026-10-17T12:00:00.000Z',
-      completedAt: '2026-10-17T12:01:00.000Z',
-    };
-    const responses: Array<Record<string, unknown>> = [
-      {
-        runId: `${analysisId}.profile.4`,
-        state: 'accepted',
-        eventSequence: 0,
-        generation: 1,
-      },
-      { runId: `${analysisId}.profile.4`, state: 'running', eventSequence: 1 },
-      {
+        rasters: [],
+        spatialPreview: { type: 'FeatureCollection', features: [] },
+        createdAt: '2026-10-17T12:00:00.000Z',
+        completedAt: '2026-10-17T12:01:00.000Z',
+      };
+      const generation = runtime === 'restored' ? 2 : 1;
+      const resultPage = {
         mode: 'profile',
-        generation: 1,
-        events: [],
-        nextSequence: 1,
-        hasMore: false,
+        generation,
         state: 'succeeded',
         summary: null,
         artifacts: null,
         candidateCompletedAt: null,
         failureCode: null,
         result: profile,
-      },
-    ];
-    const finalPage = responses.pop()!;
-    responses.push(
-      { ...finalPage, hasMore: true },
-      {
-        ...finalPage,
-        nextSequence: 2,
-        events: [
-          {
-            sequence: 2,
-            stage: 'completed',
-            percent: 100,
-            message: 'Profile complete.',
-          },
-        ],
-      },
-    );
-    const fetchMock = vi.fn(async (_input: URL, _init?: RequestInit) => {
-      void _input;
-      void _init;
-      return new Response(JSON.stringify(responses.shift()), { status: 200 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const onEvent = vi.fn();
+      };
+      const pages = [
+        ...(runtime === 'restored'
+          ? [
+              {
+                ...resultPage,
+                state: 'accepted',
+                events: [],
+                hasMore: false,
+                nextSequence: 0,
+                result: null,
+              },
+            ]
+          : []),
+        {
+          ...resultPage,
+          events: Array.from({ length: 100 }, (_, index) => ({
+            sequence: index + 1,
+            stage: 'parsing',
+            percent: 50,
+            message: 'Reading input.',
+          })),
+          hasMore: true,
+          nextSequence: 100,
+        },
+        {
+          ...resultPage,
+          events: [
+            {
+              sequence: 101,
+              stage: 'completed',
+              percent: 100,
+              message: 'Profile complete.',
+            },
+          ],
+          hasMore: false,
+          nextSequence: 101,
+        },
+      ];
+      const fetchMock = vi.fn(async (_input: URL, request?: RequestInit) =>
+        Response.json(
+          request?.method === 'GET'
+            ? pages.shift()
+            : {
+                runId: `${analysisId}.profile.4`,
+                state: 'accepted',
+                eventSequence: 0,
+                generation: 1,
+              },
+        ),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const controller = new AbortController();
+      const cancellation = new Error(
+        'Cancelled while processing the terminal page.',
+      );
+      const onEvent = vi.fn(async (event: { sequence: number }) => {
+        if (runtime === 'cancelled' && event.sequence === 101) {
+          controller.abort(cancellation);
+        }
+      });
 
-    await expect(
-      createClient(
+      const result = createClient(
         {},
         {
           presignGet: vi
@@ -477,23 +504,35 @@ describe('RValidationClient', () => {
         inputManifest: { datasets: [] },
         policyVersion: '2026-10-01',
         createdAt: profile.createdAt,
-        signal: new AbortController().signal,
+        signal: controller.signal,
         onEvent,
         onHeartbeat: vi.fn(),
-      }),
-    ).resolves.toEqual(profile);
-    expect(onEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ sequence: 2 }),
-      1,
-    );
-    expect(
-      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
-    ).toMatchObject({
-      mode: 'profile',
-      runId: `${analysisId}.profile.4`,
-      inputFingerprint,
-    });
-  });
+      });
+      if (runtime === 'cancelled') {
+        await expect(result).rejects.toThrow(cancellation.message);
+        expect(fetchMock.mock.calls.at(-1)?.[1]?.method).toBe('DELETE');
+        return;
+      }
+      await expect(result).resolves.toEqual(profile);
+      expect(onEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ sequence: 101 }),
+        runtime === 'restored' ? 2 : 1,
+      );
+      const inputGrants = fetchMock.mock.calls.filter(
+        ([url, request]) =>
+          url.pathname.endsWith('/input-capabilities') &&
+          request?.method === 'PUT',
+      );
+      expect(inputGrants).toHaveLength(runtime === 'restored' ? 2 : 1);
+      expect(
+        JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+      ).toMatchObject({
+        mode: 'profile',
+        runId: `${analysisId}.profile.4`,
+        inputFingerprint,
+      });
+    },
+  );
 
   it('distinguishes cancellation and timeout for validation jobs', async () => {
     const analysisId = 'an_3123456789abcdef0123456789abcdef';

@@ -132,10 +132,10 @@ export class RValidationClient {
       { generation: number; issuedAt: number } | undefined;
 
     try {
-      for await (const page of this.pollRun(run, accepted)) {
-        for (const event of page.events) {
-          await onEvent(event, page.summary, page.generation);
-        }
+      const pages = this.pollRun(run, accepted, (event, page) =>
+        onEvent(event, page.summary, page.generation),
+      );
+      for await (const page of pages) {
         if (
           (page.state === 'awaiting-output-capabilities' ||
             page.state === 'running') &&
@@ -163,9 +163,6 @@ export class RValidationClient {
           };
         }
 
-        if (page.hasMore && !signal.aborted) {
-          continue;
-        }
         if (page.state === 'succeeded') {
           if (!page.summary) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
@@ -316,13 +313,10 @@ export class RValidationClient {
       ...input.request,
     });
     try {
-      for await (const page of this.pollRun(input, accepted)) {
-        for (const event of page.events) {
-          await input.onEvent(event, page.generation);
-        }
-        if (page.hasMore && !input.signal.aborted) {
-          continue;
-        }
+      const pages = this.pollRun(input, accepted, (event, page) =>
+        input.onEvent(event, page.generation),
+      );
+      for await (const page of pages) {
         if (page.state === 'succeeded') {
           if (!page.result) {
             throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
@@ -371,6 +365,10 @@ export class RValidationClient {
   private async *pollRun(
     run: PollingRun,
     accepted: RunAccepted,
+    onEvent: (
+      event: RValidationEvent,
+      page: RValidationEventsPage,
+    ) => Promise<void>,
   ): AsyncGenerator<RValidationEventsPage> {
     let afterSequence = accepted.eventSequence;
     let generation = accepted.generation;
@@ -403,15 +401,31 @@ export class RValidationClient {
       if (page.generation > generation) {
         generation = page.generation;
         afterSequence = 0;
+        if (page.state === 'accepted') {
+          await this.refreshCapabilities(
+            run.runId,
+            run.inputManifest,
+            run.signal,
+          );
+          capabilitiesIssuedAt = Date.now();
+        }
         continue;
       }
-      afterSequence = page.nextSequence;
-      yield page;
-      if (!page.hasMore) {
-        await delay(1000 + Math.floor(Math.random() * 200), undefined, {
-          signal: run.signal,
-        });
+      if (page.hasMore && page.nextSequence <= afterSequence) {
+        throw new RRuntimeError('R_RUNTIME_PROTOCOL_INVALID');
       }
+      for (const event of page.events) {
+        await onEvent(event, page);
+      }
+      afterSequence = page.nextSequence;
+      run.signal.throwIfAborted();
+      if (page.hasMore) {
+        continue;
+      }
+      yield page;
+      await delay(1000 + Math.floor(Math.random() * 200), undefined, {
+        signal: run.signal,
+      });
     }
   }
 
@@ -487,6 +501,7 @@ export class RValidationClient {
     body?: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
+    signal?.throwIfAborted();
     const raw = body === undefined ? '' : JSON.stringify(body);
     const timestamp = String(Date.now());
     const nonce = randomBytes(16).toString('base64url');
