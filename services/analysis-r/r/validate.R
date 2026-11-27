@@ -157,13 +157,27 @@ vector_records <- function(shape, policy, require_crs = FALSE, wgs84 = FALSE) {
 }
 
 read_delimited_occurrences <- function(path, n_max = Inf) {
-  readr::read_delim(
+  read_table <- function(delimiter) readr::read_delim(
     path,
-    delim = NULL,
+    delim = delimiter,
     col_types = readr::cols(.default = readr::col_character()),
     n_max = n_max,
     progress = FALSE
   )
+  tryCatch(read_table(NULL), error = function(error) {
+    header <- readLines(path, n = 1L, warn = FALSE)
+    if (length(header) != 1L) stop(error)
+    separators <- c(",", "\t", ";", "|", ":")
+    field_counts <- vapply(separators, function(separator) {
+      connection <- textConnection(header)
+      on.exit(close(connection), add = TRUE)
+      fields <- utils::count.fields(connection, sep = separator, quote = '"', comment.char = "")
+      if (length(fields) != 1L || is.na(fields)) 0L else fields[[1L]]
+    }, integer(1))
+    best <- which.max(field_counts)
+    if (field_counts[[best]] < 2L) stop(error)
+    read_table(separators[[best]])
+  })
 }
 
 read_occurrences <- function(dataset, files, configuration) {
