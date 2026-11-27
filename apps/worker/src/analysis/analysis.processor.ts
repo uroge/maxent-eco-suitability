@@ -8,7 +8,6 @@ import {
   type AnalysisJobPayload,
   type AnalysisProgress,
   type AnalysisValidationJobPayload,
-  type RGeneratedMapAsset,
 } from '@ecosuitability/contracts';
 import type { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
@@ -105,28 +104,19 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
-      const resumed = await this.results.resumeAvailable(analysisJob, attempt);
-      if (resumed === 'cancelled') {
-        await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        return;
-      }
-      if (
-        resumed === 'succeeded' ||
-        resumed === 'stale_attempt' ||
-        resumed === 'terminal'
-      ) {
-        return;
-      }
-      if (resumed === 'dependency_unavailable') {
-        throw new RetryableExecutionError('Lifecycle state is unavailable.');
-      }
-
-      const provisional = await this.results.provision(analysisJob, attempt);
-      if (typeof provisional === 'string') {
-        if (provisional === 'cancelled') {
+      const publication = await this.results.openPublication(
+        analysisJob,
+        attempt,
+      );
+      if (typeof publication === 'string') {
+        if (publication === 'cancelled') {
           await this.lifecycle.finaliseCancellation(job.data.analysisId);
+        } else if (publication === 'succeeded') {
+          await this.validation
+            .acknowledge(job.data.analysisId)
+            .catch(() => undefined);
         }
-        if (provisional === 'dependency_unavailable') {
+        if (publication === 'dependency_unavailable') {
           throw new RetryableExecutionError('Lifecycle state is unavailable.');
         }
         return;
@@ -144,8 +134,6 @@ export class AnalysisProcessor
         5,
         controller.signal,
       );
-      let uploading = provisional;
-      let generatedMapAssets: RGeneratedMapAsset[] = [];
       let heartbeatStage: AnalysisProgress['stage'] = 'downloading';
       let heartbeatPercent = 5;
       const validationResult = await this.validation.validate(
@@ -196,29 +184,14 @@ export class AnalysisProcessor
             controller.signal,
           );
         },
-        async (artifacts, mapAssets, candidateCompletedAt) => {
-          generatedMapAssets = mapAssets;
-          uploading = await this.results.beginUpload(
-            job,
-            attempt,
-            provisional,
+        (artifacts, mapAssets, candidateCompletedAt) =>
+          publication.authorizeUploads(
             artifacts,
+            mapAssets,
             candidateCompletedAt,
-          );
-          const expiresIn = this.config.getOrThrow(
-            'R_RUNTIME_OUTPUT_URL_TTL_SECONDS',
-          );
-          return [
-            ...(await this.results.uploadCapabilities(uploading, expiresIn)),
-            ...(await this.results.mapAssetUploadCapabilities(
-              job.data.analysisId,
-              mapAssets,
-              expiresIn,
-            )),
-          ];
-        },
+            this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS'),
+          ),
       );
-      generatedMapAssets = validationResult.mapAssets;
       await this.assertActive(
         job,
         attempt,
@@ -227,21 +200,7 @@ export class AnalysisProcessor
         controller.signal,
       );
 
-      await this.results.publishMapAssets(
-        analysisJob,
-        attempt,
-        generatedMapAssets,
-      );
-      uploading = await this.results.createBundle(
-        analysisJob,
-        attempt,
-        uploading,
-      );
-      const outcome = await this.results.verifyAndPublish(
-        job,
-        attempt,
-        uploading,
-      );
+      const outcome = await publication.publish(validationResult.mapAssets);
       if (outcome === 'cancelled') {
         await this.lifecycle.finaliseCancellation(job.data.analysisId);
         await this.validation

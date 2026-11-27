@@ -95,41 +95,31 @@ describe.runIf(integrationEnabled)(
         { warn: vi.fn() } as never,
         lifecycle,
         {
-          resumeAvailable: vi.fn().mockResolvedValue('not-ready'),
-          provision: vi.fn().mockResolvedValue({
-            candidateCompletedAt: '2026-09-02T12:00:00.000Z',
-            artifacts: [],
-          }),
-          beginUpload: vi.fn(),
-          uploadCapabilities: vi.fn(),
-          mapAssetUploadCapabilities: vi.fn(),
-          createBundle: vi.fn(
-            async (_job, _attempt, provisional) => provisional,
-          ),
-          publishMapAssets: vi.fn().mockResolvedValue(undefined),
-          verifyAndPublish: vi.fn(
-            async (
+          openPublication: vi.fn(
+            (
               job: { id?: string; data: AnalysisJobPayload },
               attempt: number,
-            ) => {
-              if (!job.id) {
-                return 'stale_attempt';
-              }
+            ) => ({
+              publish: async () => {
+                if (!job.id) {
+                  return 'stale_attempt';
+                }
 
-              return lifecycleRepository.finish(
-                job.data.analysisId,
-                job.id,
-                attempt,
-                'succeeded',
-                null,
-                {
-                  stage: 'completed',
-                  percent: 100,
+                return lifecycleRepository.finish(
+                  job.data.analysisId,
+                  job.id,
                   attempt,
-                  updatedAt: new Date().toISOString(),
-                },
-              );
-            },
+                  'succeeded',
+                  null,
+                  {
+                    stage: 'completed',
+                    percent: 100,
+                    attempt,
+                    updatedAt: new Date().toISOString(),
+                  },
+                );
+              },
+            }),
           ),
         } as never,
         {

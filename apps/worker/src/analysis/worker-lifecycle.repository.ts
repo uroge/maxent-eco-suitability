@@ -250,14 +250,16 @@ export class WorkerLifecycleRepository {
     jobId: string,
     attempt: number,
     artifact: ProvisionalArtifact,
-  ): Promise<ProvisionalResult | 'dependency_unavailable' | 'stale_attempt'> {
+  ): Promise<
+    ProvisionalResult | 'cancelled' | 'dependency_unavailable' | 'stale_attempt'
+  > {
     const result = (await this.redis.getClient().eval(AppendBundleScript, {
       keys: [this.analysisKey(analysisId), this.resultKey(analysisId)],
       arguments: [jobId, String(attempt), JSON.stringify(artifact)],
     })) as string[];
     return result[0] === 'updated'
       ? (JSON.parse(result[1]) as ProvisionalResult)
-      : (result[0] as 'dependency_unavailable' | 'stale_attempt');
+      : (result[0] as 'cancelled' | 'dependency_unavailable' | 'stale_attempt');
   }
 
   public async publishMapAssets(

@@ -20,23 +20,16 @@ const createServiceLifecycle = () => ({
   waitForDrain: vi.fn(),
 });
 
-const createResultService = () => ({
-  resumeAvailable: vi.fn().mockResolvedValue('not-ready'),
-  provision: vi.fn().mockResolvedValue({
-    candidateCompletedAt: '2026-09-02T12:00:00.000Z',
-    artifacts: [],
-  }),
-  beginUpload: vi
-    .fn()
-    .mockImplementation(async (_job, _attempt, provisional) => provisional),
-  uploadCapabilities: vi.fn().mockResolvedValue([]),
-  mapAssetUploadCapabilities: vi.fn().mockResolvedValue([]),
-  verifyAndPublish: vi.fn().mockResolvedValue('succeeded'),
-  createBundle: vi
-    .fn()
-    .mockImplementation(async (_job, _attempt, provisional) => provisional),
-  publishMapAssets: vi.fn().mockResolvedValue(undefined),
-});
+const createResultService = () => {
+  const publication = {
+    authorizeUploads: vi.fn().mockResolvedValue([]),
+    publish: vi.fn().mockResolvedValue('succeeded'),
+  };
+  return {
+    openPublication: vi.fn().mockResolvedValue(publication),
+    publication,
+  };
+};
 
 const createValidationClient = () => ({
   validate: vi
@@ -74,11 +67,7 @@ describe('AnalysisProcessor', () => {
       1,
     );
     expect(lifecycle.updateProgress).toHaveBeenCalledTimes(2);
-    expect(results.verifyAndPublish).toHaveBeenCalledWith(
-      job,
-      1,
-      expect.any(Object),
-    );
+    expect(results.publication.publish).toHaveBeenCalledWith([]);
     expect(serviceLifecycle.endJob).toHaveBeenCalledOnce();
   }, 15_000);
 

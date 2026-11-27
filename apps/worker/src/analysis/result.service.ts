@@ -51,6 +51,23 @@ export type ResultUploadCapability = {
   url: string;
 };
 
+type ResultJob = { id?: string; data: AnalysisJobPayload };
+
+type PublishOutcome = 'succeeded' | 'cancelled' | 'stale_attempt';
+
+type PublicationUnavailable =
+  'cancelled' | 'dependency_unavailable' | 'stale_attempt' | 'terminal';
+
+type ResultPublication = {
+  authorizeUploads: (
+    artifacts: RGeneratedArtifact[],
+    mapAssets: RGeneratedMapAsset[],
+    candidateCompletedAt: string,
+    expiresIn: number,
+  ) => Promise<unknown[]>;
+  publish: (mapAssets: RGeneratedMapAsset[]) => Promise<PublishOutcome>;
+};
+
 export class ResultLifecycleError extends Error {}
 
 @Injectable()
@@ -60,16 +77,56 @@ export class ResultService {
     private readonly storage: WorkerStorageService,
   ) {}
 
-  public async provision(
-    job: { id?: string; data: AnalysisJobPayload },
+  public async openPublication(
+    job: ResultJob,
     attempt: number,
-  ): Promise<
-    | ProvisionalResult
-    | 'cancelled'
-    | 'dependency_unavailable'
-    | 'stale_attempt'
-    | 'terminal'
-  > {
+  ): Promise<ResultPublication | PublicationUnavailable | 'succeeded'> {
+    const provisional = await this.provision(job, attempt);
+    if (typeof provisional === 'string') {
+      return provisional;
+    }
+
+    const recovered = await this.recoverPublication(job, attempt, provisional);
+    if (recovered !== 'not-ready') {
+      return recovered;
+    }
+
+    let uploading = provisional;
+    return {
+      authorizeUploads: async (
+        artifacts,
+        mapAssets,
+        candidateCompletedAt,
+        expiresIn,
+      ) => {
+        uploading = await this.beginUpload(
+          job,
+          attempt,
+          provisional,
+          artifacts,
+          candidateCompletedAt,
+        );
+        return [
+          ...(await this.uploadCapabilities(uploading, expiresIn)),
+          ...(await this.mapAssetUploadCapabilities(
+            job.data.analysisId,
+            mapAssets,
+            expiresIn,
+          )),
+        ];
+      },
+      publish: async (mapAssets) => {
+        await this.publishMapAssets(job, attempt, mapAssets);
+        const bundled = await this.createBundle(job, attempt, uploading);
+        return this.verifyAndPublish(job, attempt, bundled);
+      },
+    };
+  }
+
+  public async provision(
+    job: ResultJob,
+    attempt: number,
+  ): Promise<ProvisionalResult | PublicationUnavailable> {
     if (!job.id) {
       return 'stale_attempt';
     }
@@ -82,7 +139,7 @@ export class ResultService {
   }
 
   public async beginUpload(
-    job: { id?: string; data: AnalysisJobPayload },
+    job: ResultJob,
     attempt: number,
     provisional: ProvisionalResult,
     generated: RGeneratedArtifact[],
@@ -131,10 +188,10 @@ export class ResultService {
   }
 
   public async verifyAndPublish(
-    job: { id?: string; data: AnalysisJobPayload },
+    job: ResultJob,
     attempt: number,
     provisional: ProvisionalResult,
-  ): Promise<'succeeded' | 'cancelled' | 'stale_attempt'> {
+  ): Promise<PublishOutcome> {
     if (!job.id || !provisional.candidateCompletedAt) {
       return 'stale_attempt';
     }
@@ -162,7 +219,7 @@ export class ResultService {
   }
 
   public async createBundle(
-    job: { id?: string; data: AnalysisJobPayload },
+    job: ResultJob,
     attempt: number,
     provisional: ProvisionalResult,
   ): Promise<ProvisionalResult> {
@@ -287,7 +344,7 @@ export class ResultService {
   }
 
   public async publishMapAssets(
-    job: { id?: string; data: AnalysisJobPayload },
+    job: ResultJob,
     attempt: number,
     generated: RGeneratedMapAsset[],
   ): Promise<void> {
@@ -409,21 +466,11 @@ export class ResultService {
     );
   }
 
-  public async resumeAvailable(
-    job: { id?: string; data: AnalysisJobPayload },
+  private async recoverPublication(
+    job: ResultJob,
     attempt: number,
-  ): Promise<
-    | 'not-ready'
-    | 'succeeded'
-    | 'cancelled'
-    | 'dependency_unavailable'
-    | 'stale_attempt'
-    | 'terminal'
-  > {
-    let provisional = await this.provision(job, attempt);
-    if (typeof provisional === 'string') {
-      return provisional;
-    }
+    provisional: ProvisionalResult,
+  ): Promise<PublishOutcome | 'not-ready'> {
     if (
       provisional.publicationState === 'provisioned' ||
       !provisional.candidateCompletedAt
@@ -433,19 +480,20 @@ export class ResultService {
     const hasBundle = provisional.artifacts.some(
       (artifact) => artifact.kind === 'result-bundle',
     );
-    if (!hasBundle) {
-      if (
-        !(await this.lifecycle.mapAssetsReady(job.data.analysisId)) ||
-        !(await this.artifactsExist(provisional))
-      ) {
-        return 'not-ready';
-      }
-      provisional = await this.createBundle(job, attempt, provisional);
-    }
-    if (!(await this.artifactsExist(provisional))) {
+    if (
+      !hasBundle &&
+      (!(await this.lifecycle.mapAssetsReady(job.data.analysisId)) ||
+        !(await this.artifactsExist(provisional)))
+    ) {
       return 'not-ready';
     }
-    return this.verifyAndPublish(job, attempt, provisional);
+    const bundled = hasBundle
+      ? provisional
+      : await this.createBundle(job, attempt, provisional);
+    if (!(await this.artifactsExist(bundled))) {
+      return 'not-ready';
+    }
+    return this.verifyAndPublish(job, attempt, bundled);
   }
 
   private async artifactsExist(
