@@ -66,6 +66,11 @@ const configurationIdempotencyKeyPrefix =
 
 const operationIndexKeyPrefix = 'ecosuitability:analysis-operations:';
 
+export const validationOutboxMember = (
+  analysisId: string,
+  kind: ValidationKind,
+): string => `${analysisId}/${kind}`;
+
 const redisArray = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) {
     return value as T[];
@@ -248,9 +253,10 @@ export class AnalysisRepository {
     ownerId: string,
     kind: ValidationKind,
     state: AnalysisInputProfile | AnalysisPreflight,
+    repairOnly = false,
   ): Promise<StoredAnalysis | 'missing' | 'stale'> {
     const now = new Date();
-    const member = this.validationOutboxMember(analysisId, kind);
+    const member = validationOutboxMember(analysisId, kind);
     const result = (await this.redis
       .getClient()
       .eval(UpdateValidationStateScript, {
@@ -272,6 +278,7 @@ export class AnalysisRepository {
           now.toISOString(),
           member,
           String(now.getTime()),
+          repairOnly ? 'repair' : 'request',
         ],
       })) as string[];
     if (result[0] !== 'updated') {
@@ -317,7 +324,7 @@ export class AnalysisRepository {
 
   public async markOutboxDispatched(outbox: AnalysisOutbox): Promise<void> {
     const member = outbox.validation
-      ? this.validationOutboxMember(outbox.analysisId, outbox.validation.kind)
+      ? validationOutboxMember(outbox.analysisId, outbox.validation.kind)
       : outbox.analysisId;
     await this.redis.getClient().eval(DispatchOutboxScript, {
       keys: [
@@ -327,13 +334,6 @@ export class AnalysisRepository {
       ],
       arguments: [outbox.leaseId ?? '', new Date().toISOString(), member],
     });
-  }
-
-  private validationOutboxMember(
-    analysisId: string,
-    kind: ValidationKind,
-  ): string {
-    return `${analysisId}/${kind}`;
   }
 
   public async expireDue(now: Date): Promise<void> {

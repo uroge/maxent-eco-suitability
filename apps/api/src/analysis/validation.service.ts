@@ -83,6 +83,18 @@ export class ValidationService {
     if (!analysis.inputProfile) {
       throw this.notFound();
     }
+    if (
+      analysis.inputProfile.status === 'queued' ||
+      analysis.inputProfile.status === 'running'
+    ) {
+      await this.repository.updateValidationState(
+        analysisId,
+        principal.userId,
+        'inputProfile',
+        analysis.inputProfile,
+        true,
+      );
+    }
     return analysis.inputProfile;
   }
 
@@ -150,6 +162,18 @@ export class ValidationService {
     const analysis = await this.owned(principal, analysisId);
     if (!analysis.preflight) {
       throw this.notFound();
+    }
+    if (
+      analysis.preflight.status === 'queued' ||
+      analysis.preflight.status === 'running'
+    ) {
+      await this.repository.updateValidationState(
+        analysisId,
+        principal.userId,
+        'preflight',
+        analysis.preflight,
+        true,
+      );
     }
     return analysis.preflight;
   }

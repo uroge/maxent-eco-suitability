@@ -423,9 +423,16 @@ describe.runIf(integrationEnabled)(
                 expectedConfigurationRevision: 1,
                 configurationFingerprint: analysis.configurationFingerprint!,
               });
-        const unavailable = vi
-          .spyOn(queue, 'add')
-          .mockRejectedValueOnce(new Error('Queue temporarily unavailable'));
+        const unavailable = vi.spyOn(queue, 'add');
+        if (kind === 'profile') {
+          unavailable.mockRejectedValueOnce(
+            new Error('Queue temporarily unavailable'),
+          );
+        } else {
+          unavailable.mockImplementationOnce(
+            () => new Promise(() => undefined),
+          );
+        }
         try {
           await expect(request()).resolves.toMatchObject({ status: 'queued' });
         } finally {
@@ -448,6 +455,53 @@ describe.runIf(integrationEnabled)(
         });
       },
     );
+
+    it('repairs a queued profile from before the outbox when status is read', async () => {
+      const analysis = {
+        ...createAnalysis(
+          'an_55555555555555555555555555555557',
+          'legacy-profile',
+        ),
+        status: 'ready' as const,
+      };
+      await repository.create(
+        { analysis, fingerprint: 'legacy-profile' },
+        3600,
+      );
+      const logger = { error: () => undefined } as never;
+      const dispatcher = new AnalysisQueueService(queue, repository, logger);
+      const validation = new ValidationService(repository, dispatcher);
+      const principal = {
+        userId: analysis.ownerId,
+        sessionId: 'legacy-session',
+        role: 'user' as const,
+      };
+      const unavailable = vi
+        .spyOn(queue, 'add')
+        .mockRejectedValueOnce(new Error('Queue temporarily unavailable'));
+      let requested;
+      try {
+        requested = await validation.requestProfile(principal, analysis.id, {
+          expectedInputRevision: 0,
+        });
+      } finally {
+        unavailable.mockRestore();
+      }
+      await client.del(
+        `ecosuitability:analysis-outbox:${analysis.id}/inputProfile`,
+      );
+      await expect(
+        validation.profile(principal, analysis.id),
+      ).resolves.toMatchObject({
+        status: 'queued',
+        createdAt: requested.createdAt,
+      });
+      await dispatcher.reconcile();
+      const jobs = (await queue.getJobs(['wait'])).filter(
+        ({ data }) => data.analysisId === analysis.id,
+      );
+      expect(jobs).toHaveLength(1);
+    });
 
     it('atomically queues a ready analysis and dispatches its deterministic outbox job', async () => {
       const manifest = inputManifest();

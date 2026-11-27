@@ -12,13 +12,19 @@ import {
   type AnalysisJobPayload,
   type AnalysisValidationJobPayload,
 } from '@ecosuitability/contracts';
+import { withTimeout } from '@ecosuitability/runtime-utils';
 import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
 import { createHash } from 'node:crypto';
-import { AnalysisRepository } from './analysis.repository';
+import {
+  AnalysisRepository,
+  validationOutboxMember,
+} from './analysis.repository';
 import type { AnalysisOutbox, ValidationKind } from './analysis.types';
 
 const reconcileIntervalMs = 5_000;
+
+const dispatchTimeoutMs = 2_000;
 
 const queueAttempts = 3;
 
@@ -38,7 +44,9 @@ export class AnalysisQueueService
     await this.queue.setGlobalConcurrency(1);
     await this.reconcile();
     this.interval = setInterval(() => {
-      void this.reconcile();
+      void this.reconcile().catch((error: unknown) => {
+        this.logger.error({ error }, 'Analysis outbox reconciliation failed.');
+      });
     }, reconcileIntervalMs);
   }
 
@@ -49,7 +57,11 @@ export class AnalysisQueueService
   }
 
   public async reconcile(now = new Date()): Promise<void> {
-    for (const member of await this.repository.dueOutbox(now)) {
+    for (const member of await withTimeout(
+      this.repository.dueOutbox(now),
+      dispatchTimeoutMs,
+      'Outbox lookup timed out.',
+    )) {
       await this.dispatchPending(member, now);
     }
   }
@@ -58,15 +70,30 @@ export class AnalysisQueueService
     analysisId: string,
     kind: ValidationKind,
   ): Promise<void> {
-    await this.dispatchPending(`${analysisId}/${kind}`, new Date());
+    await this.dispatchPending(
+      validationOutboxMember(analysisId, kind),
+      new Date(),
+    );
   }
 
   private async dispatchPending(member: string, now: Date): Promise<void> {
     try {
-      const outbox = await this.repository.claimOutbox(member, now);
+      const outbox = await withTimeout(
+        this.repository.claimOutbox(member, now),
+        dispatchTimeoutMs,
+        'Outbox claim timed out.',
+      );
       if (outbox) {
-        await this.dispatch(outbox);
-        await this.repository.markOutboxDispatched(outbox);
+        await withTimeout(
+          this.dispatch(outbox),
+          dispatchTimeoutMs,
+          'Queue dispatch timed out.',
+        );
+        await withTimeout(
+          this.repository.markOutboxDispatched(outbox),
+          dispatchTimeoutMs,
+          'Outbox acknowledgement timed out.',
+        );
       }
     } catch (error) {
       this.logger.error(

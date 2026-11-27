@@ -17,6 +17,7 @@ local replay = type(existing) == 'table' and existing.inputRevision == validatio
   existing.configurationRevision == validation.configurationRevision and
   existing.configurationFingerprint == validation.configurationFingerprint and
   (existing.status == 'queued' or existing.status == 'running' or existing.status == 'passed' or existing.status == 'blocked')
+if ARGV[9] == 'repair' and not replay then return { 'stale' } end
 if replay then validation = existing end
 
 if validation.status == 'queued' or validation.status == 'running' then
