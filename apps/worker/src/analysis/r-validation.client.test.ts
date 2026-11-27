@@ -414,7 +414,7 @@ describe('RValidationClient', () => {
       createdAt: '2026-10-17T12:00:00.000Z',
       completedAt: '2026-10-17T12:01:00.000Z',
     };
-    const responses = [
+    const responses: Array<Record<string, unknown>> = [
       {
         runId: `${analysisId}.profile.4`,
         state: 'accepted',
@@ -436,12 +436,29 @@ describe('RValidationClient', () => {
         result: profile,
       },
     ];
+    const finalPage = responses.pop()!;
+    responses.push(
+      { ...finalPage, hasMore: true },
+      {
+        ...finalPage,
+        nextSequence: 2,
+        events: [
+          {
+            sequence: 2,
+            stage: 'completed',
+            percent: 100,
+            message: 'Profile complete.',
+          },
+        ],
+      },
+    );
     const fetchMock = vi.fn(async (_input: URL, _init?: RequestInit) => {
       void _input;
       void _init;
       return new Response(JSON.stringify(responses.shift()), { status: 200 });
     });
     vi.stubGlobal('fetch', fetchMock);
+    const onEvent = vi.fn();
 
     await expect(
       createClient(
@@ -461,10 +478,14 @@ describe('RValidationClient', () => {
         policyVersion: '2026-10-01',
         createdAt: profile.createdAt,
         signal: new AbortController().signal,
-        onEvent: vi.fn(),
+        onEvent,
         onHeartbeat: vi.fn(),
       }),
     ).resolves.toEqual(profile);
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ sequence: 2 }),
+      1,
+    );
     expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
     ).toMatchObject({
