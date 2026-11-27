@@ -109,16 +109,10 @@ export class AnalysisProcessor
         attempt,
       );
       if (typeof publication === 'string') {
-        if (publication === 'cancelled') {
-          await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        } else if (publication === 'succeeded') {
-          await this.validation
-            .acknowledge(job.data.analysisId)
-            .catch(() => undefined);
-        }
         if (publication === 'dependency_unavailable') {
           throw new RetryableExecutionError('Lifecycle state is unavailable.');
         }
+        await this.settlePublication(job.data.analysisId, publication);
         return;
       }
 
@@ -201,16 +195,7 @@ export class AnalysisProcessor
       );
 
       const outcome = await publication.publish(validationResult.mapAssets);
-      if (outcome === 'cancelled') {
-        await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        await this.validation
-          .acknowledge(job.data.analysisId)
-          .catch(() => undefined);
-      } else if (outcome === 'succeeded') {
-        await this.validation
-          .acknowledge(job.data.analysisId)
-          .catch(() => undefined);
-      }
+      await this.settlePublication(job.data.analysisId, outcome);
     } catch (error) {
       if (
         error instanceof ExecutionCancelledError ||
@@ -221,7 +206,7 @@ export class AnalysisProcessor
 
       if (error instanceof ResultLifecycleError) {
         if (error.message === 'cancelled') {
-          await this.lifecycle.finaliseCancellation(job.data.analysisId);
+          await this.settlePublication(job.data.analysisId, 'cancelled');
           return;
         }
         if (error.message === 'stale_attempt' || error.message === 'terminal') {
@@ -236,6 +221,18 @@ export class AnalysisProcessor
       }
 
       this.serviceLifecycle.endJob();
+    }
+  }
+
+  private async settlePublication(
+    analysisId: string,
+    outcome: 'succeeded' | 'cancelled' | 'stale_attempt' | 'terminal',
+  ): Promise<void> {
+    if (outcome === 'cancelled') {
+      await this.lifecycle.finaliseCancellation(analysisId);
+    }
+    if (outcome === 'cancelled' || outcome === 'succeeded') {
+      await this.validation.acknowledge(analysisId).catch(() => undefined);
     }
   }
 

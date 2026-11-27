@@ -58,7 +58,7 @@ describe.runIf(integrationEnabled)(
       vi.unstubAllGlobals();
     });
 
-    const stageOutputs = async (analysisId: string) => {
+    const stageOutputs = async (analysisId: string, loss?: 'zip' | 'map') => {
       const datasetId = 'ds_0123456789abcdef0123456789abcdef';
       const analysisKey = `${analysisKeyPrefix}${analysisId}`;
       const analysis = {
@@ -99,6 +99,14 @@ describe.runIf(integrationEnabled)(
           sha256: string;
         }
       >();
+      if (loss !== 'map') {
+        objects.set(analysis.mapAssets[0].storageKey, {
+          body: Buffer.from('predictor raster'),
+          contentType: 'image/tiff',
+          contentDisposition: `inline; filename="${datasetId}.tif"`,
+          sha256: createHash('sha256').update('predictor raster').digest('hex'),
+        });
+      }
       const onBundleUploaded = vi
         .fn<() => Promise<void>>()
         .mockResolvedValue(undefined);
@@ -163,6 +171,13 @@ describe.runIf(integrationEnabled)(
           contentDisposition,
           sha256,
         });
+      }
+      if (loss === 'zip') {
+        const bundled = await outputs.createBundle(job, 1, uploading);
+        const zip = bundled.artifacts.find(
+          ({ kind }) => kind === 'result-bundle',
+        )!;
+        objects.delete(zip.storageKey);
       }
 
       const acknowledgePath = `/v1/runs/${analysisId}.execute.1/complete`;
@@ -245,10 +260,35 @@ describe.runIf(integrationEnabled)(
       expect(run.runtimeRequests).toEqual([`POST ${run.acknowledgePath}`]);
     }, 30_000);
 
+    it('rebuilds a recorded ZIP that is missing from object storage', async () => {
+      const run = await stageOutputs(
+        'an_11111111111111111111111111111111',
+        'zip',
+      );
+
+      await run.processor.process(run.job as never);
+
+      expect(await run.readAnalysis()).toMatchObject({ status: 'succeeded' });
+      expect(run.runtimeRequests).toEqual([`POST ${run.acknowledgePath}`]);
+    }, 30_000);
+
+    it('does not publish recovered results when a predictor raster is missing', async () => {
+      const run = await stageOutputs(
+        'an_22222222222222222222222222222222',
+        'map',
+      );
+
+      await expect(run.processor.process(run.job as never)).rejects.toThrow();
+
+      expect((await run.readAnalysis()).resultManifest).toBeUndefined();
+    }, 30_000);
+
     it('publishes uploaded artifacts after a worker crash without rerunning the model', async () => {
       const analysisId = 'an_cccccccccccccccccccccccccccccccc';
       const candidateCompletedAt = new Date().toISOString();
       const job = { id: analysisId, data: { analysisId, ownerId: 'user_123' } };
+      const datasetId = 'ds_0123456789abcdef0123456789abcdef';
+      const mapKey = `analyses/${analysisId}/map/${datasetId}.tif`;
       await client.set(
         `${analysisKeyPrefix}${analysisId}`,
         JSON.stringify({
@@ -257,12 +297,14 @@ describe.runIf(integrationEnabled)(
           expiresAt: '2026-09-04T12:00:00.000Z',
           failure: null,
           execution: { jobId: analysisId, attempt: 1 },
+          mapAssets: [{ datasetId, storageKey: mapKey }],
           executionSnapshot: {
             inputRevision: 2,
             configurationRevision: 1,
             inputFingerprint: `jcs-sha256-v1:${'b'.repeat(64)}`,
             fingerprint: `jcs-sha256-v1:${'c'.repeat(64)}`,
             seed: 42,
+            configuration: { predictors: [{ datasetId }] },
           },
         }),
       );
@@ -275,6 +317,12 @@ describe.runIf(integrationEnabled)(
           sha256: string;
         }
       >();
+      storageState.set(mapKey, {
+        size: 1234,
+        contentType: 'image/tiff',
+        contentDisposition: `inline; filename="${datasetId}.tif"`,
+        sha256: 'a'.repeat(64),
+      });
       const storage = {
         head: async (key: string) => storageState.get(key),
       };

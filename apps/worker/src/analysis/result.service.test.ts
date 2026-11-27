@@ -180,7 +180,7 @@ describe('ResultService', () => {
     const verified = { ...value, publicationState: 'verified' as const };
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(value),
-      mapAssetsReady: vi.fn().mockResolvedValue(false),
+      recoverableMapAssets: vi.fn().mockResolvedValue(undefined),
       verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),
     };
@@ -199,7 +199,7 @@ describe('ResultService', () => {
     const value = provisional();
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(value),
-      mapAssetsReady: vi.fn().mockResolvedValue(true),
+      recoverableMapAssets: vi.fn().mockResolvedValue([]),
     };
     const service = new ResultService(
       lifecycle as never,
@@ -287,7 +287,7 @@ describe('ResultService', () => {
     const verified = { ...bundled, publicationState: 'verified' as const };
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(initial),
-      mapAssetsReady: vi.fn().mockResolvedValue(true),
+      recoverableMapAssets: vi.fn().mockResolvedValue([]),
       executionSnapshot: vi.fn().mockResolvedValue(executionSnapshot),
       verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),

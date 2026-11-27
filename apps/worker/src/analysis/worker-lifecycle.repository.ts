@@ -67,33 +67,42 @@ export class WorkerLifecycleRepository {
     return analysis.executionSnapshot;
   }
 
-  public async mapAssetsReady(analysisId: string): Promise<boolean> {
+  public async recoverableMapAssets(
+    analysisId: string,
+  ): Promise<
+    Array<{ storageKey: string; size?: number; sha256?: string }> | undefined
+  > {
     const payload = await this.redis
       .getClient()
       .get(this.analysisKey(analysisId));
     if (!payload) {
-      return false;
+      return undefined;
     }
     const analysis = JSON.parse(payload) as {
       executionSnapshot?: {
         configuration?: { predictors?: Array<{ datasetId?: unknown }> };
       };
-      mapAssets?: Array<{ datasetId?: unknown }>;
+      mapAssets?: Array<{
+        datasetId?: unknown;
+        storageKey: string;
+        size?: number;
+        sha256?: string;
+      }>;
     };
     const predictorIds =
       analysis.executionSnapshot?.configuration?.predictors?.map(
         (predictor) => predictor.datasetId,
       ) ?? [];
     const assetIds = analysis.mapAssets?.map((asset) => asset.datasetId) ?? [];
-    return (
-      predictorIds.length > 0 &&
+    return predictorIds.length > 0 &&
       assetIds.length === predictorIds.length &&
       new Set(assetIds).size === predictorIds.length &&
       predictorIds.every(
         (datasetId) =>
           typeof datasetId === 'string' && assetIds.includes(datasetId),
       )
-    );
+      ? analysis.mapAssets
+      : undefined;
   }
 
   public async updateValidation(
@@ -267,7 +276,9 @@ export class WorkerLifecycleRepository {
     jobId: string,
     attempt: number,
     assets: unknown[],
-  ): Promise<'updated' | 'dependency_unavailable' | 'stale_attempt'> {
+  ): Promise<
+    'updated' | 'cancelled' | 'dependency_unavailable' | 'stale_attempt'
+  > {
     const result = (await this.redis.getClient().eval(PublishMapAssetsScript, {
       keys: [this.analysisKey(analysisId)],
       arguments: [
@@ -277,7 +288,8 @@ export class WorkerLifecycleRepository {
         new Date().toISOString(),
       ],
     })) as string[];
-    return result[0] as 'updated' | 'dependency_unavailable' | 'stale_attempt';
+    return result[0] as
+      'updated' | 'cancelled' | 'dependency_unavailable' | 'stale_attempt';
   }
 
   public async verifyResult(

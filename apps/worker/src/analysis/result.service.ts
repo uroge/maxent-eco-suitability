@@ -116,6 +116,9 @@ export class ResultService {
         ];
       },
       publish: async (mapAssets) => {
+        if (!uploading.candidateCompletedAt) {
+          throw new Error('Result output must be prepared before publication.');
+        }
         await this.publishMapAssets(job, attempt, mapAssets);
         const bundled = await this.createBundle(job, attempt, uploading);
         return this.verifyAndPublish(job, attempt, bundled);
@@ -196,7 +199,7 @@ export class ResultService {
       return 'stale_attempt';
     }
     this.assertCompletePublication(provisional);
-    if (!(await this.artifactsExist(provisional))) {
+    if (!(await this.artifactsExist(provisional.artifacts))) {
       throw new Error('Result artifact storage verification failed.');
     }
     const verified = await this.lifecycle.verifyResult(
@@ -226,13 +229,10 @@ export class ResultService {
     if (!job.id || !provisional.candidateCompletedAt) {
       throw new ResultLifecycleError('stale_attempt');
     }
-    const existing = provisional.artifacts.find(
-      (artifact) => artifact.kind === 'result-bundle',
+    const scientific = provisional.artifacts.filter(
+      ({ kind }) => kind !== 'result-bundle',
     );
-    if (existing) {
-      return provisional;
-    }
-    this.assertScientificArtifacts(provisional.artifacts);
+    this.assertScientificArtifacts(scientific);
     const definition = analysisArtifactSpecifications.find(
       (artifact) => artifact.kind === 'result-bundle',
     );
@@ -246,7 +246,7 @@ export class ResultService {
       analysisId: job.data.analysisId,
       completedAt: provisional.candidateCompletedAt,
       reproducibility,
-      artifacts: provisional.artifacts.map((item) => ({
+      artifacts: scientific.map((item) => ({
         id: item.id,
         kind: item.kind,
         filename: item.filename,
@@ -264,7 +264,7 @@ export class ResultService {
         source: ProvisionalArtifact;
         stagedPath: string;
       }> = [];
-      for (const [index, source] of provisional.artifacts.entries()) {
+      for (const [index, source] of scientific.entries()) {
         const stagedPath = join(directory, `artifact-${index}`);
         await this.stageVerifiedArtifact(source, stagedPath);
         stagedArtifacts.push({ source, stagedPath });
@@ -292,7 +292,7 @@ export class ResultService {
       await archive.finalize();
       await completion;
       const expectedEntries = [
-        ...provisional.artifacts.map((item) => item.filename),
+        ...scientific.map((item) => item.filename),
         'bundle-manifest.json',
       ];
       if (
@@ -370,6 +370,8 @@ export class ResultService {
       datasetId: string;
       label: string;
       storageKey: string;
+      size: number;
+      sha256: string;
       terrainEligible: boolean;
       terrainUnavailableReason: string | null;
       raster: RGeneratedMapAsset['raster'];
@@ -416,6 +418,8 @@ export class ResultService {
         datasetId: predictor.datasetId,
         label: predictor.variableName,
         storageKey,
+        size: generatedAsset.size,
+        sha256: generatedAsset.sha256,
         terrainEligible:
           selectedForTerrain && generatedAsset.dem?.eligible === true,
         terrainUnavailableReason: selectedForTerrain
@@ -477,41 +481,63 @@ export class ResultService {
     ) {
       return 'not-ready';
     }
-    const hasBundle = provisional.artifacts.some(
-      (artifact) => artifact.kind === 'result-bundle',
+    const mapAssets = await this.lifecycle.recoverableMapAssets(
+      job.data.analysisId,
     );
-    if (
-      !hasBundle &&
-      (!(await this.lifecycle.mapAssetsReady(job.data.analysisId)) ||
-        !(await this.artifactsExist(provisional)))
-    ) {
+    if (!mapAssets) {
       return 'not-ready';
     }
-    const bundled = hasBundle
-      ? provisional
-      : await this.createBundle(job, attempt, provisional);
-    if (!(await this.artifactsExist(bundled))) {
+    for (const asset of mapAssets) {
+      const head = await this.storage.head(asset.storageKey);
+      if (
+        !head ||
+        head.contentType !== 'image/tiff' ||
+        head.size <= 0 ||
+        (asset.size !== undefined && head.size !== asset.size) ||
+        (asset.sha256 !== undefined &&
+          head.sha256?.toLowerCase() !== asset.sha256.toLowerCase())
+      ) {
+        return 'not-ready';
+      }
+    }
+    const bundle = provisional.artifacts.find(
+      ({ kind }) => kind === 'result-bundle',
+    );
+    const scientific = provisional.artifacts.filter(
+      ({ kind }) => kind !== 'result-bundle',
+    );
+    if (!(await this.artifactsExist(scientific))) {
       return 'not-ready';
     }
+    const bundled =
+      bundle && (await this.artifactExists(bundle))
+        ? provisional
+        : await this.createBundle(job, attempt, provisional);
     return this.verifyAndPublish(job, attempt, bundled);
   }
 
   private async artifactsExist(
-    provisional: ProvisionalResult,
+    artifacts: ProvisionalArtifact[],
   ): Promise<boolean> {
-    for (const artifact of provisional.artifacts) {
-      const head = await this.storage.head(artifact.storageKey);
-      if (
-        !head ||
-        head.size !== artifact.size ||
-        head.contentType !== artifact.contentType ||
-        head.contentDisposition !== artifact.contentDisposition ||
-        head.sha256 !== artifact.sha256
-      ) {
+    for (const artifact of artifacts) {
+      if (!(await this.artifactExists(artifact))) {
         return false;
       }
     }
     return true;
+  }
+
+  private async artifactExists(
+    artifact: ProvisionalArtifact,
+  ): Promise<boolean> {
+    const head = await this.storage.head(artifact.storageKey);
+    return Boolean(
+      head &&
+      head.size === artifact.size &&
+      head.contentType === artifact.contentType &&
+      head.contentDisposition === artifact.contentDisposition &&
+      head.sha256 === artifact.sha256,
+    );
   }
 
   private assertGeneratedArtifacts(
@@ -519,7 +545,9 @@ export class ResultService {
     generated: RGeneratedArtifact[],
   ): void {
     const expected = new Set<string>(
-      provisional.artifacts.map((artifact) => artifact.kind),
+      provisional.artifacts
+        .filter(({ kind }) => kind !== 'result-bundle')
+        .map((artifact) => artifact.kind),
     );
     const received = new Set<string>(
       generated.map((artifact) => artifact.kind),

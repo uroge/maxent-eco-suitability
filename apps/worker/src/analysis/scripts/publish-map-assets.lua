@@ -1,6 +1,7 @@
 local payload = redis.call('GET', KEYS[1])
 if not payload then return { 'dependency_unavailable' } end
 local analysis = cjson.decode(payload)
+if analysis.status == 'cancelling' or analysis.status == 'cancelled' then return { 'cancelled' } end
 if analysis.status ~= 'running' or analysis.execution.jobId ~= ARGV[1] or analysis.execution.attempt ~= tonumber(ARGV[2]) then
   return { 'stale_attempt' }
 end
