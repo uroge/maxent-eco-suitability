@@ -58,7 +58,7 @@ export const EvaluationDiagnostics: React.FC<{
               <YAxis dataKey="truePositiveRate" domain={[0, 1]} />
               <Tooltip />
               <Area
-                type="monotone"
+                type="linear"
                 dataKey="truePositiveRate"
                 stroke="var(--suitability-2)"
                 fill="var(--accent)"
@@ -132,7 +132,7 @@ export const EvaluationDiagnostics: React.FC<{
       <div className="p-5">
         <h2 className="font-semibold">Pooled ROC data</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Held-out predictions used for threshold calculation.
+          Points that define the pooled ROC curve.
         </p>
       </div>
       <div className="max-h-96 overflow-auto">

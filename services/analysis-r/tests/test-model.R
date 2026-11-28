@@ -22,9 +22,32 @@ expect_code <- function(expression, code) {
 }
 
 assert_equal(auc(c(0.8, 0.9), c(0.1, 0.2)), 1, "AUC calculation is incorrect.")
-threshold <- threshold_metrics(c(0.8, 0.9), c(0.1, 0.2))
+threshold <- evaluate_pooled_scores(c(0.8, 0.9), c(0.1, 0.2))$threshold
 assert_equal(threshold$sensitivity, 1, "Threshold sensitivity is incorrect.")
 assert_equal(threshold$specificity, 1, "Threshold specificity is incorrect.")
+
+tied <- evaluate_pooled_scores(c(0.8, 0.4), c(0.6, 0.2))
+assert_equal(tied$threshold$threshold, 0.4, "Threshold must select the lowest cutoff on a tie.")
+
+pooled <- evaluate_pooled_scores(
+  c(0.8, 0.8, 0.35),
+  c(0.9, 0.85, 0.7, 0.6, 0.5, 0.35, 0.3, 0.2, 0.1)
+)
+assert_equal(
+  vapply(pooled$roc[-1L], function(point) point$threshold, numeric(1)),
+  c(0.85, 0.8, 0.5, 0.35, 0.1),
+  "The ROC curve must retain the ends of straight segments and changes in sensitivity."
+)
+assert_equal(
+  vapply(pooled$roc, function(point) point$falsePositiveRate, numeric(1)),
+  c(0, 2, 2, 5, 6, 9) / 9,
+  "ROC false-positive rates must include scores tied at each cutoff."
+)
+assert_equal(
+  vapply(pooled$roc, function(point) point$truePositiveRate, numeric(1)),
+  c(0, 0, 2, 2, 3, 3) / 3,
+  "ROC true-positive rates must include scores tied at each cutoff."
+)
 
 train_test_a <- partition_indices(
   20L,
