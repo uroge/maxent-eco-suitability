@@ -1,22 +1,23 @@
 local outboxPayload = redis.call('GET', KEYS[1])
-local analysisPayload = redis.call('GET', KEYS[2])
-if not outboxPayload or not analysisPayload then
-  return { 'missing' }
-end
-
+if not outboxPayload then return { 'missing' } end
 local outbox = cjson.decode(outboxPayload)
-local analysis = cjson.decode(analysisPayload)
-if outbox.leaseId ~= ARGV[1] or analysis.status ~= 'queued' then
-  return { 'invalid' }
+if outbox.leaseId ~= ARGV[1] then return { 'invalid' } end
+
+if not outbox.validation then
+  local analysisPayload = redis.call('GET', KEYS[2])
+  local analysis = analysisPayload and cjson.decode(analysisPayload)
+  if analysis and analysis.status == 'queued' and type(analysis.execution) == 'table' and
+    analysis.execution.jobId == outbox.jobId then
+    analysis.execution.outboxDispatchedAt = ARGV[2]
+    analysis.updatedAt = ARGV[2]
+    redis.call('SET', KEYS[2], cjson.encode(analysis), 'KEEPTTL')
+  end
 end
 
 outbox.status = 'dispatched'
 outbox.dispatchedAt = ARGV[2]
 outbox.leaseId = cjson.null
 outbox.leaseExpiresAt = cjson.null
-analysis.execution.outboxDispatchedAt = ARGV[2]
-analysis.updatedAt = ARGV[2]
 redis.call('SET', KEYS[1], cjson.encode(outbox), 'KEEPTTL')
-redis.call('SET', KEYS[2], cjson.encode(analysis), 'KEEPTTL')
 redis.call('ZREM', KEYS[3], ARGV[3])
 return { 'dispatched' }

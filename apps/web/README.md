@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EcoSuitability Web
 
-## Getting Started
+The web workspace is the authenticated Next.js 16 interface for creating, running, and exploring temporary habitat-suitability analyses. Scientific work remains in the API, worker, and R runtime; the web application orchestrates their HTTP contracts and renders results.
 
-First, run the development server:
+## Requirements
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node `>=24 <25`
+- The pnpm version pinned in the root `package.json`
+- A Clerk development instance
+- The EcoSuitability API and its supporting services for normal development
+
+Install dependencies from the repository root:
+
+```sh
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy the application-local environment template and supply Clerk keys from the same development instance:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```sh
+cp apps/web/.env.example apps/web/.env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`NEXT_PUBLIC_API_URL` is embedded in browser bundles. `API_INTERNAL_URL` is used only by Next.js server rendering and may use a private service address. Do not place secrets in `NEXT_PUBLIC_*` variables or create a root `.env` file.
 
-## Learn More
+## Development
 
-To learn more about Next.js, take a look at the following resources:
+For the complete local application, start infrastructure and the Turborepo development tasks from the repository root:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```sh
+pnpm docker:infra
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The browser application is available at `http://localhost:3000` by default.
 
-## Deploy on Vercel
+The authenticated workflow is:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. `/analyses/new` creates an idempotent temporary draft.
+2. Setup routes upload data, profile inputs, save configuration, and run authoritative preflight.
+3. `/run` polls queued and active execution, and supports cancellation.
+4. Result routes expose the overview, authenticated MapLibre layers, diagnostics, and short-lived downloads.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The “Try example dataset” action uses the checked-in synthetic occurrence and GeoTIFF fixtures but follows the normal direct-upload and profiling flow.
+
+## Validation
+
+Run focused web checks from the repository root:
+
+```sh
+pnpm --filter @ecosuitability/web lint
+pnpm --filter @ecosuitability/web typecheck
+pnpm --filter @ecosuitability/web test
+pnpm --filter @ecosuitability/web build
+```
+
+Shared UI primitives have their own checks:
+
+```sh
+pnpm --filter @ecosuitability/ui lint
+pnpm --filter @ecosuitability/ui typecheck
+pnpm --filter @ecosuitability/ui test
+```
+
+The public Playwright smoke test runs with the root `pnpm test:e2e` command. The deterministic authenticated contract suite uses a local API stub instead of Redis, object storage, the worker, R, or the tile service:
+
+```sh
+pnpm --filter @ecosuitability/web test:e2e:contract
+```
+
+It requires these CI or shell-provided values and never commits them:
+
+```text
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+CLERK_SECRET_KEY
+E2E_CLERK_USER_EMAIL
+E2E_CLERK_USER_PASSWORD
+```
+
+The contract suite uses Clerk’s Playwright testing support to authenticate the test user. Use a dedicated Clerk test account with no production access.

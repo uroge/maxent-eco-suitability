@@ -7,6 +7,7 @@ import { analysisInputProfileResponseSchema } from '@ecosuitability/contracts';
 import { Alert, Button, Card, Progress } from '@ecosuitability/ui';
 import { LoaderCircle } from 'lucide-react';
 import { QueryStateAlert } from '../analysis/QueryStateAlert';
+import { responseError } from '@/lib/api-error';
 import { analysisKeys, idempotencyKey, useAnalysisApi } from '../analysis/api';
 import { useAnalysis } from '../analysis/useAnalysis';
 import { SetupShell } from './SetupShell';
@@ -32,12 +33,12 @@ export const ValidationScreen: React.FC<{ analysisId: string }> = ({ analysisId 
           body: JSON.stringify(body),
         });
         if (!created.ok) {
-          throw new Error('Input profiling could not be queued.');
+          throw await responseError(created);
         }
         return analysisInputProfileResponseSchema.parse(await created.json());
       }
       if (!response.ok) {
-        throw new Error('The input profile could not be loaded.');
+        throw await responseError(response);
       }
       return analysisInputProfileResponseSchema.parse(await response.json());
     },

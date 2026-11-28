@@ -13,7 +13,7 @@ import {
 } from '@ecosuitability/ui';
 import { CheckCircle2, CircleAlert } from 'lucide-react';
 import { QueryStateAlert } from '../analysis/QueryStateAlert';
-import { SpatialPreviewMap } from './SpatialPreviewMap';
+import { SpatialProfilePreview } from './SpatialProfilePreview';
 
 const values = (items: string[]): string => (items.length ? items.join(', ') : 'None detected');
 
@@ -76,7 +76,7 @@ export const ValidationProfileResults: React.FC<{
       <Card className="p-5">
         <h2 className="font-semibold">Spatial preview</h2>
         <div className="mt-4">
-          <SpatialPreviewMap preview={profile.spatialPreview} />
+          <SpatialProfilePreview profile={profile} />
         </div>
       </Card>
     </div>

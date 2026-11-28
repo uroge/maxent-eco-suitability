@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Queue } from 'bullmq';
 import {
   analysisQueueName,
@@ -10,6 +10,7 @@ import { AnalysisQueueService } from './analysis-queue.service';
 import { ConfigurationService } from './configuration.service';
 import { AnalysisRepository } from './analysis.repository';
 import { DatasetRepository } from './dataset.repository';
+import { ValidationService } from './validation.service';
 import type { StoredAnalysis } from './analysis.types';
 
 const integrationEnabled = process.env.RUN_REDIS_INTEGRATION === 'true';
@@ -331,10 +332,13 @@ describe.runIf(integrationEnabled)(
     });
 
     it('preserves empty validation arrays when Redis Lua stores a profile', async () => {
-      const analysis = createAnalysis(
-        'an_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        'request-key-profile-arrays',
-      );
+      const analysis = {
+        ...createAnalysis(
+          'an_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          'request-key-profile-arrays',
+        ),
+        status: 'ready' as const,
+      };
       const profile = {
         analysisId: analysis.id,
         inputRevision: analysis.inputRevision,
@@ -377,13 +381,126 @@ describe.runIf(integrationEnabled)(
       await repository.transition({
         analysisId: analysis.id,
         ownerId: analysis.ownerId,
-        expectedStatuses: ['draft'],
+        expectedStatuses: ['ready'],
         status: 'uploading',
         failure: null,
       });
       await expect(
         repository.findOwned(analysis.id, analysis.ownerId),
       ).resolves.toMatchObject({ inputProfile: profile });
+    });
+
+    it.each(['profile', 'preflight'] as const)(
+      'recovers a %s dispatch without another request',
+      async (kind) => {
+        const analysis = {
+          ...createAnalysis(
+            kind === 'profile'
+              ? 'an_55555555555555555555555555555555'
+              : 'an_55555555555555555555555555555556',
+            `dispatch-recovery-${kind}`,
+          ),
+          status: 'ready' as const,
+        };
+        await repository.create({ analysis, fingerprint: kind }, 3600);
+        const logger = { error: () => undefined } as never;
+        const validation = new ValidationService(
+          repository,
+          new AnalysisQueueService(queue, repository, logger),
+        );
+        const principal = {
+          userId: analysis.ownerId,
+          sessionId: 'dispatch-session',
+          role: 'user' as const,
+        };
+        const request = async () =>
+          kind === 'profile'
+            ? validation.requestProfile(principal, analysis.id, {
+                expectedInputRevision: 0,
+              })
+            : validation.requestPreflight(principal, analysis.id, {
+                expectedInputRevision: 0,
+                expectedConfigurationRevision: 1,
+                configurationFingerprint: analysis.configurationFingerprint!,
+              });
+        const unavailable = vi.spyOn(queue, 'add');
+        if (kind === 'profile') {
+          unavailable.mockRejectedValueOnce(
+            new Error('Queue temporarily unavailable'),
+          );
+        } else {
+          unavailable.mockImplementationOnce(
+            () => new Promise(() => undefined),
+          );
+        }
+        try {
+          await expect(request()).resolves.toMatchObject({ status: 'queued' });
+        } finally {
+          unavailable.mockRestore();
+        }
+
+        const restarted = new AnalysisQueueService(queue, repository, logger);
+        await restarted.reconcile(new Date(Date.now() + 31_000));
+        await restarted.reconcile(new Date(Date.now() + 62_000));
+        const jobs = (await queue.getJobs(['wait'])).filter(
+          ({ data }) => data.analysisId === analysis.id,
+        );
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0].name).toBe(
+          kind === 'profile' ? 'input-profile' : 'preflight',
+        );
+        expect(jobs[0].data).toMatchObject({
+          analysisId: analysis.id,
+          inputRevision: 0,
+        });
+      },
+    );
+
+    it('repairs a queued profile from before the outbox when status is read', async () => {
+      const analysis = {
+        ...createAnalysis(
+          'an_55555555555555555555555555555557',
+          'legacy-profile',
+        ),
+        status: 'ready' as const,
+      };
+      await repository.create(
+        { analysis, fingerprint: 'legacy-profile' },
+        3600,
+      );
+      const logger = { error: () => undefined } as never;
+      const dispatcher = new AnalysisQueueService(queue, repository, logger);
+      const validation = new ValidationService(repository, dispatcher);
+      const principal = {
+        userId: analysis.ownerId,
+        sessionId: 'legacy-session',
+        role: 'user' as const,
+      };
+      const unavailable = vi
+        .spyOn(queue, 'add')
+        .mockRejectedValueOnce(new Error('Queue temporarily unavailable'));
+      let requested;
+      try {
+        requested = await validation.requestProfile(principal, analysis.id, {
+          expectedInputRevision: 0,
+        });
+      } finally {
+        unavailable.mockRestore();
+      }
+      await client.del(
+        `ecosuitability:analysis-outbox:${analysis.id}/inputProfile`,
+      );
+      await expect(
+        validation.profile(principal, analysis.id),
+      ).resolves.toMatchObject({
+        status: 'queued',
+        createdAt: requested.createdAt,
+      });
+      await dispatcher.reconcile();
+      const jobs = (await queue.getJobs(['wait'])).filter(
+        ({ data }) => data.analysisId === analysis.id,
+      );
+      expect(jobs).toHaveLength(1);
     });
 
     it('atomically queues a ready analysis and dispatches its deterministic outbox job', async () => {

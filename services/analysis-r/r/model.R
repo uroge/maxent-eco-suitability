@@ -37,7 +37,7 @@ auc <- function(presence, background) {
     (length(presence) * length(background))
 }
 
-threshold_metrics <- function(presence, background) {
+evaluate_pooled_scores <- function(presence, background) {
   if (
     length(presence) == 0L ||
       length(background) == 0L ||
@@ -46,34 +46,51 @@ threshold_metrics <- function(presence, background) {
   ) {
     abort_model("MODEL_THRESHOLD_INVALID")
   }
-  values <- sort(unique(c(presence, background)))
-  scores <- vapply(values, function(value) {
-    mean(presence >= value) + mean(background < value)
-  }, numeric(1))
-  best <- which(scores == max(scores))[[1L]]
-  threshold <- values[[best]]
-  list(
-    threshold = threshold,
-    sensitivity = mean(presence >= threshold),
-    specificity = mean(background < threshold),
-    truePositive = sum(presence >= threshold),
-    falseNegative = sum(presence < threshold),
-    trueNegative = sum(background < threshold),
-    falsePositive = sum(background >= threshold)
-  )
-}
 
-roc_points <- function(presence, background) {
-  values <- sort(unique(c(presence, background)), decreasing = TRUE)
-  upper <- max(values) + max(.Machine$double.eps, abs(max(values)) * .Machine$double.eps)
-  thresholds <- c(upper, values)
-  lapply(thresholds, function(threshold) {
-    list(
-      falsePositiveRate = mean(background >= threshold),
-      truePositiveRate = mean(presence >= threshold),
-      threshold = threshold
+  scores <- c(presence, background)
+  descending <- order(scores, decreasing = TRUE)
+  sorted <- scores[descending]
+  group_ends <- c(which(diff(sorted) != 0), length(sorted))
+  thresholds <- sorted[group_ends]
+  true_positive <- cumsum(descending <= length(presence))[group_ends]
+  false_positive <- group_ends - true_positive
+  sensitivity <- true_positive / length(presence)
+  true_negative <- length(background) - false_positive
+  specificity <- true_negative / length(background)
+  youden <- sensitivity + specificity
+  # Thresholds descend, so the last maximum preserves the lowest-threshold tie break.
+  best <- tail(which(youden == max(youden)), 1L)
+
+  # Keep both ends of every horizontal run and every change in sensitivity.
+  # The resulting polyline follows the same ROC curve with at most 2n + 2
+  # points, where n is the number of held-out presence scores.
+  increases <- diff(c(0L, true_positive)) > 0L
+  kept <- which(increases | c(increases[-1L], TRUE))
+  upper <- thresholds[[1L]]
+  upper <- upper + max(.Machine$double.eps, abs(upper) * .Machine$double.eps)
+  roc <- c(
+    list(list(falsePositiveRate = 0, truePositiveRate = 0, threshold = upper)),
+    lapply(kept, function(index) {
+      list(
+        falsePositiveRate = false_positive[[index]] / length(background),
+        truePositiveRate = sensitivity[[index]],
+        threshold = thresholds[[index]]
+      )
+    })
+  )
+
+  list(
+    roc = roc,
+    threshold = list(
+      threshold = thresholds[[best]],
+      sensitivity = sensitivity[[best]],
+      specificity = specificity[[best]],
+      truePositive = true_positive[[best]],
+      falseNegative = length(presence) - true_positive[[best]],
+      trueNegative = true_negative[[best]],
+      falsePositive = false_positive[[best]]
     )
-  })
+  )
 }
 
 partition_indices <- function(count, validation, seed) {
@@ -256,6 +273,7 @@ evaluate_partitions <- function(presence, background, configuration, study_area)
   auc_values <- vapply(evaluations, function(evaluation) evaluation$auc, numeric(1))
   pooled_presence <- unlist(lapply(evaluations, function(evaluation) evaluation$presencePredictions))
   pooled_background <- unlist(lapply(evaluations, function(evaluation) evaluation$backgroundPredictions))
+  pooled <- evaluate_pooled_scores(pooled_presence, pooled_background)
   list(
     evaluations = evaluations,
     auc = list(
@@ -264,7 +282,7 @@ evaluate_partitions <- function(presence, background, configuration, study_area)
       minimum = min(auc_values),
       maximum = max(auc_values)
     ),
-    pooledRoc = roc_points(pooled_presence, pooled_background),
+    pooledRoc = pooled$roc,
     evaluationRuns = lapply(seq_along(evaluations), function(index) {
       item <- evaluations[[index]]
       list(
@@ -274,7 +292,7 @@ evaluate_partitions <- function(presence, background, configuration, study_area)
         backgroundCount = length(item$backgroundPredictions)
       )
     }),
-    threshold = threshold_metrics(pooled_presence, pooled_background)
+    threshold = pooled$threshold
   )
 }
 

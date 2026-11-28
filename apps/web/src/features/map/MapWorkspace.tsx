@@ -4,9 +4,9 @@ import { useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import type { MapCapabilities } from '@ecosuitability/contracts';
 import { MapViewport } from './MapViewport';
+import { useAuthenticatedMapRuntime } from './useAuthenticatedMapRuntime';
 import { useMapControls } from './useMapControls';
 import { useMapInspection } from './useMapInspection';
-import { useResultMap } from './useResultMap';
 
 type MapWorkspaceProps = {
   analysisId: string;
@@ -18,7 +18,7 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({ analysisId, capabili
   const mapRef = useRef<import('maplibre-gl').Map | null>(null);
   const controls = useMapControls(mapRef, capabilities);
   const inspection = useMapInspection(analysisId);
-  const runtime = useResultMap({
+  const runtime = useAuthenticatedMapRuntime({
     analysisId,
     capabilities,
     mapRef,
@@ -26,7 +26,11 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({ analysisId, capabili
     opacityRef: controls.opacityRef,
     terrainRef: controls.terrainRef,
     basemap: controls.basemap,
+    fitPadding: 30,
     getToken,
+    inspection: true,
+    interactive: true,
+    navigationControls: true,
     onInspect: inspection.inspect,
   });
 

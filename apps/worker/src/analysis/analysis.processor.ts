@@ -8,7 +8,6 @@ import {
   type AnalysisJobPayload,
   type AnalysisProgress,
   type AnalysisValidationJobPayload,
-  type RGeneratedMapAsset,
 } from '@ecosuitability/contracts';
 import type { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
@@ -105,30 +104,15 @@ export class AnalysisProcessor
         throw new RetryableExecutionError('Lifecycle state is unavailable.');
       }
 
-      const resumed = await this.results.resumeAvailable(analysisJob, attempt);
-      if (resumed === 'cancelled') {
-        await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        return;
-      }
-      if (
-        resumed === 'succeeded' ||
-        resumed === 'stale_attempt' ||
-        resumed === 'terminal'
-      ) {
-        return;
-      }
-      if (resumed === 'dependency_unavailable') {
-        throw new RetryableExecutionError('Lifecycle state is unavailable.');
-      }
-
-      const provisional = await this.results.provision(analysisJob, attempt);
-      if (typeof provisional === 'string') {
-        if (provisional === 'cancelled') {
-          await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        }
-        if (provisional === 'dependency_unavailable') {
+      const publication = await this.results.openPublication(
+        analysisJob,
+        attempt,
+      );
+      if (typeof publication === 'string') {
+        if (publication === 'dependency_unavailable') {
           throw new RetryableExecutionError('Lifecycle state is unavailable.');
         }
+        await this.settlePublication(job.data.analysisId, publication);
         return;
       }
 
@@ -144,8 +128,6 @@ export class AnalysisProcessor
         5,
         controller.signal,
       );
-      let uploading = provisional;
-      let generatedMapAssets: RGeneratedMapAsset[] = [];
       let heartbeatStage: AnalysisProgress['stage'] = 'downloading';
       let heartbeatPercent = 5;
       const validationResult = await this.validation.validate(
@@ -196,29 +178,14 @@ export class AnalysisProcessor
             controller.signal,
           );
         },
-        async (artifacts, mapAssets, candidateCompletedAt) => {
-          generatedMapAssets = mapAssets;
-          uploading = await this.results.beginUpload(
-            job,
-            attempt,
-            provisional,
+        (artifacts, mapAssets, candidateCompletedAt) =>
+          publication.authorizeUploads(
             artifacts,
+            mapAssets,
             candidateCompletedAt,
-          );
-          const expiresIn = this.config.getOrThrow(
-            'R_RUNTIME_OUTPUT_URL_TTL_SECONDS',
-          );
-          return [
-            ...(await this.results.uploadCapabilities(uploading, expiresIn)),
-            ...(await this.results.mapAssetUploadCapabilities(
-              job.data.analysisId,
-              mapAssets,
-              expiresIn,
-            )),
-          ];
-        },
+            this.config.getOrThrow('R_RUNTIME_OUTPUT_URL_TTL_SECONDS'),
+          ),
       );
-      generatedMapAssets = validationResult.mapAssets;
       await this.assertActive(
         job,
         attempt,
@@ -227,31 +194,8 @@ export class AnalysisProcessor
         controller.signal,
       );
 
-      await this.results.publishMapAssets(
-        analysisJob,
-        attempt,
-        generatedMapAssets,
-      );
-      uploading = await this.results.createBundle(
-        analysisJob,
-        attempt,
-        uploading,
-      );
-      const outcome = await this.results.verifyAndPublish(
-        job,
-        attempt,
-        uploading,
-      );
-      if (outcome === 'cancelled') {
-        await this.lifecycle.finaliseCancellation(job.data.analysisId);
-        await this.validation
-          .acknowledge(job.data.analysisId)
-          .catch(() => undefined);
-      } else if (outcome === 'succeeded') {
-        await this.validation
-          .acknowledge(job.data.analysisId)
-          .catch(() => undefined);
-      }
+      const outcome = await publication.publish(validationResult.mapAssets);
+      await this.settlePublication(job.data.analysisId, outcome);
     } catch (error) {
       if (
         error instanceof ExecutionCancelledError ||
@@ -262,7 +206,7 @@ export class AnalysisProcessor
 
       if (error instanceof ResultLifecycleError) {
         if (error.message === 'cancelled') {
-          await this.lifecycle.finaliseCancellation(job.data.analysisId);
+          await this.settlePublication(job.data.analysisId, 'cancelled');
           return;
         }
         if (error.message === 'stale_attempt' || error.message === 'terminal') {
@@ -277,6 +221,18 @@ export class AnalysisProcessor
       }
 
       this.serviceLifecycle.endJob();
+    }
+  }
+
+  private async settlePublication(
+    analysisId: string,
+    outcome: 'succeeded' | 'cancelled' | 'stale_attempt' | 'terminal',
+  ): Promise<void> {
+    if (outcome === 'cancelled') {
+      await this.lifecycle.finaliseCancellation(analysisId);
+    }
+    if (outcome === 'cancelled' || outcome === 'succeeded') {
+      await this.validation.acknowledge(analysisId).catch(() => undefined);
     }
   }
 

@@ -66,13 +66,23 @@ export type StoredAnalysis = Analysis & {
 export type AnalysisOutbox = {
   analysisId: string;
   ownerId: string;
-  jobId: string;
   status: 'pending' | 'dispatched';
   createdAt: string;
   dispatchedAt: string | null;
   leaseId: string | null;
   leaseExpiresAt: string | null;
-};
+} & (
+  | { jobId: string; validation?: never }
+  | {
+      validation: {
+        kind: ValidationKind;
+        inputRevision: number;
+        configurationRevision?: number;
+      };
+    }
+);
+
+export type ValidationKind = 'inputProfile' | 'preflight';
 
 export type CreateStoredAnalysisInput = {
   analysis: StoredAnalysis;

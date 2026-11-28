@@ -17,6 +17,8 @@ A successful analysis publishes exactly ten downloadable artifacts. Nine are sci
 
 ## Integrity and reproducibility
 
+The pooled ROC retains the points that define its shape. Threshold selection evaluates every distinct held-out score, including cutoffs omitted from straight ROC segments.
+
 The worker assigns deterministic artifact IDs and object keys for an analysis attempt. It checks uploaded object metadata, then reads every scientific object and verifies its exact byte count and SHA-256 while staging the ZIP. A mismatch prevents publication. The ZIP itself is hashed, uploaded, verified like every other artifact, and only then included in the result manifest.
 
 `bundle-manifest.json` uses schema version 1 and records the analysis ID, completion time, frozen input and configuration revisions, their canonical fingerprints, the random seed, and the metadata and checksum for each of the nine scientific artifacts. It never lists or embeds `ecosuitability-results.zip`, so bundle construction cannot recurse.

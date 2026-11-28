@@ -180,7 +180,7 @@ describe('ResultService', () => {
     const verified = { ...value, publicationState: 'verified' as const };
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(value),
-      mapAssetsReady: vi.fn().mockResolvedValue(false),
+      recoverableMapAssets: vi.fn().mockResolvedValue(undefined),
       verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),
     };
@@ -189,7 +189,9 @@ describe('ResultService', () => {
       { head: matchingHead(value) } as never,
     );
 
-    await expect(service.resumeAvailable(job, 2)).resolves.toBe('not-ready');
+    await expect(service.openPublication(job, 2)).resolves.toHaveProperty(
+      'authorizeUploads',
+    );
     expect(lifecycle.publishResult).not.toHaveBeenCalled();
   });
 
@@ -197,14 +199,16 @@ describe('ResultService', () => {
     const value = provisional();
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(value),
-      mapAssetsReady: vi.fn().mockResolvedValue(true),
+      recoverableMapAssets: vi.fn().mockResolvedValue([]),
     };
     const service = new ResultService(
       lifecycle as never,
       { head: vi.fn().mockResolvedValue(undefined) } as never,
     );
 
-    await expect(service.resumeAvailable(job, 2)).resolves.toBe('not-ready');
+    await expect(service.openPublication(job, 2)).resolves.toHaveProperty(
+      'authorizeUploads',
+    );
   });
 
   it('builds a verified non-recursive ZIP with frozen reproducibility metadata', async () => {
@@ -283,7 +287,7 @@ describe('ResultService', () => {
     const verified = { ...bundled, publicationState: 'verified' as const };
     const lifecycle = {
       provisionResult: vi.fn().mockResolvedValue(initial),
-      mapAssetsReady: vi.fn().mockResolvedValue(true),
+      recoverableMapAssets: vi.fn().mockResolvedValue([]),
       executionSnapshot: vi.fn().mockResolvedValue(executionSnapshot),
       verifyResult: vi.fn().mockResolvedValue(verified),
       publishResult: vi.fn().mockResolvedValue('succeeded'),
@@ -304,7 +308,7 @@ describe('ResultService', () => {
     const service = new ResultService(lifecycle as never, storage as never);
     vi.spyOn(service, 'createBundle').mockResolvedValue(bundled);
 
-    await expect(service.resumeAvailable(job, 2)).resolves.toBe('succeeded');
+    await expect(service.openPublication(job, 2)).resolves.toBe('succeeded');
     expect(service.createBundle).toHaveBeenCalledWith(job, 2, initial);
     expect(lifecycle.publishResult).toHaveBeenCalledOnce();
   });

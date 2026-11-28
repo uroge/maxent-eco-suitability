@@ -221,7 +221,63 @@ pnpm install
 pnpm --filter @ecosuitability/web dev
 ```
 
-## 7. Stop, start, and update
+## 7. Automatic updates from `dev`
+
+The repository includes a `systemd` timer that checks `origin/dev` once every
+five minutes. A new revision is fast-forwarded, validated, built sequentially, and
+started with Compose. The last successfully deployed revision is recorded
+outside the repository so a failed build is retried on the next timer run.
+
+The service runs as `ubuntu`, uses the existing ignored `.env.oracle`, and does
+not require a public webhook, GitHub deployment secret, or additional inbound
+port. Install it after the initial manual deployment:
+
+```sh
+chmod +x infrastructure/docker/deploy-oracle.sh
+systemd-analyze verify \
+  infrastructure/docker/systemd/ecosuitability-deploy.service \
+  infrastructure/docker/systemd/ecosuitability-deploy.timer
+sudo install -m 0644 \
+  infrastructure/docker/systemd/ecosuitability-deploy.service \
+  /etc/systemd/system/ecosuitability-deploy.service
+sudo install -m 0644 \
+  infrastructure/docker/systemd/ecosuitability-deploy.timer \
+  /etc/systemd/system/ecosuitability-deploy.timer
+install -d -m 0700 "${HOME}/.local/state/ecosuitability"
+git rev-parse HEAD >"${HOME}/.local/state/ecosuitability/deployed-revision"
+chmod 0600 "${HOME}/.local/state/ecosuitability/deployed-revision"
+sudo systemctl daemon-reload
+sudo systemctl enable --now ecosuitability-deploy.timer
+```
+
+Confirm the schedule and inspect deployment logs:
+
+```sh
+systemctl list-timers ecosuitability-deploy.timer
+sudo journalctl -u ecosuitability-deploy.service -n 200 --no-pager
+```
+
+Follow an active deployment:
+
+```sh
+sudo journalctl -u ecosuitability-deploy.service -f
+```
+
+The timer retries a failed revision after five minutes. To deploy immediately or
+reapply an environment-only change, run:
+
+```sh
+./infrastructure/docker/deploy-oracle.sh --force
+```
+
+The script refuses to deploy from a branch other than `dev`, refuses to
+overwrite tracked changes, serializes overlapping executions, and only updates
+its success marker after every build and `docker compose up --wait` succeeds.
+If the repository path or VM user changes, update both paths and the user in the
+service unit before installing it. Reinstall the units and run `systemctl
+daemon-reload` whenever their committed definitions change.
+
+## 8. Stop and start manually
 
 Stopping containers retains Redis, Caddy, and R workspace volumes:
 
@@ -237,11 +293,11 @@ docker compose \
 Start them again with the `up -d` command from step 5. Do not add `-v` when
 stopping or updating because that deletes the named volumes.
 
-For an update, pull the desired branch, rebuild only changed services, and run
+For a manual update, pull the desired branch, rebuild changed services, and run
 the step 5 command again. Compose replaces changed containers without exposing
 the private services.
 
-## 8. Move the frontend to HTTPS later
+## 9. Move the frontend to HTTPS later
 
 After deploying the frontend, replace the three localhost origins with the
 frontend HTTPS origin, update the R2 CORS policy, and set `APP_ENV=production`.

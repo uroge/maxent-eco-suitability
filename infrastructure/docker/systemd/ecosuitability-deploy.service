@@ -1,0 +1,20 @@
+[Unit]
+Description=Deploy EcoSuitability from the dev branch
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/maxent-eco-suitability
+Environment=HOME=/home/ubuntu
+Environment=ECOSUITABILITY_ENV_FILE=/home/ubuntu/maxent-eco-suitability/infrastructure/docker/.env.oracle
+Environment=COMPOSE_PARALLEL_LIMIT=1
+ExecStart=/home/ubuntu/maxent-eco-suitability/infrastructure/docker/deploy-oracle.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=infinity
+UMask=0077

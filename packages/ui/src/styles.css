@@ -87,6 +87,13 @@
   --accent-foreground: #185044;
   --hero: #123c34;
   --hero-foreground: #ffffff;
+  --inverse-foreground: #ffffff;
+  --inverse-muted: rgb(255 255 255 / 0.72);
+  --inverse-surface: #ffffff;
+  --inverse-surface-hover: #edf4f1;
+  --inverse-surface-active: #d9eee6;
+  --inverse-disabled: rgb(255 255 255 / 0.08);
+  --inverse-disabled-foreground: rgb(255 255 255 / 0.42);
   --information: #2563a6;
   --information-foreground: #ffffff;
   --success: #247a52;
@@ -128,6 +135,13 @@
   --accent-foreground: #bff0df;
   --hero: #163f35;
   --hero-foreground: #ffffff;
+  --inverse-foreground: #ffffff;
+  --inverse-muted: rgb(255 255 255 / 0.72);
+  --inverse-surface: #ffffff;
+  --inverse-surface-hover: #edf4f1;
+  --inverse-surface-active: #d9eee6;
+  --inverse-disabled: rgb(255 255 255 / 0.08);
+  --inverse-disabled-foreground: rgb(255 255 255 / 0.42);
   --information: #69a7df;
   --information-foreground: #0e1b26;
   --success: #65c494;
@@ -169,6 +183,13 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-hero: var(--hero);
   --color-hero-foreground: var(--hero-foreground);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-inverse-muted: var(--inverse-muted);
+  --color-inverse-surface: var(--inverse-surface);
+  --color-inverse-surface-hover: var(--inverse-surface-hover);
+  --color-inverse-surface-active: var(--inverse-surface-active);
+  --color-inverse-disabled: var(--inverse-disabled);
+  --color-inverse-disabled-foreground: var(--inverse-disabled-foreground);
   --color-information: var(--information);
   --color-information-foreground: var(--information-foreground);
   --color-success: var(--success);
@@ -236,6 +257,67 @@ textarea {
   color: var(--accent-foreground);
 }
 
+@keyframes brand-contour-trace {
+  from {
+    opacity: 0;
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes brand-point-resolve {
+  from {
+    opacity: 0;
+    transform: scale(0.25);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes brand-point-breathe {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.brand-mark-animated__contour {
+  opacity: 0;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: brand-contour-trace 720ms var(--ease-standard) forwards;
+}
+
+.brand-mark-animated__contour--2 {
+  animation-delay: 90ms;
+}
+
+.brand-mark-animated__contour--3 {
+  animation-delay: 180ms;
+}
+
+.brand-mark-animated__point {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    brand-point-resolve 320ms var(--ease-standard) 520ms forwards,
+    brand-point-breathe 2.4s var(--ease-standard) 900ms infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -244,5 +326,12 @@ textarea {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .brand-mark-animated__contour,
+  .brand-mark-animated__point {
+    opacity: 1;
+    stroke-dashoffset: 0;
+    transform: none;
   }
 }

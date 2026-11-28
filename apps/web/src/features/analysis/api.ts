@@ -9,6 +9,7 @@ import { responseError } from '@/lib/api-error';
 export const analysisKeys = {
   analysis: (id: string) => ['analysis', id] as const,
   inputs: (id: string) => ['analysis', id, 'inputs'] as const,
+  uploads: (id: string) => ['analysis', id, 'inputs', 'uploads'] as const,
   profile: (id: string) => ['analysis', id, 'profile'] as const,
   configuration: (id: string) => ['analysis', id, 'configuration'] as const,
   preflight: (id: string) => ['analysis', id, 'preflight'] as const,

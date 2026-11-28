@@ -18,6 +18,8 @@ const composeEnvironment = {
   STORAGE_BUCKET: process.env.STORAGE_BUCKET ?? 'ecosuitability',
   STORAGE_INTERNAL_ENDPOINT:
     process.env.STORAGE_INTERNAL_ENDPOINT ?? 'https://account-id.r2.cloudflarestorage.com',
+  STORAGE_S3_ENDPOINT_HOST:
+    process.env.STORAGE_S3_ENDPOINT_HOST ?? 'account-id.r2.cloudflarestorage.com',
   STORAGE_PRESIGN_ENDPOINT:
     process.env.STORAGE_PRESIGN_ENDPOINT ?? 'https://account-id.r2.cloudflarestorage.com',
   STORAGE_ACCESS_KEY_ID: process.env.STORAGE_ACCESS_KEY_ID ?? 'test-storage-access-key',

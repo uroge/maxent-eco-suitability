@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapScreen } from './MapScreen';
 
 const setStyle = vi.fn();
+const addControl = vi.fn();
+const mapOptions: Array<{ interactive?: boolean }> = [];
 const eventHandlers = new Map<string, () => void>();
 
 vi.stubGlobal(
@@ -72,7 +74,10 @@ vi.mock('../analysis/api', () => ({
 vi.mock('maplibre-gl', () => ({
   NavigationControl: class NavigationControl {},
   Map: class Map {
-    public addControl = vi.fn();
+    public constructor(options: { interactive?: boolean }) {
+      mapOptions.push(options);
+    }
+    public addControl = addControl;
     public addLayer = vi.fn();
     public addSource = vi.fn();
     public easeTo = vi.fn();
@@ -106,6 +111,8 @@ vi.mock('maplibre-gl', () => ({
 describe('MapScreen', () => {
   beforeEach(() => {
     setStyle.mockClear();
+    addControl.mockClear();
+    mapOptions.length = 0;
     eventHandlers.clear();
     document.documentElement.dataset.theme = 'light';
   });
@@ -118,6 +125,8 @@ describe('MapScreen', () => {
     );
 
     expect(await screen.findAllByText('Example Maps')).not.toHaveLength(0);
+    await waitFor(() => expect(mapOptions[0]?.interactive).toBe(true));
+    expect(addControl).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole('button', { name: 'Layers' })).not.toHaveLength(0);
     const selectors = screen.getAllByRole('combobox', { name: 'Basemap' });
     fireEvent.change(selectors[0]!, { target: { value: 'satellite' } });

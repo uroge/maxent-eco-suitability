@@ -12,13 +12,19 @@ import {
   type AnalysisJobPayload,
   type AnalysisValidationJobPayload,
 } from '@ecosuitability/contracts';
+import { withTimeout } from '@ecosuitability/runtime-utils';
 import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
 import { createHash } from 'node:crypto';
-import { AnalysisRepository } from './analysis.repository';
-import type { AnalysisOutbox } from './analysis.types';
+import {
+  AnalysisRepository,
+  validationOutboxMember,
+} from './analysis.repository';
+import type { AnalysisOutbox, ValidationKind } from './analysis.types';
 
 const reconcileIntervalMs = 5_000;
+
+const dispatchTimeoutMs = 2_000;
 
 const queueAttempts = 3;
 
@@ -38,7 +44,9 @@ export class AnalysisQueueService
     await this.queue.setGlobalConcurrency(1);
     await this.reconcile();
     this.interval = setInterval(() => {
-      void this.reconcile();
+      void this.reconcile().catch((error: unknown) => {
+        this.logger.error({ error }, 'Analysis outbox reconciliation failed.');
+      });
     }, reconcileIntervalMs);
   }
 
@@ -49,23 +57,49 @@ export class AnalysisQueueService
   }
 
   public async reconcile(now = new Date()): Promise<void> {
-    const analysisIds = await this.repository.dueOutbox(now);
+    for (const member of await withTimeout(
+      this.repository.dueOutbox(now),
+      dispatchTimeoutMs,
+      'Outbox lookup timed out.',
+    )) {
+      await this.dispatchPending(member, now);
+    }
+  }
 
-    for (const analysisId of analysisIds) {
-      const outbox = await this.repository.claimOutbox(analysisId, now);
-      if (!outbox) {
-        continue;
-      }
+  public async dispatchValidation(
+    analysisId: string,
+    kind: ValidationKind,
+  ): Promise<void> {
+    await this.dispatchPending(
+      validationOutboxMember(analysisId, kind),
+      new Date(),
+    );
+  }
 
-      try {
-        await this.dispatch(outbox);
-        await this.repository.markOutboxDispatched(outbox);
-      } catch (error) {
-        this.logger.error(
-          { error, analysisId },
-          'Analysis queue outbox dispatch failed.',
+  private async dispatchPending(member: string, now: Date): Promise<void> {
+    try {
+      const outbox = await withTimeout(
+        this.repository.claimOutbox(member, now),
+        dispatchTimeoutMs,
+        'Outbox claim timed out.',
+      );
+      if (outbox) {
+        await withTimeout(
+          this.dispatch(outbox),
+          dispatchTimeoutMs,
+          'Queue dispatch timed out.',
+        );
+        await withTimeout(
+          this.repository.markOutboxDispatched(outbox),
+          dispatchTimeoutMs,
+          'Outbox acknowledgement timed out.',
         );
       }
+    } catch (error) {
+      this.logger.error(
+        { error, member },
+        'Analysis queue outbox dispatch failed.',
+      );
     }
   }
 
@@ -109,6 +143,21 @@ export class AnalysisQueueService
   }
 
   private async dispatch(outbox: AnalysisOutbox): Promise<void> {
+    if (outbox.validation) {
+      const payload: AnalysisValidationJobPayload = {
+        analysisId:
+          outbox.analysisId as AnalysisValidationJobPayload['analysisId'],
+        ownerId: outbox.ownerId,
+        inputRevision: outbox.validation.inputRevision,
+        configurationRevision: outbox.validation.configurationRevision,
+      };
+      if (outbox.validation.kind === 'inputProfile') {
+        await this.enqueueInputProfile(payload, outbox.createdAt);
+      } else {
+        await this.enqueuePreflight(payload, outbox.createdAt);
+      }
+      return;
+    }
     const payload: AnalysisJobPayload = {
       analysisId: outbox.analysisId as AnalysisJobPayload['analysisId'],
       ownerId: outbox.ownerId,

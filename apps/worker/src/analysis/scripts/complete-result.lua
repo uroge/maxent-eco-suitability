@@ -13,9 +13,11 @@ if analysis.status ~= 'running' or type(analysis.execution) ~= 'table' or analys
 end
 
 local provisional = cjson.decode(provisionalPayload)
-if provisional.publicationState == 'verified' then
-  return { 'ready', cjson.encode(provisional) }
+local scientific = {}
+for _, artifact in ipairs(provisional.artifacts) do
+  if artifact.kind ~= 'result-bundle' then scientific[#scientific + 1] = artifact end
 end
+provisional.artifacts = scientific
 
 local generated = cjson.decode(ARGV[4])
 if #generated ~= #provisional.artifacts then

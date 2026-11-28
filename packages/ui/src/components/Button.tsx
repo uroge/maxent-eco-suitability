@@ -10,11 +10,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground hover:bg-primary-hover',
+        primary: 'bg-primary text-primary-foreground hover:bg-primary-hover active:brightness-95',
         secondary:
-          'border border-border bg-surface text-secondary-foreground hover:bg-surface-subtle',
-        ghost: 'bg-transparent text-foreground hover:bg-muted',
-        destructive: 'bg-destructive text-destructive-foreground hover:brightness-95',
+          'border border-border bg-secondary text-secondary-foreground hover:bg-accent active:brightness-95',
+        outline:
+          'border border-border-strong bg-transparent text-foreground hover:bg-muted active:bg-accent',
+        inverse:
+          'border border-inverse-surface bg-inverse-surface text-hero hover:border-inverse-surface-hover hover:bg-inverse-surface-hover active:border-inverse-surface-active active:bg-inverse-surface-active focus-visible:ring-inverse-foreground focus-visible:ring-offset-hero disabled:border-inverse-disabled disabled:bg-inverse-disabled disabled:text-inverse-disabled-foreground',
+        ghost: 'bg-transparent text-foreground hover:bg-muted active:bg-accent',
+        destructive:
+          'bg-destructive text-destructive-foreground hover:brightness-95 active:brightness-90',
       },
       size: {
         sm: 'min-h-10 px-3 text-sm',
